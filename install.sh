@@ -205,12 +205,16 @@ MCPEOF
   ok "user-level mcp.json"
 fi
 [[ -f "${AGENT_DIR}/AGENTS.md" ]] || { cp "${REPO_ROOT}/AGENTS.md" "${AGENT_DIR}/AGENTS.md"; ok "user-level AGENTS.md"; }
-USER_SKILL="${AGENT_DIR}/skills/epistemic-dual-process-harness"
-if [[ ! -f "${USER_SKILL}/SKILL.md" ]]; then
-  mkdir -p "${USER_SKILL}"
-  cp "${REPO_ROOT}"/clients/skills/epistemic-dual-process-harness/* "${USER_SKILL}/" 2>/dev/null || true
-  ok "user-level skill"
-fi
+USER_SKILLS="${AGENT_DIR}/skills"
+for skill_dir in "${REPO_ROOT}"/clients/skills/*/; do
+  name="$(basename "$skill_dir")"
+  [[ -f "$skill_dir/SKILL.md" ]] || continue
+  if [[ ! -f "${USER_SKILLS}/${name}/SKILL.md" ]]; then
+    mkdir -p "${USER_SKILLS}/${name}"
+    cp "$skill_dir"/* "${USER_SKILLS}/${name}/" 2>/dev/null || true
+    ok "user-level skill: $name"
+  fi
+done
 for rc in "${HOME}/.bashrc" "${HOME}/.zshrc"; do
   [[ -f "$rc" ]] || continue
   grep -q "alias harness=" "$rc" || {

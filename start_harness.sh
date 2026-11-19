@@ -121,12 +121,16 @@ MCPEOF
   echo "[OK] Wrote user-level MCP config: $AGENT_DIR/mcp.json"
 fi
 [[ -f "$AGENT_DIR/AGENTS.md" ]] || cp "$REPO_ROOT/AGENTS.md" "$AGENT_DIR/AGENTS.md"
-USER_SKILL="$AGENT_DIR/skills/epistemic-dual-process-harness"
-if [[ ! -f "$USER_SKILL/SKILL.md" ]]; then
-  mkdir -p "$USER_SKILL"
-  cp "$REPO_ROOT"/clients/skills/epistemic-dual-process-harness/* "$USER_SKILL/" 2>/dev/null || true
-  echo "[OK] Installed user-level skill: $USER_SKILL"
-fi
+USER_SKILLS="$AGENT_DIR/skills"
+for skill_dir in "${REPO_ROOT}"/clients/skills/*/; do
+  name="$(basename "$skill_dir")"
+  [[ -f "${skill_dir}/SKILL.md" ]] || continue
+  if [[ ! -f "${USER_SKILLS}/${name}/SKILL.md" ]]; then
+    mkdir -p "${USER_SKILLS}/${name}"
+    cp "${skill_dir}"/* "${USER_SKILLS}/${name}/" 2>/dev/null || true
+    echo "[OK] Installed user-level skill: $name"
+  fi
+done
 
 # --- Launch Pi: --global keeps the current working directory ---
 if [[ "$GLOBAL" -eq 1 ]]; then

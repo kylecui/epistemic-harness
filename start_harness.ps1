@@ -255,12 +255,15 @@ if (Get-Command pi -ErrorAction SilentlyContinue) {
         Write-Host "[OK] Installed global user instructions: $UserAgents" -ForegroundColor Green
     }
     if ($Global) {
-        # User-level skill: installed to ~/.pi/agent/skills/ so any working directory picks it up.
-        $UserSkills = Join-Path $AgentDir "skills\epistemic-dual-process-harness"
-        if (-not (Test-Path (Join-Path $UserSkills "SKILL.md"))) {
-            New-Item -ItemType Directory -Force -Path $UserSkills | Out-Null
-            Copy-Item (Join-Path $RepoRoot "clients\skills\epistemic-dual-process-harness\*") $UserSkills -Recurse -Force
-            Write-Host "[OK] Installed user-level skill: $UserSkills" -ForegroundColor Green
+        # User-level skills: install everything under clients/skills/ so any working directory picks them up.
+        $UserSkillsRoot = Join-Path $AgentDir "skills"
+        Get-ChildItem (Join-Path $RepoRoot "clients\skills") -Directory | ForEach-Object {
+            $Target = Join-Path $UserSkillsRoot $_.Name
+            if (-not (Test-Path (Join-Path $Target "SKILL.md"))) {
+                New-Item -ItemType Directory -Force -Path $Target | Out-Null
+                Copy-Item (Join-Path $_.FullName "*") $Target -Recurse -Force
+                Write-Host "[OK] Installed user-level skill: $($_.Name)" -ForegroundColor Green
+            }
         }
         $piArgs = @("--provider", "harness-router", "--model", "opencode-deepseek-v4.1-flash")
         if ($Continue) { $piArgs += "-c" }

@@ -64,11 +64,14 @@ if (-not (Test-Path (Join-Path $AgentDir "AGENTS.md"))) {
     Copy-Item (Join-Path $RepoRoot "AGENTS.md") (Join-Path $AgentDir "AGENTS.md")
     Write-Host "  [OK] user-level AGENTS.md"
 }
-$UserSkill = Join-Path $AgentDir "skills\epistemic-dual-process-harness"
-if (-not (Test-Path (Join-Path $UserSkill "SKILL.md"))) {
-    New-Item -ItemType Directory -Force -Path $UserSkill | Out-Null
-    Copy-Item (Join-Path $RepoRoot "clients\skills\epistemic-dual-process-harness\*") $UserSkill -Recurse -Force
-    Write-Host "  [OK] user-level skill"
+$UserSkillsRoot = Join-Path $AgentDir "skills"
+Get-ChildItem (Join-Path $RepoRoot "clients\skills") -Directory | ForEach-Object {
+    $Target = Join-Path $UserSkillsRoot $_.Name
+    if (-not (Test-Path (Join-Path $Target "SKILL.md"))) {
+        New-Item -ItemType Directory -Force -Path $Target | Out-Null
+        Copy-Item (Join-Path $_.FullName "*") $Target -Recurse -Force
+        Write-Host "  [OK] user-level skill: $($_.Name)"
+    }
 }
 $HarnessFn = "function harness { & `"$RepoRoot\start_harness.ps1`" -Global @args }"
 foreach ($prof in @("$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1",
