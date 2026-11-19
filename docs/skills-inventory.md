@@ -17,9 +17,9 @@
 |---|---|---|---|---|---|
 | `opencode-crash-taxonomy` | 共享 | OpenCode crash 四类分类诊断（只读知识型）。用于 session crash 分析、crash log analysis：贴日志或 opencode.log 片段，跑… | 382 | **手动** | /skill:name 显式调用；建议 disable-model-invocation 隐藏广告位 |
 | `opencode-session-doctor` | 共享 | OpenCode 长任务三层韧性守护。用于 起并行任务前 pre-flight 发射前校验（preflight_model_audit.py 模型解析对账：provider 注册/… | 287 | **手动** | /skill:name 显式调用；建议 disable-model-invocation 隐藏广告位 |
-| `generate-test-cases` | 共享 | Generate test cases/test matrix for the current repo: API/CLI/UI/SDK/service, smoke/regres… | 285 | **自动** | 高频日常，模型自动触发收益大 |
-| `generate-usage-docs` | 共享 | Generate grounded usage docs from the current repo: README, Quick Start, configuration, us… | 271 | **自动** | 高频日常，模型自动触发收益大 |
-| `code-review-annotate` | 共享 | 全量代码审查与文档注释流水线：为每个函数声明/定义写 用途/调用/返回 注释头，就地 //bugbug 标注安全问题，且保证代码 0 删改。用于逐行code review、函数注释… | 258 | **自动** | 高频日常，模型自动触发收益大 |
+| `generate-test-cases` | 共享 | Generate test cases/test matrix for the current repo: API/CLI/UI/SDK/service, smoke/regres… | 285 | **手动** | 高频日常，模型自动触发收益大 |
+| `generate-usage-docs` | 共享 | Generate grounded usage docs from the current repo: README, Quick Start, configuration, us… | 271 | **手动** | 高频日常，模型自动触发收益大 |
+| `code-review-annotate` | 共享 | 全量代码审查与文档注释流水线：为每个函数声明/定义写 用途/调用/返回 注释头，就地 //bugbug 标注安全问题，且保证代码 0 删改。用于逐行code review、函数注释… | 258 | **手动** | 高频日常，模型自动触发收益大 |
 | `repo-service-lifecycle` | 共享 | 端到端总控skill：读取repo/GitHub→主机就绪检查→部署计划→执行部署→功能验证→持续运维→故障回滚。Trigger for“帮我把这个仓库部署到主机并验收/持续运维/… | 242 | **手动** | /skill:name 显式调用；建议 disable-model-invocation 隐藏广告位 |
 | `repo-runtime-discovery` | 共享 | 读取本地或GitHub repo做部署前识别：技术栈、build/test/run入口、Docker/compose/systemd/k8s信号、配置与密钥需求、依赖(DB/Red… | 201 | **自动** | 高频日常，模型自动触发收益大 |
 | `incident-rollback` | 共享 | 处理部署失败与线上故障：health check失败、核心API错误、502/504、重启循环、依赖异常等。先定级与止血，再判断修复或回滚，执行回滚并输出incident/roll… | 177 | **手动** | /skill:name 显式调用；建议 disable-model-invocation 隐藏广告位 |
@@ -35,7 +35,7 @@
 | `style-extractor` | 共享 | Extract personal writing style from samples to create a style profile. Analyzes sentence p… | 411 | **手动** | /skill:name 显式调用；建议 disable-model-invocation 隐藏广告位 |
 | `typst-pdf-builder` | 共享 | Build PDF from Markdown chapters when the user wants to build PDF, generate PDF, typeset, … | 345 | **手动** | /skill:name 显式调用；建议 disable-model-invocation 隐藏广告位 |
 | `doc-reader` | 共享 | Convert PDF/DOCX/XLSX/HTML/PPTX/EPUB to Markdown for reading, review, and extraction. Use … | 341 | **自动** | 高频日常，模型自动触发收益大 |
-| `ppt-reader` | 共享 | Read/inspect/summarize/audit/compare PPT/PPTX, extract slide inventory (titles, structure,… | 302 | **自动** | 高频日常，模型自动触发收益大 |
+| `ppt-reader` | 共享 | Read/inspect/summarize/audit/compare PPT/PPTX, extract slide inventory (titles, structure,… | 302 | **手动** | 高频日常，模型自动触发收益大 |
 | `de-ai-detector` | 共享 | Detect AI writing patterns in Chinese or English text. Use when the user asks to 检测AI味 / 检… | 291 | **手动** | /skill:name 显式调用；建议 disable-model-invocation 隐藏广告位 |
 | `ppt-writer` | 共享 | Create/rewrite/restructure/update/validate/export PPT/PPTX decks (课件、提案、汇报、论文、技术方案). Trigg… | 270 | **手动** | /skill:name 显式调用；建议 disable-model-invocation 隐藏广告位 |
 
