@@ -73,7 +73,8 @@ Get-ChildItem (Join-Path $RepoRoot "clients\skills") -Directory | ForEach-Object
         Write-Host "  [OK] user-level skill: $($_.Name)"
     }
 }
-$HarnessFn = "function harness { & `"$RepoRoot\start_harness.ps1`" -Global @args }"foreach ($prof in @("$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1",
+$HarnessFn = "function harness { & `"$RepoRoot\start_harness.ps1`" -Global @args }"
+foreach ($prof in @("$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1",
                     "$HOME\Documents\PowerShell\Microsoft.PowerShell_profile.ps1")) {
     $dir = Split-Path $prof
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
