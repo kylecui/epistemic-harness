@@ -1,0 +1,42 @@
+# Epistemic Harness Backend — Docker Compose（一体化容器）
+# 用法：
+#   docker compose up -d            # 启动（镜像缺失时自动构建）
+#   docker compose up -d --build    # 强制重建
+#   docker compose logs -f          # 跟踪日志
+#   docker compose down             # 停止
+#
+# 单端口 8787 提供全部服务：
+#   OpenAI 兼容   : http://127.0.0.1:8787/v1
+#   Anthropic 兼容: http://127.0.0.1:8787/anthropic
+#   MCP (HTTP)    : http://127.0.0.1:8787/mcp/epistemic , .../mcp/orchestrator
+#
+# 任何平台（Windows/macOS/Linux）的任何 agent CLI 只需：
+#   - baseUrl 指向 127.0.0.1:8787
+#   - MCP 配置指向上述 HTTP 端点（宿主机零 Python 依赖）
+#
+# 挂载说明：
+#   只读：harness.yaml / routing_policy.yaml / quota_policy.yaml / .env（密钥不进镜像层）
+#   读写：traces（路由轨迹+配额账本）、knowledge（L1-L3 库与 L2 增量登记）、
+#         promotions（升格 PR 队列）、skill_queue（技能注册待审队列）
+
+services:
+  harness-backend:
+    build: .
+    image: epistemic-harness-backend:0.3.0
+    container_name: harness-backend
+    ports:
+      - "127.0.0.1:8787:8787"
+    env_file: .env
+    environment:
+      HARNESS_REPO_ROOT: /app
+    volumes:
+      - ./harness.yaml:/app/harness.yaml:ro
+      - ./proxy_gateway/quota_policy.yaml:/app/proxy_gateway/quota_policy.yaml:ro
+      - ./.env:/app/.env:ro
+      - ./traces:/app/traces
+      - ./knowledge:/app/knowledge
+      - ./skills:/app/skills:ro
+      - ./promotions:/app/promotions
+      - ./skill_queue:/app/skill_queue
+      - ./.secrets:/app/.secrets:ro   # provider OAuth creds (GitHub Copilot), imported by start_harness.ps1
+    restart: unless-stopped

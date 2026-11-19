@@ -1,0 +1,79 @@
+# 认知偏差目录 (L3 Heuristics — Cognitive Bias Catalog)
+#
+# 每条偏差必须携带 scope_conditions 与 counter_examples（harness.yaml L3 入场规则）。
+# detection_markers 仅供 orchestrator 的 bias_scan 做确定性初筛（L3 级启发式，
+# 存在误报，命中后必须经 critic 档案复核，不可仅凭标记定罪）。
+# harness_mapping 指明该偏差已被哪个既有硬约束机制部分缓解。
+
+biases:
+  - id: BIAS-OVERCONFIDENCE
+    name: overconfidence
+    description: "在证据不足时给出超出上游依赖置信度的断言（把 L3 经验说成 L2 事实，或把 L5 推导说成 L1 公理）。"
+    scope_conditions: "适用于所有 Converge 档输出；Explore 档的 provisional 假设不受此条约束。"
+    counter_examples: "当推导确实只依赖 L1/L2 链且 DAG 审计通过时，高置信表述是合法的。"
+    detection_markers: ["一定", "肯定", "绝对", "百分之百", "必然", "obviously", "definitely", "guarantee", "100%"]
+    correction: "强制回落到最弱上游依赖层级表述，并在结论头标注 Confidence Cap。"
+    harness_mapping: "L5 短板继承 DAG（submit_l5_claim 强制降级）+ audit_dag 收敛闸门。"
+
+  - id: BIAS-ANCHORING
+    name: anchoring
+    description: "过度锚定首个出现的答案/数字/方案，后续证据被同化到锚点上而非推翻它。"
+    scope_conditions: "适用于多方案权衡、估算、调试定位类任务。"
+    counter_examples: "若首个答案是 L1/L2 强证据直接推出，坚持它是合理的，不构成锚定。"
+    detection_markers: ["首先想到的", "一开始就说", "最初判断", "第一眼", "first instinct", "initial guess was right"]
+    correction: "要求显式列出至少 1 个替代假设并说明排除依据（L2 优先）。"
+    harness_mapping: "Explore/Converge 双模式 + system_2_plus 跨家族 critic 独立复核。"
+
+  - id: BIAS-CONFIRMATION
+    name: confirmation_bias
+    description: "只检索支持已有假设的证据，主动回避反证；表现为 source_ids 单一来源且全是支持性证据。"
+    scope_conditions: "适用于所有引用 L2/L3 证据的收敛性结论。"
+    counter_examples: "在系统已被代码/测试完全确定（L1/L2 完备）的问题上无需强制反证搜索。"
+    detection_markers: ["完全符合预期", "正如我所料", "再次验证了", "proves my point", "这证实了我的判断"]
+    correction: "强制附加 disconfirming evidence 段落：列出 1-2 条最可能推翻该结论的观察。"
+    harness_mapping: "L3 条目强制 counter_examples 字段；L5 的 conflicts_with_l1 显式冲突申报。"
+
+  - id: BIAS-SUNK-COST
+    name: sunk_cost
+    description: "因已投入大量工作而拒绝止损，在缺失证据时继续空转推进。"
+    scope_conditions: "适用于长会话中的调试、重构与方案论证。"
+    counter_examples: "若新证据持续流入（每次迭代都有 L2 增量），继续投入不是沉没成本谬误。"
+    detection_markers: ["都已经做到这里了", "不能白做", "再试最后一次", "反正都写了这么多"]
+    correction: "触发 stop-loss：列出已确认事实、最小未知变量、1-3 个下一步动作，交用户裁决。"
+    harness_mapping: "反震荡 stop-loss 纪律 + thrashing guard 自动续跑（带取证指令而非掐停）。"
+
+  - id: BIAS-AVAILABILITY
+    name: availability_heuristic
+    description: "用最容易想起的案例（通常是近期/生动案例）替代基础概率评估。"
+    scope_conditions: "适用于故障率评估、风险量化、技术选型类比。"
+    counter_examples: "当事例本身出自当前系统的 L2 遥测且样本充分时，可用性推断是有效 shortcut。"
+    detection_markers: ["上次就是这个原因", "我记得好像", "一般来说都是", "usually it's because", "大概率还是老问题"]
+    correction: "要求给出基础概率或当前系统 L2 数据；无数据则降级为 provisional 假设。"
+    harness_mapping: "L2 require_provenance + max_age_days；L3 provisional 标记。"
+
+  - id: BIAS-AUTHORITY
+    name: authority_bias
+    description: "以出处权威（官方文档、大厂博客、名人观点）替代对本系统证据的核验。"
+    scope_conditions: "适用于引用外部资料支撑架构/排障结论时。"
+    counter_examples: "权威来源本身被采信为 L2 证据（带来源与时间戳）时不构成偏差；偏差在于跳过本地核验直接外推。"
+    detection_markers: ["官方文档说", "Google 都是这么", "大牛推荐", "best practice 就是", "文档上都写了"]
+    correction: "区分『来源是 L2 事实』与『对本系统适用』是两步论证，第二步必须给本地证据。"
+    harness_mapping: "L2 只证明观察事实、禁止自动外推为因果律（harness.yaml L2 入场规则）。"
+
+  - id: BIAS-CONFABULATION
+    name: confabulation
+    description: "编造不存在的来源、axiom id、日志行或 API 行为来支撑结论（L1 泛化/幻觉引用）。"
+    scope_conditions: "适用于所有引用 source_id、文档、日志的输出。"
+    counter_examples: "复述 query_l1/search_l2 真实返回的条目内容不构成虚构。"
+    detection_markers: ["根据 L1-", "文档明确指出（未附来源）", "日志显示（无日志可查时）"]
+    correction: "硬拦截：所有 source_id 必须来自工具真实返回，否则代码层 L1_CREEP_BLOCKED / UNKNOWN_SOURCE_ID 拒绝。"
+    harness_mapping: "dag_engine 只读 L1 防泛化 + source_id 存在性硬校验（代码强制，非提示词）。"
+
+  - id: BIAS-OSCILLATION
+    name: oscillation_loop
+    description: "Aha → Wait, but wait 式无新证据的自我推翻循环，推理原地打转。"
+    scope_conditions: "适用于所有开启思考链的档位（system_1_5 及以上）。"
+    counter_examples: "每次自我修正都伴随新 L2 证据进入时不构成震荡。"
+    detection_markers: ["Wait, but", "等等不对", "话又说回来", "let me reconsider", "on second thought"]
+    correction: "达到 max_pivots 即熔断，自动低推理续跑并要求立刻取证或输出精炼结论。"
+    harness_mapping: "thrashing_guard 流式熔断 + RECOVERY_DIRECTIVE 自动续跑（v1.1）。"

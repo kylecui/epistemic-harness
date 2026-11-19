@@ -1,0 +1,6 @@
+evidence:
+  - id: "L2-SPANNER-001"
+    title: "Google Spanner 的真实 CAP 边界"
+    fact: "Eric Brewer 在 2017 年白皮书中明确指出，Spanner 本质仍是 CP 系统；分区发生时会牺牲少数派可用性以守住强一致性，仅通过私有冗余骨干网大幅降低分区概率。"
+    source: "Eric Brewer, Spanner, TrueTime and the CAP Theorem (2017)"
+    verified_at: "2026-11-19"

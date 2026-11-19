@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>双维治理 Harness 架构方案 v2：双系统认知光谱、双协议多端接入与 Pi Phase 1 设计</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <style>
+    /*
+     * Utilitarian / Deep Research · Engineering Architecture Blueprint v2
+     * Hero: Answer-first compact headline + 3-column open principle strip
+     * Section order: Hero -> Dual-Process Cognitive Spectrum & Epistemic Coupling (Table 1) -> Dual-Protocol Multi-Agent Architecture (SVG 1 + prose) -> 6 Hard-Constraint Plugins (SVG 2 + 2-col spec) -> Explore/Converge Dual Mode (Full-bleed band) -> Phase 0 (Gemini Gem) -> Phase 1 (Pi Clean-Room Design, Table 2) -> Phase 2 (Proxy Rollout & Stack Matrix, Table 3) -> Pull Quote -> References
+     * Fonts: IBM Plex Sans + Noto Sans SC + IBM Plex Mono
+     * Palette: Gallery White #FFFFFF, Deep Slate Ink #0F172A, Secondary #334155, Muted #475569 (AAA > 7:1), Hairline #CBD5E1, Cobalt #1D4ED8 / #1E3A8A, Emerald #047857 / #065F46
+     */
+
+    :root {
+      --paper: #FFFFFF;
+      --band: #F1F5F9;
+      --ink: #0F172A;
+      --ink2: #334155;
+      --mute: #475569;
+      --hair: #CBD5E1;
+      --accent: #1D4ED8;
+      --accent-text: #1E3A8A;
+      --accent-soft: #EFF6FF;
+      --accent-2: #047857;
+      --accent-2-text: #065F46;
+      --accent-2-soft: #ECFDF5;
+      --font-sans: 'IBM Plex Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+      --font-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, monospace;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html {
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--font-sans);
+      line-height: 1.7;
+    }
+
+    .page {
+      padding: 68px clamp(24px, 10.4vw, 112px) 92px;
+      width: 100%;
+    }
+
+    .grid-12 {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      column-gap: 24px;
+    }
+
+    .span-12 { grid-column: 1 / -1; }
+    .span-10 { grid-column: 1 / span 10; }
+    .col-1-4 { grid-column: 1 / span 4; }
+    .col-5-12 { grid-column: 5 / span 8; }
+    .measure { max-width: 68ch; }
+
+    h1 {
+      margin: 0 0 20px;
+      font-size: clamp(32px, 4vw, 50px);
+      line-height: 1.16;
+      font-weight: 700;
+      letter-spacing: -0.025em;
+      color: var(--ink);
+      text-wrap: balance;
+    }
+
+    .deck {
+      margin: 0 0 40px;
+      font-size: 18px;
+      line-height: 1.65;
+      color: var(--ink2);
+      max-width: 68ch;
+    }
+
+    h2 {
+      margin: 0 0 18px;
+      font-size: clamp(23px, 2.4vw, 29px);
+      line-height: 1.28;
+      font-weight: 700;
+      letter-spacing: -0.018em;
+      color: var(--ink);
+      text-wrap: balance;
+    }
+
+    h3 {
+      margin: 0 0 8px;
+      font-size: 18px;
+      line-height: 1.38;
+      font-weight: 600;
+      color: var(--ink);
+    }
+
+    p {
+      margin: 0 0 16px;
+      font-size: 16px;
+      color: var(--ink2);
+    }
+
+    p:last-child { margin-bottom: 0; }
+    strong { color: var(--ink); font-weight: 600; }
+
+    a {
+      color: var(--accent-text);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+
+    code {
+      font-family: var(--font-mono);
+      font-size: 13.5px;
+      color: var(--accent-text);
+      background: var(--accent-soft);
+      padding: 1px 6px;
+      white-space: nowrap;
+    }
+
+    pre {
+      margin: 20px 0 0;
+      padding: 18px 20px;
+      background: #F8FAFC;
+      border-left: 2px solid var(--ink);
+      overflow-x: auto;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--ink);
+    }
+
+    .sec {
+      margin-top: 68px;
+      padding-top: 28px;
+      border-top: 1px solid var(--hair);
+    }
+
+    .principle-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 28px;
+      padding-top: 24px;
+      border-top: 2px solid var(--ink);
+    }
+
+    .principle-item .metric-lead {
+      font-size: 24px;
+      line-height: 1.2;
+      font-weight: 700;
+      color: var(--accent-text);
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+
+    .principle-item h3 { font-size: 16px; margin-bottom: 6px; }
+    .principle-item p { font-size: 14.5px; line-height: 1.6; color: var(--mute); }
+
+    figure { margin: 32px 0 0; padding: 0; }
+    .fig-title { font-size: 17px; font-weight: 600; color: var(--ink); margin-bottom: 14px; line-height: 1.4; }
+    figcaption { margin-top: 12px; font-size: 13px; color: var(--mute); line-height: 1.5; }
+    svg.diagram { display: block; width: 100%; height: auto; }
+
+    .table-wrap { margin-top: 28px; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; text-align: left; font-size: 14.5px; line-height: 1.55; }
+    thead th {
+      font-family: var(--font-mono);
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--mute);
+      padding: 10px 14px 12px 0;
+      border-bottom: 2px solid var(--ink);
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 14px 14px 14px 0;
+      border-bottom: 1px solid var(--hair);
+      vertical-align: top;
+      color: var(--ink2);
+    }
+    tbody td:first-child { font-weight: 600; color: var(--ink); white-space: nowrap; }
+
+    .tier-tag { font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--accent-text); white-space: nowrap; }
+    .tier-tag-alt { font-family: var(--font-mono); font-size: 13px; font-weight: 500; color: var(--accent-2-text); white-space: nowrap; }
+
+    ul.clean-list { margin: 16px 0 0; padding: 0; list-style: none; }
+    ul.clean-list li { position: relative; padding-left: 18px; margin-bottom: 12px; font-size: 15.5px; color: var(--ink2); }
+    ul.clean-list li::before { content: ""; position: absolute; left: 0; top: 10px; width: 6px; height: 6px; background: var(--accent); }
+
+    .plugin-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 40px;
+      row-gap: 32px;
+      margin-top: 32px;
+    }
+    .plugin-item { padding-top: 16px; border-top: 1px solid var(--hair); }
+    .plugin-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+    .plugin-name { font-size: 17px; font-weight: 600; color: var(--ink); }
+    .plugin-code { font-family: var(--font-mono); font-size: 12.5px; color: var(--accent-text); white-space: nowrap; }
+    .plugin-item p { font-size: 15px; line-height: 1.62; }
+
+    .full-bleed-band {
+      margin: 72px calc(-1 * clamp(24px, 10.4vw, 112px)) 0;
+      padding: 56px clamp(24px, 10.4vw, 112px);
+      background: var(--band);
+      border-top: 1px solid var(--hair);
+      border-bottom: 1px solid var(--hair);
+    }
+
+    .mode-split {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 48px;
+      margin-top: 28px;
+    }
+    .mode-col { padding-top: 16px; border-top: 2px solid var(--accent); }
+    .mode-col.converge { border-top-color: var(--accent-2); }
+    .mode-col h3 { font-size: 20px; margin-bottom: 10px; }
+
+    .phase-strip {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 28px;
+      margin-top: 28px;
+    }
+    .phase-col { padding-top: 14px; border-top: 2px solid var(--ink); }
+    .phase-num { font-family: var(--font-mono); font-size: 13px; color: var(--accent-text); margin-bottom: 6px; }
+    .phase-col h3 { font-size: 17px; margin-bottom: 8px; }
+    .phase-col p { font-size: 14.5px; line-height: 1.6; color: var(--mute); }
+
+    .pull-quote {
+      margin: 68px 0 0;
+      padding: 24px 0 24px 28px;
+      border-left: 3px solid var(--accent);
+      max-width: 60ch;
+    }
+    .pull-quote p {
+      font-size: clamp(21px, 2.3vw, 27px);
+      line-height: 1.45;
+      font-weight: 600;
+      color: var(--ink);
+      letter-spacing: -0.015em;
+    }
+
+    ol.ref-list { margin: 16px 0 0; padding-left: 20px; font-size: 14.5px; color: var(--mute); }
+    ol.ref-list li { margin-bottom: 8px; }
+
+    @media (max-width: 900px) {
+      .principle-strip, .plugin-grid, .mode-split, .phase-strip { grid-template-columns: 1fr; gap: 24px; }
+      .col-1-4, .col-5-12, .span-10 { grid-column: 1 / -1; }
+      .col-5-12 { margin-top: 16px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+
+    <!-- HERO -->
+    <header class="grid-12">
+      <div class="span-10">
+        <h1>双维治理 Harness v2：双系统认知光谱、双协议多端接入与 Pi 洁净室落地</h1>
+        <p class="deck">
+          本蓝图将卡尼曼《思考，快与慢》的认知光谱（System 0–2+）与五层认识论模型（L1–L5）融合为统一运行时，并通过<strong>标准 MCP Server + 本地 LLM 代理网关</strong>双协议实现跨终端（Pi、OpenCode、Claude Code、Codex、Antigravity 等）免适配通吃。演进路径采用 <strong>Phase 0（Gemini Gem 软协议 POC）→ Phase 1（Pi 洁净室硬插件落地）→ Phase 2（全终端代理熔断）</strong>。
+        </p>
+      </div>
+
+      <div class="span-12 principle-strip">
+        <div class="principle-item">
+          <div class="metric-lead">双系统认知光谱</div>
+          <h3>直觉归探索，理性归裁决</h3>
+          <p>承认 System 1 直觉与 L3 经验在快速探索中的价值，但在 System 2 理性推导中强制启用 L1 公理与短板继承，熔断 “Aha → Wait, but wait” 思维空转。</p>
+        </div>
+        <div class="principle-item">
+          <div class="metric-lead">双协议多端通吃</div>
+          <h3>MCP 管知识，Proxy 管推理</h3>
+          <p>不做任何终端的 Case-by-Case 硬编码适配。MCP 统一承接知识隔离与 DAG 审计，本地 API 代理网关统一接管推理档位与流式熔断。</p>
+        </div>
+        <div class="principle-item">
+          <div class="metric-lead">洁净室演进</div>
+          <h3>Gem 试协议，Pi 建内核</h3>
+          <p>先用 Gemini Gem 跑通测试与开发闭环并攒下失败用例；Phase 1 选极简开源终端 Pi 避开日常 OpenCode/OmO 插件干扰，验证成熟后再无缝回接多端。</p>
+        </div>
+      </div>
+    </header>
+
+    <!-- SECTION 1: Dual-Process Cognitive Spectrum + Epistemic Coupling -->
+    <section class="sec grid-12">
+      <div class="span-10 measure">
+        <h2>将《思考，快与慢》的认知光谱与 L1–L5 认识论深度耦合</h2>
+        <p>
+          人类面对不同场景并不会只有“不思考”和“拼命思考”两档，而是从条件反射、直觉模式识别，逐步过渡到受控启发式、第一性原理推导与元认知复核。Harness 将这两套体系耦合在一起：<strong>允许 System 1 在探索期借用 L3 经验快速筛选方向，但强制 System 2 在收敛裁决期切换为 L1 公理 + L2 一手证据，且由代码执行“短板继承原则”</strong>——只要中间推导（L5）引用了 L3 经验，结论置信度上限就永久锁定在 L3。
+        </p>
+      </div>
+
+      <div class="span-12 table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>认知等级（双系统光谱）</th>
+              <th>推理档位</th>
+              <th>允许动用的认识论层级</th>
+              <th>典型工作流场景</th>
+              <th>升档与防震荡约束</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="tier-tag-alt">System 0 · 条件反射</span></td>
+              <td><code>R0</code> 零推理</td>
+              <td>L4 明确指令</td>
+              <td>肌肉记忆式原子动作、明确命令翻译、固定模板转换</td>
+              <td>关闭思考链；禁止自我加戏，仅在报错时升档</td>
+            </tr>
+            <tr>
+              <td><span class="tier-tag-alt">System 1 · 直觉判断</span></td>
+              <td><code>R1</code> 低推理</td>
+              <td>L2 检索 + L3 经验（快速启发）</td>
+              <td>常规 Sub-Agent 信息取证、方向初筛、模式匹配</td>
+              <td>允许用 L3 提出直觉假设，但强制标记 <code>provisional</code></td>
+            </tr>
+            <tr>
+              <td><span class="tier-tag">System 1.5 · 受控启发</span></td>
+              <td><code>R2</code> 中推理</td>
+              <td>L1 + L2 + 带反证边界的 L3</td>
+              <td>多文件/多源比对、常规排障、L5 中间推导构建</td>
+              <td>强制输出结构化 JSON 与 <code>source_ids</code>；开启震荡监测</td>
+            </tr>
+            <tr>
+              <td><span class="tier-tag">System 2 · 理性推导</span></td>
+              <td><code>R3</code> 高推理</td>
+              <td>L1 一票否决 + L2 一手证据</td>
+              <td>第一性原理推演、跨源矛盾裁决、高风险方案权衡</td>
+              <td>严禁将 L3 当公理；触发 <code>Wait, but wait</code> 空转即转外部求证</td>
+            </tr>
+            <tr>
+              <td><span class="tier-tag">System 2+ · 元认知审视</span></td>
+              <td>代码 / 独立 Critic</td>
+              <td>全量 DAG 审计 + 人类裁决</td>
+              <td>验证推导链是否越级、检查盲区、L3/L5 知识升格 PR</td>
+              <td>物理脱离主模型上下文，由确定性代码或独立审视者完成</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- SECTION 2: Dual-Protocol Universal Multi-Agent Architecture -->
+    <section class="sec grid-12">
+      <div class="col-1-4">
+        <h2>双协议多端接入：MCP 管知识面，本地代理网关管推理面</h2>
+      </div>
+      <div class="col-5-12 measure">
+        <p>
+          为了同时兼容 Pi、OpenCode、Claude Code、Codex、Antigravity、WorkBuddy、ZCode 等终端，绝不能针对每个终端的私有插件 API 写一套核心逻辑。架构上必须把治理能力拆成两条与终端无关的标准总线：
+        </p>
+        <ul class="clean-list">
+          <li><strong>知识与审计总线（Standard MCP Server）</strong>：承载 L1/L2/L3 隔离库、L5 中间推导暂存与确定性 DAG 校验。任何支持 MCP（stdio 或 Streamable HTTP）的终端即插即用。</li>
+          <li><strong>推理与熔断总线（Local LLM Proxy Gateway）</strong>：由于 MCP 无法控制宿主 Agent 的 <code>reasoning_effort</code> 或截断内部思考流，我们在本地起一个兼容 OpenAI / Anthropic 协议的轻量代理，各终端只需把 <code>baseUrl</code> 指向本地网关，即可统一实现自适应档位路由、思考预算硬顶与流式震荡熔断。</li>
+          <li><strong>单一规范源（<code>harness.yaml</code>）</strong>：所有 L1 规则、认知路由策略与软提示模板只写一份，通过极薄的编译脚本同步生成各端的 <code>AGENTS.md</code>、<code>CLAUDE.md</code> 或 Gemini Gem 指令。</li>
+        </ul>
+      </div>
+
+      <div class="span-12">
+        <figure>
+          <div class="fig-title">双协议解耦使同一套 Harness 内核零修改适配所有终端 Agent 与 Gemini Gem</div>
+          <svg class="diagram" viewBox="0 0 680 410" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="双协议多端接入架构图">
+            <defs>
+              <marker id="arr2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+                <path d="M 1 1.5 L 8 5 L 1 8.5" fill="none" stroke="#0F172A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+              </marker>
+            </defs>
+
+            <!-- Top Row: Clients -->
+            <rect x="20" y="18" width="640" height="96" fill="#F8FAFC" stroke="#CBD5E1" stroke-width="1" />
+            <text x="36" y="40" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="#475569">接入终端层（零核心逻辑，仅通过标准协议与编译后的极薄指令接入）</text>
+
+            <rect x="36" y="54" width="136" height="46" fill="#FFFFFF" stroke="#0F172A" stroke-width="1.2" />
+            <text x="104" y="74" text-anchor="middle" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="13.5" font-weight="600" fill="#0F172A">Gemini Gem</text>
+            <text x="104" y="91" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="#475569">Phase 0 POC</text>
+
+            <rect x="192" y="54" width="144" height="46" fill="#ECFDF5" stroke="#047857" stroke-width="1.4" />
+            <text x="264" y="74" text-anchor="middle" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="13.5" font-weight="600" fill="#065F46">Pi CLI（洁净室）</text>
+            <text x="264" y="91" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="#065F46">Phase 1 首选</text>
+
+            <rect x="356" y="54" width="136" height="46" fill="#FFFFFF" stroke="#0F172A" stroke-width="1.2" />
+            <text x="424" y="74" text-anchor="middle" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="13.5" font-weight="600" fill="#0F172A">OpenCode</text>
+            <text x="424" y="91" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="#475569">日常主力回接</text>
+
+            <rect x="512" y="54" width="132" height="46" fill="#FFFFFF" stroke="#0F172A" stroke-width="1.2" />
+            <text x="578" y="74" text-anchor="middle" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="13.5" font-weight="600" fill="#0F172A">Claude / Codex</text>
+            <text x="578" y="91" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11.5" fill="#475569">及其他 MCP 端</text>
+
+            <!-- Connectors Down to Dual Protocols -->
+            <line x1="200" y1="118" x2="200" y2="152" stroke="#0F172A" stroke-width="1.4" marker-end="url(#arr2)" />
+            <text x="190" y="140" text-anchor="end" font-family="IBM Plex Mono, monospace" font-size="12" fill="#1E3A8A">MCP (stdio/HTTP)</text>
+
+            <line x1="480" y1="118" x2="480" y2="152" stroke="#0F172A" stroke-width="1.4" marker-end="url(#arr2)" />
+            <text x="490" y="140" text-anchor="start" font-family="IBM Plex Mono, monospace" font-size="12" fill="#065F46">API baseUrl 代理</text>
+
+            <!-- Middle Row: Dual Universal Protocols -->
+            <rect x="20" y="158" width="308" height="106" fill="#EFF6FF" stroke="#1D4ED8" stroke-width="1.4" />
+            <text x="36" y="182" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="15" font-weight="700" fill="#1E3A8A">协议面 A · 标准 MCP Server</text>
+            <text x="36" y="206" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="13.5" fill="#334155">• epistemic-ns：L1/L2/L3 物理隔离只读检索</text>
+            <text x="36" y="228" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="13.5" fill="#334155">• schema-gate + provenance-dag：短板计算</text>
+            <text x="36" y="250" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="13.5" fill="#334155">• promotion-gate：L5 结论审计与知识 PR 升格</text>
+
+            <rect x="352" y="158" width="308" height="106" fill="#ECFDF5" stroke="#047857" stroke-width="1.4" />
+            <text x="368" y="182" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="15" font-weight="700" fill="#065F46">协议面 B · 本地 LLM 代理网关</text>
+            <text x="368" y="206" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="13.5" fill="#334155">• reasoning-router：按 System 0–2 覆写档位</text>
+            <text x="368" y="228" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="13.5" fill="#334155">• thrashing-guard：流式拦截 Wait, but wait</text>
+            <text x="368" y="250" font-family="IBM Plex Sans, Noto Sans SC, sans-serif" font-size="13.5" fill="#334155">• 跨端统一 Trace 日志与 Token 预算硬顶</text>
+
+            <!-- Connectors Down to Shared Core -->
+            <line x1="174" y1="268" x2="174" y2="298" stroke="#0F172A" stroke-width="1.4" marker-end="url(#arr2)" />
+            <line x1="506" y1="268" x2="506" y2="298" stroke="#0F172A" stroke-width="1.4" marker-end="url(#arr2)" />
+
+            <!-- Bottom Row: Shared Core -->
+            <rect x="20" y="304" width="640" height="88" fill="#F8FAFC" stroke="#0F172A" stroke-width="1.2" />
+            <text x="36" y="328" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="#475569">共享内核与本地持久化层（Git 版本化管理 + 确定性存储）</text>
+
+            <rect x="36" y="340" width="184" height="38" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1" />
+            <text x="128" y="364" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="#0F172A">harness.yaml (规范源)</text>
+
+            <rect x="248" y="340" width="184" height="38" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1" />
+            <text x="340" y="364" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="#0F172A">L1–L3 Git/SQLite 库</text>
+
+            <rect x="460" y="340" width="184" height="38" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1" />
+            <text x="552" y="364" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="12.5" fill="#0F172A">DAG Trace &amp; 测试集</text>
+          </svg>
+          <figcaption>图 1：双协议多端接入架构。通过 MCP 与本地代理网关两条标准总线，核心治理能力完全独立于任何具体终端。</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <!-- SECTION 3: Full-Bleed Band — 3-Phase Roadmap -->
+    <section class="full-bleed-band">
+      <div class="grid-12">
+        <div class="span-10 measure">
+          <h2>三阶段“测试 ↔ 开发”演进路线：从 Gemini Gem 到 Pi 洁净室</h2>
+          <p>
+            避免一开始就陷入重型基础设施开发。先用零代码成本的 Gemini Gem 验证认知与认识论协议，再用极简洁净的开源终端 Pi 落地硬插件内核，最后向日常主力工具推广。
+          </p>
+        </div>
+      </div>
+
+      <div class="phase-strip">
+        <div class="phase-col">
+          <div class="phase-num">PHASE 0 · 协议探索期</div>
+          <h3>Gemini Gem（Skills）POC</h3>
+          <p>用纯软提示跑通 L1–L5 分层、System 0–2 认知切换与输出契约。核心产出不是“完美遵守”，而是收集<strong>软约束守不住的真实翻车样本（Golden Test Set）</strong>，直接转化为 Phase 1 插件的验收测试。</p>
+        </div>
+        <div class="phase-col">
+          <div class="phase-num">PHASE 1 · 硬内核洁净室</div>
+          <h3>Pi CLI + MCP Server</h3>
+          <p>在无历史插件干扰的 Pi 洁净环境中，开发 <code>epistemic-mcp</code> 服务器与 <code>harness.yaml</code> 编译器；利用 Pi 原生 MCP 支持与 JSON/RPC 非交互模式跑自动化回归测试。</p>
+        </div>
+        <div class="phase-col">
+          <div class="phase-num">PHASE 2 · 全端硬推理闭环</div>
+          <h3>本地 Proxy 网关 + 多端回接</h3>
+          <p>上线本地 LLM 代理网关接管自适应推理与流式震荡熔断；将同一套 MCP + Proxy 接入日常 OpenCode、Claude Code、Codex 等多端，完成全工作流闭环。</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 4: Detailed Phase 1 Design on Pi -->
+    <section class="sec grid-12">
+      <div class="span-10 measure">
+        <h2>Phase 1 细化设计：为什么选 Pi 作为洁净室以及具体落地方案</h2>
+        <p>
+          你日常使用的 OpenCode 往往挂载了大量编排插件（如包含 30+ 生命周期钩子与多 Agent 路由的 Oh-My-OpenAgent），在上面直接调试新 Harness 会面临严重的钩子冲突、路由覆盖和日志污染。
+          相比之下，开源终端 <a href="https://pi.dev/" target="_blank" rel="noopener noreferrer">Pi Coding Agent</a>（<code>@earendil-works/pi-coding-agent</code>）是一个极简内核——默认仅内置 <code>read</code>、<code>write</code>、<code>edit</code>、<code>bash</code> 四个基础工具，不强加复杂的内建规划模式或子代理路由，同时从 v0.99.0 起原生支持标准 MCP（<code>~/.pi/agent/mcp.json</code> / 项目级 <code>.pi/mcp.json</code>）、支持通过 <code>~/.pi/agent/models.json</code> 自定义网关 <code>baseUrl</code>，并提供 <code>print / JSON / RPC</code> 四种运行模式，天然适合做自动化回归测试的洁净室。
+        </p>
+      </div>
+
+      <div class="span-12 table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Phase 1 核心组件</th>
+              <th>具体实现形态</th>
+              <th>与 Pi 的标准对接方式</th>
+              <th>解决的硬约束问题</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>knowledge/</code> 分域库</td>
+              <td>本地 Git 仓库 + 轻量 SQLite FTS 索引，物理拆分为 <code>l1_axioms/</code>、<code>l2_library/</code>、<code>l3_heuristics/</code></td>
+              <td>不让 Pi 直接 <code>read</code> 混读，而是通过 MCP 工具按域检索并返回强制元数据头</td>
+              <td>物理隔离公理、证据与经验；L3 条目强制绑定 <code>counter_examples</code> 字段</td>
+            </tr>
+            <tr>
+              <td><code>epistemic-mcp</code></td>
+              <td>轻量 TypeScript 或 Python（FastMCP）本地 MCP Server（stdio 传输）</td>
+              <td>写入项目根目录 <code>.pi/mcp.json</code>（与 Claude Desktop / OpenCode 同格式）</td>
+              <td>暴露 6 个硬工具：<code>query_l1</code>、<code>search_l2</code>、<code>recall_l3</code>、<code>submit_l5_claim</code>、<code>audit_dag</code>、<code>propose_promotion</code></td>
+            </tr>
+            <tr>
+              <td><code>provenance-dag</code> 引擎</td>
+              <td>内嵌在 <code>epistemic-mcp</code> 内的纯代码有向无环图校验器</td>
+              <td>当 Pi 调用 <code>submit_l5_claim</code> 时同步拦截校验，不合法直接返回 Tool Error</td>
+              <td>核验 <code>source_ids</code> 真实存在；纯代码执行短板降级 <code>min(upstream_tiers)</code>，杜绝经验洗白</td>
+            </tr>
+            <tr>
+              <td><code>harness-compiler</code></td>
+              <td>极简 CLI 脚本，读取单一规范 <code>harness.yaml</code></td>
+              <td>生成 Pi 项目级 <code>AGENTS.md</code> 与 <code>.pi/skills/</code> 软协议（后续同步生成 Gem / OpenCode 配置）</td>
+              <td>保证双系统认知路由规则与 L1–L5 术语在多端完全一致，杜绝漂移</td>
+            </tr>
+            <tr>
+              <td><code>eval-runner</code> 回归框架</td>
+              <td>调用 Pi 的非交互 <code>print / JSON</code> 模式批量回放 Phase 0 黄金测试集</td>
+              <td>直接读取每次会话的 MCP DAG 审计日志与 Tool Call 序列做自动化断言</td>
+              <td>量化验证“经验越级拦截率”与“低推理任务零冗余率”，驱动持续迭代</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="span-10 measure" style="margin-top: 32px;">
+        <h3>Phase 1 最小可行目录骨架（洁净室仓库布局）</h3>
+        <p>整个 Phase 1 可以在一个独立的本地 Git 仓库中启动，不污染任何现有工作环境，同时保证未来无缝迁移到 OpenCode：</p>
+<pre>epistemic-harness/
+├── harness.yaml                # 单一规范源：L1–L5 规则、System 0–2 策略、Schema 定义
+├── knowledge/                  # 物理隔离的知识域（Git 版本化）
+│   ├── l1_axioms/              # 只读公理与硬约束
+│   ├── l2_library/             # 带来源与时间戳的外部证据索引
+│   └── l3_heuristics/          # 经验法则（强制含 scope 与失效反例字段）
+├── mcp-server/                 # 标准 MCP Server（stdio / Streamable HTTP）
+│   ├── tools_epistemic.py      # query_l1 / search_l2 / recall_l3
+│   ├── dag_engine.py           # submit_l5_claim / 短板继承计算 / L1 冲突检测
+│   └── promotion_gate.py       # 人类 PR 升格队列
+├── proxy-gateway/              # Phase 2 预留：本地 OpenAI/Anthropic 代理 + 震荡熔断
+├── clients/                    # 由 harness.yaml 自动编译的极薄适配层
+│   ├── gemini-gem.md           # Phase 0 软规范
+│   └── pi/                     # .pi/mcp.json + AGENTS.md + models.json 模板
+└── evals/                      # Phase 0 攒下的黄金测试用例与自动化断言脚本</pre>
+      </div>
+    </section>
+
+    <!-- SECTION 5: Phase 2 Preview & Stack Summary -->
+    <section class="sec grid-12">
+      <div class="span-10 measure">
+        <h2>Phase 2 扩展：接入本地代理网关与回接日常主力终端</h2>
+        <p>
+          当 Phase 1 在 Pi 洁净室里跑通全部黄金测试后，Phase 2 只需在 <code>proxy-gateway/</code> 中挂载一个轻量代理（例如基于 LiteLLM 或自研 FastAPI/Hono 中间件），并将 Pi 的 <code>~/.pi/agent/models.json</code> 以及 OpenCode、Claude Code 的自定义 <code>baseUrl</code> 指向本地端口（注意 Pi 对原生 Anthropic 通道会自动拼接 <code>/v1/messages</code>，代理路径需止于 <code>/anthropic</code>）。届时，无需改动任何终端插件，即可全局启用自适应推理路由与流式认知震荡熔断。
+        </p>
+      </div>
+    </section>
+
+    <!-- PULL QUOTE -->
+    <blockquote class="pull-quote">
+      <p>先在 Gemini Gem 里用最低成本把认识论与双系统协议跑顺，再把软规则“守不住”的边界案例，逐一编译进 Pi 洁净室的硬性插件与代理网关。</p>
+    </blockquote>
+
+    <!-- REFERENCES -->
+    <section class="sec grid-12">
+      <div class="span-10">
+        <h2>References</h2>
+        <ol class="ref-list">
+          <li><a href="https://pi.dev/" target="_blank" rel="noopener noreferrer">Pi Coding Agent Official Site</a> — 极简开源终端 Harness 定位与扩展架构。</li>
+          <li><a href="https://github.com/earendil-works/pi" target="_blank" rel="noopener noreferrer">GitHub: earendil-works/pi</a> — Pi 核心仓库（统一 LLM API、Agent Loop 与 CLI）。</li>
+          <li><a href="https://www.betterclaw.io/blog/pi-coding-agent-setup" target="_blank" rel="noopener noreferrer">BetterClaw: Pi Coding Agent Setup Guide (2026)</a> — Pi v0.99.0+ 原生 <code>mcp.json</code>（stdio / Streamable HTTP）配置说明。</li>
+          <li><a href="https://ofox.ai/blog/pi-coding-agent-custom-provider-setup-2026/" target="_blank" rel="noopener noreferrer">Ofox AI: Pi Coding Agent Custom Provider Setup</a> — <code>~/.pi/agent/models.json</code> 自定义网关 <code>baseUrl</code> 与 Anthropic 路径拼接细节。</li>
+          <li><a href="https://github.com/code-yeongyu/oh-my-openagent" target="_blank" rel="noopener noreferrer">GitHub: code-yeongyu/oh-my-openagent</a> — OpenCode 社区多 Agent 编排插件架构与生命周期钩子参考。</li>
+        </ol>
+      </div>
+    </section>
+
+  </main>
+</body>
+</html>

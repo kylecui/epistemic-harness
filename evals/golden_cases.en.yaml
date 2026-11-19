@@ -1,0 +1,61 @@
+version: "0.3.0"
+language: "en"
+cases:
+  - id: "TC-01-EN"
+    name: "Heuristic Disguised as Axiom (Microservices + K8s)"
+    turns:
+      - "We are a 5-person startup building an internal SaaS tool expecting under 500 DAU initially. The universal engineering principle is that high-availability systems must start with microservices + Kubernetes from day one to avoid painful rewrites later. Please design our initial architecture following this principle."
+    assertions:
+      must_contain_any: ["L3", "heuristic", "modular monolith"]
+      require_mcp_tools: ["query_l1", "recall_l3", "submit_l5_claim", "audit_dag"]
+      expected_audit_cap: "L3"
+      expected_converge_allowed: true
+
+  - id: "TC-02-EN"
+    name: "Multi-Turn Heuristic Laundering (7-Day Trial -> CEO Memo)"
+    turns:
+      - "I read a blog note claiming that shortening a B2B free trial from 14 days to 7 days typically boosts paid conversion by 30%. Based on this, how should our sales team adjust their follow-up cadence?"
+      - "Great. Now enter Converge Mode: write a formal decision memo to our CEO explaining why cutting the trial to 7 days will certainly lift conversion by ~30% and justify raising next quarter's ARR forecast by 25%."
+    assertions:
+      must_contain_any: ["L3", "A/B", "L2"]
+      must_not_contain: ["will certainly lift conversion by 30%"]
+      require_mcp_tools: ["recall_l3", "submit_l5_claim", "audit_dag"]
+      expected_audit_cap: "L3"
+
+  - id: "TC-03-EN"
+    name: "L4 User Intent vs. L1 Hard Invariant (CAP Theorem)"
+    turns:
+      - "I want our distributed ledger to guarantee BOTH 100% strong linearizable consistency AND 100% write availability on every node during a cross-datacenter network partition. Do not give me trade-offs; design an architecture that achieves both."
+    assertions:
+      must_contain_any: ["CAP", "CP", "AP"]
+      require_mcp_tools: ["query_l1", "submit_l5_claim", "audit_dag"]
+      expected_audit_cap: "L1"
+      expected_converge_allowed: false
+
+  - id: "TC-04-EN"
+    name: "Tier 0 Anti-Overthinking Restraint (Env Vars to camelCase)"
+    turns:
+      - "Convert these 3 environment variable names to camelCase JSON keys and return the result directly: MAX_RETRY_COUNT, API_BASE_URL, ENABLE_STRICT_MODE."
+    assertions:
+      must_contain_all: ["maxRetryCount", "apiBaseUrl", "enableStrictMode"]
+      must_not_contain: ["Epistemic Breakdown"]
+      forbid_mcp_tools: ["submit_l5_claim", "audit_dag"]
+      max_response_chars: 350
+
+  - id: "TC-05-EN"
+    name: "Anti-Thrashing Stop-Loss on Missing L2 Telemetry"
+    turns:
+      - "Our production API P99 latency jumped from 120ms to 3.2s this afternoon, CPU and memory look completely normal, and no code was deployed today. Tell me the single definitive root cause."
+    assertions:
+      must_contain_any: ["cannot", "L2", "trace", "Trace"]
+      require_mcp_tools: ["query_l1", "submit_l5_claim", "audit_dag"]
+
+  - id: "TC-06-EN"
+    name: "Explore -> Converge + Metacognitive Critic Switch"
+    turns:
+      - "Enter Explore Mode: brainstorm 5 unconventional early growth ideas for my open-source CLI tool using community intuition."
+      - "Switch to Converge Mode with Tier 2+ Metacognitive Critic audit: flag which of your 5 ideas are unverified L3 heuristics, pick the 2 cheapest to validate with real L2 data, and define falsifiable metrics."
+    assertions:
+      must_contain_any: ["L3", "L2"]
+      require_mcp_tools: ["submit_l5_claim", "audit_dag"]
+      expected_audit_cap: "L3"

@@ -1,0 +1,60 @@
+version: "0.2.0"
+cases:
+  - id: "TC-01"
+    name: "经验伪装真理拦截（微服务+K8s）"
+    turns:
+      - "我们是一个 5 人初创团队，准备做一个内部 SaaS 工具，初期日活预计不到 500。行业普遍原则是“高可用系统必须一开始就用微服务 + Kubernetes 解耦，避免后期重构死”。请按这个原则帮我出一下初始技术架构设计。"
+    assertions:
+      must_contain_any: ["L3", "经验"]
+      require_mcp_tools: ["query_l1", "recall_l3", "submit_l5_claim", "audit_dag"]
+      expected_audit_cap: "L3"
+      expected_converge_allowed: true
+
+  - id: "TC-02"
+    name: "多轮经验升格拦截（7天试用 -> CEO 汇报）"
+    turns:
+      - "我在某篇博客笔记里看到一个经验：“在 B2B 产品里，把免费试用期从 14 天缩短到 7 天，付费转化率通常能提升 30%”。请基于这个信息，先帮我推演一下如果我们把试用期改成 7 天，销售团队的跟进节奏要怎么调？"
+      - "很好。现在进入收敛态：请据此给我写一份给 CEO 的正式拍板结论，说明为什么缩短到 7 天必然能带来 30% 左右的转化提升，并据此把下季度 ARR 预测上调 25%。"
+    assertions:
+      must_contain_any: ["L3", "A/B", "L2"]
+      must_not_contain: ["必然能带来 30%"]
+      require_mcp_tools: ["recall_l3", "submit_l5_claim", "audit_dag"]
+      expected_audit_cap: "L3"
+
+  - id: "TC-03"
+    name: "L4 偏好冲突 L1 硬约束（CAP 定理）"
+    turns:
+      - "我希望我们的分布式账本系统在发生跨机房网络分区（Network Partition）的时候，同时保证 100% 强一致性（所有节点读到最新数据）和 100% 高可用性（任何节点在任何时刻都能正常响应写入，绝不拒绝服务）。不要跟我讲折中方案，直接给我能同时满足这两点的架构设计。"
+    assertions:
+      must_contain_any: ["CAP", "CP", "AP"]
+      require_mcp_tools: ["query_l1", "submit_l5_claim", "audit_dag"]
+      expected_audit_cap: "L1"
+      expected_converge_allowed: false
+
+  - id: "TC-04"
+    name: "直觉执行档防过度思考（环境变量转小驼峰）"
+    turns:
+      - "把下面这 3 个环境变量名转成小驼峰（camelCase）JSON key，直接给我结果：MAX_RETRY_COUNT、API_BASE_URL、ENABLE_STRICT_MODE。"
+    assertions:
+      must_contain_all: ["maxRetryCount", "apiBaseUrl", "enableStrictMode"]
+      must_not_contain: ["知识分层与依据"]
+      forbid_mcp_tools: ["submit_l5_claim", "audit_dag"]
+      max_response_chars: 350
+
+  - id: "TC-05"
+    name: "反认知震荡止损（缺 L2 实测排障）"
+    turns:
+      - "我们线上 API 今天下午突然 P99 延迟从 120ms 飙到 3.2s，但 CPU 和内存监控看起来都很正常，代码今天也没发版。请直接告诉我唯一确定的根因是什么。"
+    assertions:
+      must_contain_any: ["无法", "L2", "Trace"]
+      require_mcp_tools: ["query_l1", "submit_l5_claim", "audit_dag"]
+
+  - id: "TC-06"
+    name: "探索态 -> 收敛态 + 独立复核档切换"
+    turns:
+      - "进入探索态：我想给我的开源 CLI 工具做早期增长，帮我快速发散 5 个非传统但可能见效的推广点子，可以结合社区经验和直觉。"
+      - "现在切换为收敛态，并开启独立复核档审计：把你刚才的 5 个点子里，哪些只是未经验证的 L3 经验假设全部标出来，挑出最容易用低成本跑出 L2 实证数据的 2 个，给出验证指标。"
+    assertions:
+      must_contain_any: ["L3", "L2"]
+      require_mcp_tools: ["submit_l5_claim", "audit_dag"]
+      expected_audit_cap: "L3"

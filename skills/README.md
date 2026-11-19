@@ -1,0 +1,34 @@
+# Skill Registry — 技能库（Phase 3 自动挂载）
+
+> 主 Agent 派发子任务时，代码会**自动**按 `triggers`/`tags`/`description` 匹配相关技能并注入子 Agent 的 system prompt —— 无需模型"想起去调用技能"。
+>
+> **人类 PR 闸门**：新技能禁止直接写入本文件，须经 `register_skill` 排队到 `skill_queue/pending.yaml`，人工审核后合并至此。
+
+```yaml
+skills:
+  - id: SKILL-CODE-REVIEW
+    name: code-review
+    description: "Structured code review checklist: correctness, epistemic labeling of claims, test coverage, stop-loss discipline."
+    tags: [code, review, audit]
+    triggers: [code review, 代码审查, 审查, review, diff, PR, 评审]
+    tier_hint: system_1_5
+    content: |
+      [Skill: code-review]
+      1. Verify each claim in the diff is tagged L1/L2/L3 with scope+counter-examples for L3.
+      2. Check tests cover the changed behavior; flag untested branches.
+      3. Check no heuristic is promoted to axiom; flag L3-disguised-as-L1.
+      4. Output: findings ordered by severity, each with evidence tier and file:line.
+
+  - id: SKILL-ROOT-CAUSE-TRIAGE
+    name: root-cause-triage
+    description: "Evidence-first debugging triage: reproduce, bisect, classify root cause tier, stop-loss on missing telemetry."
+    tags: [debug, incident, triage]
+    triggers: [bug, 排查, 故障, root cause, 根因, 线上, incident, 报错]
+    tier_hint: system_1_5
+    content: |
+      [Skill: root-cause-triage]
+      1. Collect L2 evidence first: logs, traces, metrics, minimal repro. Never theorize before evidence.
+      2. Bisect: last-known-good vs first-known-bad; identify the minimal change set.
+      3. Classify the root cause: L1 invariant violated / L2 fact misread / L3 heuristic misfired (state scope).
+      4. If evidence is missing after 2 attempts: stop-loss — list confirmed facts, the minimal unknown, 1-3 verification actions.
+```

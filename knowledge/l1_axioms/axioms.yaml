@@ -1,0 +1,24 @@
+axioms:
+  - id: "L1-CAP-001"
+    title: "CAP 定理（分布式系统分区不可能定理）"
+    statement: "在异步网络模型中，分布式读写数据系统发生网络分区（P）时，无法同时保证线性一致性（C）与所有非故障节点的完全可用性（A）。"
+    source: "Gilbert & Lynch, ACM SIGACT News, 2002"
+    immutable: true
+
+  - id: "L1-REL-001"
+    title: "串联系统可靠性与可用性定义"
+    statement: "系统可用性定义为 MTBF / (MTBF + MTTR)；串联依赖链路的总可靠度 R_total = ∏ R_i，增加无冗余串联节点在数学上不会自动提升可用性。"
+    source: "Reliability Engineering First Principles"
+    immutable: true
+
+  - id: "L1-LAT-001"
+    title: "端到端请求延迟构成恒等式"
+    statement: "单次请求总延迟 T_total = T_compute + T_wait（含 I/O、锁、队列与网络等待）。仅凭总延迟升高与本机 CPU 正常属于欠定问题，无法单射推导出唯一根因。"
+    source: "Queuing Theory / Systems Observability Identity"
+    immutable: true
+
+  - id: "L1-FIN-001"
+    title: "SaaS 总 ARR 财务构成恒等式"
+    statement: "Total ARR = Existing ARR * NRR + New ARR，其中 New ARR = Leads * Conversion_Rate * ACV。单季新客转化率提升不等价于公司总 ARR 等比例上调。"
+    source: "SaaS Financial Accounting Identity"
+    immutable: true

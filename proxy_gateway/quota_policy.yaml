@@ -1,0 +1,260 @@
+version: "2.0"
+description: "共享套餐池（Shared Pools）5h / 周 / 月三窗口配额 + 2026-11 官方计费系数与最优旗舰兜底"
+
+default_cooldown_seconds: 300
+soft_limit_ratio: 0.95
+# 全局主动避峰：任何处于 peak_windows_utc 的主力池自动退让给 off-peak 或无高峰窗口的主力池
+active_peak_avoidance: true
+
+# ==============================================================================
+# 一、共享配额池（同套餐下的多个模型共享同一个 5h / week / month 额度池）
+# ==============================================================================
+pools:
+  # 1. 智谱历史 V2 最高级 CodingPlan（Max 档，官方按积分计费：5h=28,000 / 周=140,000）
+  #    来源：https://docs.bigmodel.cn/cn/coding-plan/overview (2026-11-11)
+  zhipu_v2_max:
+    unit: "credits"
+    last_option: false
+    rolling_5h_limit: 28000.0
+    rolling_week_limit: 140000.0
+    rolling_month_limit: 560000.0     # 按 4 周等效上限折算，可按实际 V2 账单微调
+    peak_cost_multiplier: 1.0
+    peak_windows_utc:
+      - start: "01:30"                # 东八区 09:30-18:30
+        end: "10:30"
+
+  # 2. Kimi Allegretto（旧版 ¥199 共享额度池，官方含 5h 滚动 + 周限额 + 月限额，控制台按百分比展示）
+  #    来源：https://www.kimi.com/help/membership/membership-pricing (2026-10-19)
+  kimi_allegretto:
+    unit: "credits"                   # 建议按控制台百分比校准（默认以 10000 积分代表月池 100%）
+    last_option: false
+    rolling_5h_limit: 1500.0
+    rolling_week_limit: 3000.0
+    rolling_month_limit: 10000.0
+    peak_cost_multiplier: 1.0
+    peak_windows_utc:
+      - start: "01:30"
+        end: "10:30"
+
+  # 3. OpenCode Go 基本版（$10/月 · DeepSeek V4.1 Flash 月额度 $100：5h=20%($20) / 周=50%($50) / 月=100%($100)）
+  #    来源：https://qcode.cc/en/opencode-go-guide (2026-11-13) — 高峰时段费率为低谷 2 倍
+  opencode_go_basic:
+    unit: "usd"
+    last_option: false
+    rolling_5h_limit: 20.0
+    rolling_week_limit: 50.0
+    rolling_month_limit: 100.0
+    peak_cost_multiplier: 2.0         # 官方高峰期 2x 计费系数
+    peak_windows_utc:
+      - start: "13:00"                # 北美工作日高峰（UTC 13:00-21:00）
+        end: "21:00"
+
+  # 4. 末位兜底池 #1：GitHub Copilot Pro+（$39/月 · 官方共享 7,000 AI Credits/月）
+  #    来源：https://felloai.com/claude-vs-copilot/ (2026-11-04)
+  github_copilot_pro_plus:
+    unit: "credits"
+    last_option: true
+    rolling_5h_limit: 500.0           # 保护性 5h 软顶，防止单次任务烧光月度保底额度
+    rolling_week_limit: 2000.0
+    rolling_month_limit: 7000.0
+    peak_cost_multiplier: 1.0
+    peak_windows_utc:
+      - start: "13:00"
+        end: "21:00"
+
+  # 5. 末位兜底池 #2：Google AI Pro（Gemini 4 Neon 2026-11-18 GA，无公开固定 Token 上限，按 USD 等效设保护阀）
+  #    来源：https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-neon/
+  google_ai_pro:
+    unit: "usd_equiv"
+    last_option: true
+    rolling_5h_limit: 5.0
+    rolling_week_limit: 20.0
+    rolling_month_limit: 60.0
+    peak_cost_multiplier: 1.0
+    peak_windows_utc: []
+
+# ==============================================================================
+# 二、模型映射与精确单位消耗系数（每 1M Tokens 消耗的所属 Pool 单位数）
+# ==============================================================================
+models:
+  zhipu-glm-5.3:
+    pool: zhipu_v2_max
+    protocol: openai
+    upstream_base_url_env: ZHIPU_BASE_URL
+    default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
+    api_key_env: ZHIPU_API_KEY
+    upstream_model: glm-5.3
+    cost_per_1m:
+      input: 6.9
+      cached_input: 1.7
+      output: 24.0
+    avoid_in_peak_for_tiers:
+    - system_0
+    - system_1
+  zhipu-glm-5.3-flash:
+    pool: zhipu_v2_max
+    protocol: openai
+    upstream_base_url_env: ZHIPU_BASE_URL
+    default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
+    api_key_env: ZHIPU_API_KEY
+    upstream_model: glm-5.3-flash
+    cost_per_1m:
+      input: 2.3
+      cached_input: 0.56
+      output: 8.0
+    avoid_in_peak_for_tiers: []
+  kimi-k3.1-pro:
+    pool: kimi_allegretto
+    protocol: openai
+    upstream_base_url_env: KIMI_BASE_URL
+    default_base_url: https://api.kimi.com/coding/v1
+    api_key_env: KIMI_API_KEY
+    upstream_model: k3.1-pro
+    cost_per_1m:
+      input: 4.0
+      cached_input: 1.0
+      output: 16.0
+    avoid_in_peak_for_tiers:
+    - system_0
+    - system_1
+  kimi-for-coding:
+    pool: kimi_allegretto
+    protocol: openai
+    upstream_base_url_env: KIMI_CODING_BASE_URL
+    default_base_url: https://api.kimi.com/coding/v1
+    api_key_env: KIMI_API_KEY
+    upstream_model: kimi-for-coding
+    cost_per_1m:
+      input: 2.5
+      cached_input: 0.6
+      output: 10.0
+    avoid_in_peak_for_tiers:
+    - system_0
+  opencode-deepseek-v4.1-flash:
+    pool: opencode_go_basic
+    protocol: openai
+    upstream_base_url_env: OPENCODE_GO_BASE_URL
+    default_base_url: https://opencode.ai/inference/go/v1
+    api_key_env: OPENCODE_GO_API_KEY
+    upstream_model: deepseek-v4.1-flash
+    upstream_headers:
+      x-opencode-session: '{session}'
+    cost_per_1m:
+      input: 0.25
+      cached_input: 0.05
+      output: 1.0
+    avoid_in_peak_for_tiers:
+    - system_0
+  copilot-claude-fable-5.2:
+    pool: github_copilot_pro_plus
+    protocol: openai
+    auth: copilot
+    upstream_base_url_env: GITHUB_COPILOT_BASE_URL
+    default_base_url: https://api.githubcopilot.com
+    upstream_model: claude-fable-5.2
+    cost_per_1m:
+      input: 15.0
+      cached_input: 3.0
+      output: 75.0
+    avoid_in_peak_for_tiers:
+    - system_0
+    - system_1
+    - system_1_5
+  copilot-claude-sonnet-5.5:
+    pool: github_copilot_pro_plus
+    protocol: openai
+    auth: copilot
+    upstream_base_url_env: GITHUB_COPILOT_BASE_URL
+    default_base_url: https://api.githubcopilot.com
+    upstream_model: claude-sonnet-5.5
+    cost_per_1m:
+      input: 3.0
+      cached_input: 0.3
+      output: 15.0
+    avoid_in_peak_for_tiers:
+    - system_0
+    - system_1
+  google-ai-gemini-4-neon:
+    pool: google_ai_pro
+    protocol: openai
+    auth: google
+    upstream_base_url_env: GOOGLE_AI_BASE_URL
+    default_base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    api_key_env: GEMINI_API_KEY
+    upstream_model: gemini-flash-lite-latest
+    cost_per_1m:
+      input: 3.0
+      cached_input: 0.15
+      output: 15.0
+    avoid_in_peak_for_tiers:
+    - system_0
+    - system_1
+  google-ai-gemini-4-hydrogen:
+    pool: google_ai_pro
+    protocol: openai
+    auth: google
+    upstream_base_url_env: GOOGLE_AI_BASE_URL
+    default_base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    upstream_model: gemini-4-hydrogen
+    cost_per_1m:
+      input: 2.0
+      cached_input: 0.1
+      output: 12.0
+    avoid_in_peak_for_tiers:
+    - system_0
+    - system_1
+    note: 'thinking-heavy: prefer stream; non-stream may exceed client timeout'
+routing_chains:
+  system_0:
+  - opencode-deepseek-v4.1-flash
+  - zhipu-glm-5.3-flash
+  - kimi-for-coding
+  - google-ai-gemini-4-neon
+  - google-ai-gemini-4-hydrogen
+  - copilot-claude-sonnet-5.5
+  system_1:
+  - opencode-deepseek-v4.1-flash
+  - zhipu-glm-5.3-flash
+  - kimi-for-coding
+  - zhipu-glm-5.3
+  - google-ai-gemini-4-neon
+  - google-ai-gemini-4-hydrogen
+  - copilot-claude-sonnet-5.5
+  system_1_5:
+  - opencode-deepseek-v4.1-flash
+  - kimi-for-coding
+  - zhipu-glm-5.3
+  - kimi-k3.1-pro
+  - zhipu-glm-5.3-flash
+  - google-ai-gemini-4-neon
+  - google-ai-gemini-4-hydrogen
+  - copilot-claude-sonnet-5.5
+  system_2:
+  - opencode-deepseek-v4.1-flash
+  - kimi-k3.1-pro
+  - zhipu-glm-5.3
+  - kimi-for-coding
+  - copilot-claude-fable-5.2
+  - google-ai-gemini-4-neon
+  - google-ai-gemini-4-hydrogen
+  - copilot-claude-sonnet-5.5
+  system_2_plus:
+  - opencode-deepseek-v4.1-flash
+  - zhipu-glm-5.3
+  - kimi-k3.1-pro
+  - copilot-claude-fable-5.2
+  - google-ai-gemini-4-neon
+  - google-ai-gemini-4-hydrogen
+agent_profiles:
+  explorer:
+    description: 探索/检索子代理：快速发散初筛，轻量档
+    tier: system_1
+  coder:
+    description: 编码子代理：默认结构化分析档
+    tier: system_1_5
+  deep:
+    description: 深度推导子代理：高推理强度，不锁模型（按档位链选）
+    tier: system_2
+  critic:
+    description: 独立审计子代理：强制跨家族复核档（排除起草方同池）
+    tier: system_2_plus

@@ -1,0 +1,13 @@
+
+.env
+traces/
+promotions/
+.venv/
+__pycache__/
+.secrets/
+
+.env
+traces/
+promotions/
+.venv/
+__pycache__/

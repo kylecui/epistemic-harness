@@ -1,0 +1,28 @@
+heuristics:
+  - id: "L3-ARCH-001"
+    title: "高可用系统初期即采用微服务 + Kubernetes"
+    claim: "一开始就拆微服务并上 K8s 解耦，可避免后期重构困难。"
+    scope_conditions:
+      - "研发团队规模较大（通常 20+ 人）需按团队边界独立发布"
+      - "业务领域边界已稳定，存在显著异构算力/弹性需求，且配备专职 SRE"
+    counter_examples:
+      - "5 人初创团队、DAU < 500、业务模型仍在演进时，过早拆分易演变为分布式单体，运维复杂度反向拖垮交付与可用性"
+    falsifiable: true
+
+  - id: "L3-ARCH-002"
+    title: "小团队优先采用模块化单体（Modular Monolith）"
+    claim: "小团队初期使用单代码库强模块边界 + 云托管基础设施，可兼顾高可用与低运维成本。"
+    scope_conditions:
+      - "团队规模 < 15 人、中小流量、业务处于快速验证期"
+    counter_examples:
+      - "存在极重异构计算任务（如视频转码/大模型推理）或客户强制私有化 K8s Helm Chart 交付时，对应模块需独立隔离"
+    falsifiable: true
+
+  - id: "L3-PLG-001"
+    title: "B2B 试用期从 14 天缩至 7 天可提升 30% 转化"
+    claim: "某博客经验称缩短免费试用期能制造紧迫感，使付费转化率提升约 30%。"
+    scope_conditions:
+      - "轻量化自助式 PLG 产品，核心价值达成时间（TTV）<= 3 天且单人可拍板"
+    counter_examples:
+      - "涉及 IT 安全审查、API 集成或多人采购审批的中大型 B2B 产品（TTV > 7 天），缩短试用期会截断评估导致转化下降"
+    falsifiable: true

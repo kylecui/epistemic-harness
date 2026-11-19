@@ -1,0 +1,17 @@
+.venv/
+.git/
+__pycache__/
+*.pyc
+.env
+traces/
+promotions/
+skill_queue/
+docs/
+tests/
+evals/
+clients/
+knowledge/
+skills/
+scripts/
+*.md
+!README.md
