@@ -225,6 +225,13 @@ alias harness='%s/start_harness.sh --global'
   }
 done
 mkdir -p "${REPO_ROOT}/.secrets"
+USER_EXT="${AGENT_DIR}/extensions"
+mkdir -p "$USER_EXT"
+for ext in "${REPO_ROOT}"/extensions/*; do
+  [[ -f "$ext" ]] || continue
+  name="$(basename "$ext")"
+  [[ -f "${USER_EXT}/${name}" ]] || { cp "$ext" "$USER_EXT/$name"; ok "extension: $name"; }
+done
 "${PYTHON_BIN}" "${REPO_ROOT}/scripts/import_pi_credentials.py" --repo-root "${REPO_ROOT}" || true
 if command -v docker >/dev/null 2>&1; then
   ( cd "${REPO_ROOT}" && docker compose build >/dev/null 2>&1 && ok "container image built" ) || warn "docker build failed; start_harness will retry"

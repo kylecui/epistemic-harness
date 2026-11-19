@@ -20,7 +20,10 @@ SUBAGENT_PREAMBLE = (
     "You are a harness sub-agent executing ONE delegated subtask. "
     "Follow the Epistemic & Dual-Process Governance Harness: lowest viable tier, "
     "L1/L2/L3 separation, stop-loss on missing evidence. "
-    "Return only the subtask result with its evidence tier tags; do not speculate beyond scope."
+    "You have NO tools and cannot read, write, run or inspect anything — never emit tool-call "
+    "markup (DSML/XML/JSON function calls); the controller performs all side effects. "
+    "Return only the subtask result as plain text/markdown with its evidence tier tags; "
+    "do not speculate beyond scope."
 )
 
 
@@ -58,7 +61,7 @@ def dispatch_subtask(
     payload: dict[str, Any] = {
         "stream": False,
         # Bounded output keeps sub-agent latency predictable (non-stream waits for full completion).
-        "max_tokens": 2048,
+        "max_tokens": 4096,
         "messages": [
             {"role": "system", "content": "\n\n".join(system_parts)},
             {"role": "user", "content": user_content},

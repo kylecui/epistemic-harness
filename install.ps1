@@ -73,8 +73,7 @@ Get-ChildItem (Join-Path $RepoRoot "clients\skills") -Directory | ForEach-Object
         Write-Host "  [OK] user-level skill: $($_.Name)"
     }
 }
-$HarnessFn = "function harness { & `"$RepoRoot\start_harness.ps1`" -Global @args }"
-foreach ($prof in @("$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1",
+$HarnessFn = "function harness { & `"$RepoRoot\start_harness.ps1`" -Global @args }"foreach ($prof in @("$HOME\Documents\WindowsPowerShell\Microsoft.PowerShell_profile.ps1",
                     "$HOME\Documents\PowerShell\Microsoft.PowerShell_profile.ps1")) {
     $dir = Split-Path $prof
     if (-not (Test-Path $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
@@ -90,7 +89,15 @@ if ((Test-Path $BashRc) -and -not (Select-String -Path $BashRc -Pattern "alias h
     Write-Host "  [OK] harness alias -> $BashRc"
 }
 
-Write-Host "[7/7] Importing Pi credentials & building container image..." -ForegroundColor Cyan
+Write-Host "[7/7] Importing Pi credentials, extensions & building container image..." -ForegroundColor Cyan
+$UserExt = Join-Path $AgentDir "extensions"
+New-Item -ItemType Directory -Force -Path $UserExt | Out-Null
+Get-ChildItem (Join-Path $RepoRoot "extensions") -File -ErrorAction SilentlyContinue | ForEach-Object {
+    if (-not (Test-Path (Join-Path $UserExt $_.Name))) {
+        Copy-Item $_.FullName $UserExt
+        Write-Host "  [OK] extension: $($_.Name)"
+    }
+}
 & $VenvPython (Join-Path $RepoRoot "scripts\import_pi_credentials.py") --repo-root $RepoRoot
 if (Get-Command docker -ErrorAction SilentlyContinue) {
     Push-Location $RepoRoot
