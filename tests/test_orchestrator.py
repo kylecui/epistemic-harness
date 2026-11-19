@@ -197,3 +197,88 @@ class TestBiasGuard(unittest.TestCase):
         self.assertIn("BIAS-OVERCONFIDENCE", [m["bias_id"] for m in result["bias_scan"]["matches"]])
         self.assertEqual(calls, ["coder", "critic"])  # escalated to cross-family critic
         self.assertIn("FAIL", result["critic_verdict"])
+
+
+class TestPlanAndRunPlan(unittest.TestCase):
+    def test_plan_numbered_list_parallel(self) -> None:
+        from orchestrator.plan import plan_task
+        plan = plan_task("请完成三件事：1. 解析 config.yaml 的结构 2. 统计 tests/ 下测试数量 3. 列出 TODO 注释")
+        self.assertEqual(len(plan["subtasks"]), 3)
+        self.assertTrue(plan["parallel"])  # no sequential markers -> one wave
+        self.assertEqual(plan["waves"], [["S1", "S2", "S3"]])
+        for st in plan["subtasks"]:
+            self.assertIn(st["agent_profile"], ("explorer", "coder", "deep", "critic"))
+
+    def test_plan_sequential_marker_creates_chain(self) -> None:
+        from orchestrator.plan import plan_task
+        plan = plan_task("任务：1. 先读取日志文件找错误行 2. 然后再根据错误定位对应源码 3. 最后总结根因")
+        self.assertEqual(plan["subtasks"][1]["depends_on"], ["S1"])
+        self.assertEqual(len(plan["waves"]), 3)
+
+    def test_plan_conservative_single_subtask(self) -> None:
+        from orchestrator.plan import plan_task
+        plan = plan_task("把 MAX_RETRY_COUNT 转成 camelCase，直接给我结果")
+        self.assertEqual(len(plan["subtasks"]), 1)
+
+    def test_run_plan_parallel_and_context_passing(self) -> None:
+        from orchestrator.plan import run_plan
+        import threading
+        concurrent_peak = 0
+        active = 0
+        lock = threading.Lock()
+        contexts: dict[str, str] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal concurrent_peak, active
+            with lock:
+                active += 1
+                concurrent_peak = max(concurrent_peak, active)
+            import time; time.sleep(0.15)
+            body = json.loads(request.content.decode("utf-8"))
+            user = body["messages"][-1]["content"]
+            sid = request.headers.get("x-harness-session-id", "?")
+            contexts[sid] = user
+            with lock:
+                active -= 1
+            return httpx.Response(
+                200,
+                json={"choices": [{"message": {"content": f"result-{sid}"}}], "usage": {}},
+                headers={"X-Harness-Routed-Tier": "system_1_5", "X-Harness-Selected-Model": "mock", "X-Harness-Tier-Tag": "t"},
+            )
+
+        res = run_plan(
+            subtasks=[
+                {"id": "A", "task_text": "分析模块A的依赖关系"},
+                {"id": "B", "task_text": "分析模块B的依赖关系"},
+                {"id": "C", "task_text": "合并A和B的结论给出最终方案", "depends_on": ["A", "B"], "agent_profile": "deep"},
+            ],
+            transport=httpx.MockTransport(handler),
+            timeout=30,
+        )
+        self.assertGreaterEqual(concurrent_peak, 2)  # A and B truly ran in parallel
+        self.assertIn("Upstream sub-agent results", contexts["C"])
+        self.assertIn("result-A", contexts["C"])
+        self.assertEqual(res["results"]["C"]["agent_profile"], "deep")
+        self.assertEqual(set(res["bias_scan_summary"]), {"A", "B", "C"})
+        self.assertIn("result-C", res["aggregate"])
+
+    def test_run_plan_over_mcp_bridge(self) -> None:
+        from orchestrator.server import Orchestrator, handle_request
+        orch = Orchestrator(Path(__file__).resolve().parent.parent)
+        # avoid real gateway: monkeypatch dispatch used by run_plan
+        import orchestrator.plan as plan_mod
+        original = plan_mod.dispatch_subtask
+        plan_mod.dispatch_subagent = None
+        def fake_dispatch(**kw):
+            return {"agent_profile": kw["agent_profile"], "task_id": kw["task_id"], "content": "ok",
+                    "routed_tier": "system_1", "selected_model": "m", "tier_tag": "t", "usage": {},
+                    "bias_scan": {"matches": [], "verdict": "clean"}}
+        plan_mod.dispatch_subtask = fake_dispatch
+        try:
+            resp = handle_request(orch, {"jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                                         "params": {"name": "run_plan", "arguments": {
+                                             "task_text": "1. 检查版本号 2. 更新changelog"}}})
+            payload = json.loads(resp["result"]["content"][0]["text"])
+            self.assertEqual(len(payload["results"]), 2)
+        finally:
+            plan_mod.dispatch_subtask = original

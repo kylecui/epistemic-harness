@@ -57,6 +57,8 @@ def dispatch_subtask(
 
     payload: dict[str, Any] = {
         "stream": False,
+        # Bounded output keeps sub-agent latency predictable (non-stream waits for full completion).
+        "max_tokens": 2048,
         "messages": [
             {"role": "system", "content": "\n\n".join(system_parts)},
             {"role": "user", "content": user_content},

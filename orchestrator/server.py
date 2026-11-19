@@ -9,6 +9,8 @@ Tools exposed to the main agent (controller):
   submit_l5_claim     - shared-session L5 derivation DAG (weakest-link cap)
   audit_dag           - converge gate: overall confidence cap + L1 conflict blocks
   bias_scan           - deterministic cognitive-bias first-pass screen (L3 heuristic)
+  plan_task           - decompose a task into subtasks with tier/profile + dependency waves
+  run_plan            - execute the plan: create sub-agents (parallel waves, context passing)
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ if str(REPO_ROOT) not in sys.path:
 from mcp_server.dag_engine import EpistemicEngine
 from orchestrator.bias_guard import BiasGuard
 from orchestrator.dispatch import dispatch_subtask
+from orchestrator.plan import plan_task, run_plan
 from orchestrator.planner import classify_task
 from orchestrator.skills import SkillRegistry
 
@@ -67,6 +70,48 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {"text": {"type": "string"}},
             "required": ["text"],
+        },
+    },
+    {
+        "name": "plan_task",
+        "description": (
+            "Decompose a task into subtasks (deterministic heuristics; conservative single-subtask fallback). "
+            "Returns per-subtask tier/profile, auto-attached skills, dependency waves. Advisory — review before run_plan."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"task_text": {"type": "string"}},
+            "required": ["task_text"],
+        },
+    },
+    {
+        "name": "run_plan",
+        "description": (
+            "Create and run sub-agents per plan: parallel waves execute concurrently, dependent subtasks "
+            "receive upstream results as context. Omit subtasks to auto-plan from task_text. "
+            "Each sub-agent gets its own profile-pinned tier/model via the gateway."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_text": {"type": "string", "default": ""},
+                "subtasks": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "task_text": {"type": "string"},
+                            "agent_profile": {"type": "string", "enum": ["explorer", "coder", "deep", "critic"]},
+                            "depends_on": {"type": "array", "items": {"type": "string"}},
+                        },
+                        "required": ["task_text"],
+                    },
+                },
+                "escalate_on_bias": {"type": "boolean", "default": False},
+                "synthesize": {"type": "boolean", "default": False},
+                "timeout": {"type": "number", "default": 300},
+            },
         },
     },
     {
@@ -128,6 +173,19 @@ class Orchestrator:
 
     def classify_task(self, task_text: str) -> dict[str, Any]:
         return classify_task(task_text, skills_matcher=self.skills.match_for_task)
+
+    def plan_task(self, task_text: str) -> dict[str, Any]:
+        return plan_task(task_text, skills_matcher=self.skills.match_for_task)
+
+    def run_plan(self, args: dict[str, Any]) -> dict[str, Any]:
+        return run_plan(
+            task_text=str(args.get("task_text", "")),
+            subtasks=args.get("subtasks"),
+            escalate_on_bias=bool(args.get("escalate_on_bias", False)),
+            synthesize=bool(args.get("synthesize", False)),
+            timeout=float(args.get("timeout", 300)),
+            skills_matcher=self.skills.match_for_task,
+        )
 
     def dispatch_subagent(self, args: dict[str, Any]) -> dict[str, Any]:
         attached = self.skills.match_for_task(args["task_text"])
@@ -192,6 +250,10 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
                 res = orch.engine.audit_dag()
             elif name == "bias_scan":
                 res = orch.bias_guard.scan(args["text"])
+            elif name == "plan_task":
+                res = orch.plan_task(args["task_text"])
+            elif name == "run_plan":
+                res = orch.run_plan(args)
             else:
                 return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Unknown tool: {name}"}}
             return {

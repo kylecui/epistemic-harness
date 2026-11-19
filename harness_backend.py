@@ -17,6 +17,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 REPO_ROOT = Path(os.getenv("HARNESS_REPO_ROOT", str(Path(__file__).resolve().parent))).resolve()
 if str(REPO_ROOT) not in __import__("sys").path:
@@ -49,7 +50,9 @@ app = FastAPI(title="epistemic-harness-backend", version="0.3.0")
 @app.post("/mcp/epistemic")
 async def mcp_epistemic(request: Request) -> Any:
     req = await request.json()
-    resp = epistemic_handle(_engine(), req)
+    # handle_request is fully synchronous (and run_plan dispatches blocking HTTP back into
+    # this same process) — it MUST run off the event loop or the gateway deadlocks.
+    resp = await run_in_threadpool(epistemic_handle, _engine(), req)
     if resp is None:
         return JSONResponse({}, status_code=202)
     return JSONResponse(resp)
@@ -58,7 +61,7 @@ async def mcp_epistemic(request: Request) -> Any:
 @app.post("/mcp/orchestrator")
 async def mcp_orchestrator(request: Request) -> Any:
     req = await request.json()
-    resp = orchestrator_handle(_orch(), req)
+    resp = await run_in_threadpool(orchestrator_handle, _orch(), req)
     if resp is None:
         return JSONResponse({}, status_code=202)
     return JSONResponse(resp)
