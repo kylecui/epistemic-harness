@@ -10,7 +10,9 @@ untouched. Injection events are traced for auditability.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import re
+from typing import Any
 
 TIER_LABELS: dict[str, str] = {
     "system_0": "Reflexive Execution (Tier 0)",
@@ -32,8 +34,8 @@ def detect_mode(user_text: str, tier: str) -> str:
         return "Converge"
     if EXPLORE_PATTERNS.search(user_text or ""):
         return "Explore"
-    # Default: light tiers stay exploratory; analysis tiers and above default to Converge.
-    return "Explore" if tier in ("system_0", "system_1") else "Converge"
+    # Default: only the deliberative tiers converge; routine analysis stays exploratory.
+    return "Converge" if tier in ("system_2", "system_2_plus") else "Explore"
 
 
 def build_tier_tag(tier: str, mode: str) -> str:
@@ -56,6 +58,8 @@ def guard_openai_message(data: dict, tag: str) -> bool:
         msg = data["choices"][0]["message"]
     except (KeyError, IndexError, TypeError):
         return False
+    if msg.get("tool_calls") and not (msg.get("content") or "").strip():
+        return False  # pure tool-call turn: no user-facing text, do not inject
     content = msg.get("content")
     if not isinstance(content, str):
         return False
@@ -87,9 +91,8 @@ def guard_anthropic_content(data: dict, tag: str) -> bool:
             if injected:
                 block["text"] = new_text
             return injected
-    # Response had no text at all (e.g. tool-use only): prepend a tag block.
-    content.insert(0, {"type": "text", "text": tag})
-    return True
+    # Pure tool_use turns carry no user-facing text: leave them untouched.
+    return False
 
 
 def guard_anthropic_stream_delta(delta: dict, tag: str) -> bool:
@@ -103,3 +106,51 @@ def guard_anthropic_stream_delta(delta: dict, tag: str) -> bool:
     if injected:
         delta["text"] = new_text
     return injected
+
+
+@dataclass
+class StreamTagGuard:
+    """Stateful SSE prefix buffer preventing split-chunk duplicate `[Tier: ...]` tags.
+
+    Upstream may split the tag across chunks ("[" + "Tier: ...]"); a stateless
+    per-chunk check then injects a second copy. This buffer decides exactly once.
+    """
+
+    tag: str
+    max_probe_chars: int = 24
+    _buf: str = ""
+    _decided: bool = False
+    injected: bool = False
+
+    def feed(self, chunk: str) -> str | None:
+        """Feed a content delta; returns text to emit, or None while still probing the prefix."""
+        if self._decided:
+            return chunk
+        if not chunk:
+            return None
+        self._buf += chunk
+        stripped = self._buf.lstrip()
+        if not stripped:
+            return None
+        if not stripped.startswith("["):
+            # No leading tag marker: inject the canonical tag and flush the buffer once.
+            self._decided = True
+            self.injected = True
+            out = self.tag + "\n\n" + stripped
+            self._buf = ""
+            return out
+        if ("\n" in stripped) or ("]" in stripped) or len(stripped) >= self.max_probe_chars:
+            self._decided = True
+            out, self.injected = ensure_text_tag(self._buf, self.tag)
+            self._buf = ""
+            return out
+        return None
+
+    def flush(self) -> str | None:
+        """Emit any buffered prefix if the stream ended before a decision was made."""
+        if self._decided or not self._buf:
+            return None
+        self._decided = True
+        out, self.injected = ensure_text_tag(self._buf, self.tag)
+        self._buf = ""
+        return out

@@ -4,6 +4,8 @@ import sys
 import unittest
 
 import httpx
+
+from tests.sse_util import sse_response
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -62,15 +64,7 @@ class TestDispatch(unittest.TestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             captured["headers"] = dict(request.headers)
             captured["payload"] = json.loads(request.content.decode("utf-8"))
-            return httpx.Response(
-                200,
-                json={"choices": [{"message": {"content": "sub-result"}}], "usage": {}},
-                headers={
-                    "X-Harness-Routed-Tier": "system_1_5",
-                    "X-Harness-Selected-Model": "kimi-for-coding",
-                    "X-Harness-Tier-Tag": "[Tier: Structured Analysis (Tier 1.5) | Mode: Converge]",
-                },
-            )
+            return sse_response("sub-result", model="kimi-for-coding")
 
         result = dispatch_subtask(
             agent_profile="coder",
@@ -181,11 +175,7 @@ class TestBiasGuard(unittest.TestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             calls.append(request.headers.get("x-harness-agent-id", "?"))
             content = "这个方案绝对没问题，肯定能过。" if len(calls) == 1 else "FAIL: overclaim"
-            return httpx.Response(
-                200,
-                json={"choices": [{"message": {"content": content}}], "usage": {}},
-                headers={"X-Harness-Routed-Tier": "system_1_5", "X-Harness-Selected-Model": "m", "X-Harness-Tier-Tag": "t"},
-            )
+            return sse_response(content, model="m")
 
         result = dispatch_subtask(
             agent_profile="coder",
@@ -240,11 +230,7 @@ class TestPlanAndRunPlan(unittest.TestCase):
             contexts[sid] = user
             with lock:
                 active -= 1
-            return httpx.Response(
-                200,
-                json={"choices": [{"message": {"content": f"result-{sid}"}}], "usage": {}},
-                headers={"X-Harness-Routed-Tier": "system_1_5", "X-Harness-Selected-Model": "mock", "X-Harness-Tier-Tag": "t"},
-            )
+            return sse_response(f"result-{sid}", model="mock")
 
         res = run_plan(
             subtasks=[

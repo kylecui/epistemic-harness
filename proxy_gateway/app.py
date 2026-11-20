@@ -21,8 +21,10 @@ from proxy_gateway.policy import (
     inject_thinking_language_anthropic,
     inject_thinking_language_openai,
     rewrite_openai_payload,
+    apply_effort_override,
     _extract_last_user_text,
 )
+from proxy_gateway.exclude_policy import resolve_excluded_pool
 from proxy_gateway.provider_auth import copilot_auth, google_headers
 from proxy_gateway.response_guard import (
     build_tier_tag,
@@ -31,6 +33,7 @@ from proxy_gateway.response_guard import (
     guard_anthropic_stream_delta,
     guard_openai_message,
     guard_openai_stream_delta,
+    StreamTagGuard,
 )
 from proxy_gateway.quota_manager import QuotaManager
 from proxy_gateway.thrashing_guard import GuardState, RECOVERY_DIRECTIVE
@@ -202,13 +205,16 @@ def create_app(
         agent_id, profile = _resolve_agent(request)
         agent_tier = str(profile.get("tier", "")).strip().lower() if profile else None
         decision = decide_routing(body.get("messages", []), dict(request.headers), agent_tier=agent_tier)
+        decision = apply_effort_override(decision, request.headers.get("x-harness-effort"))
         user_text = _extract_last_user_text(body.get("messages", []))
         tier_tag = build_tier_tag(decision.tier, detect_mode(user_text, decision.tier))
         requested_model = body.get("model")
         if not requested_model and profile and profile.get("model"):
             requested_model = str(profile["model"]).strip()
         sess_id = request.headers.get("x-harness-session-id", "default")
-        exclude_pool = session_last_pool.get(sess_id) if decision.cross_family_critic else None
+        exclude_pool = resolve_excluded_pool(
+            dict(request.headers), qm, session_last_pool, sess_id, decision.cross_family_critic
+        )
         selection = qm.select_candidates(
             decision.tier,
             "openai",
@@ -297,6 +303,7 @@ def create_app(
             tripped = False
             completed = False
             last_chunk_id = "harness-fallback"
+            openai_tag_guard = StreamTagGuard(tier_tag)
             failures: dict[str, str] = {}
             for mkey in selection.failover_chain:
                 chosen_key = mkey
@@ -333,9 +340,11 @@ def create_app(
                                         delta = choice.get("delta") or {}
                                         if choice.get("finish_reason"):
                                             saw_finish = True
-                                        if not tag_done and delta.get("content"):
-                                            tag_injected = guard_openai_stream_delta(delta, tier_tag) or tag_injected
-                                            tag_done = True
+                                        if delta.get("content"):
+                                            emitted = openai_tag_guard.feed(str(delta["content"]))
+                                            if emitted is not None:
+                                                delta["content"] = emitted
+                                            tag_injected = openai_tag_guard.injected or tag_injected
                                         out_chars += len(str(delta.get("content") or ""))
                                         thinking = delta.get("reasoning_content") or delta.get("reasoning") or ""
                                         if thinking and guard.feed_thinking(str(thinking)):
@@ -467,6 +476,7 @@ def create_app(
         agent_id, profile = _resolve_agent(request)
         agent_tier = str(profile.get("tier", "")).strip().lower() if profile else None
         decision = decide_routing(body.get("messages", []), dict(request.headers), agent_tier=agent_tier)
+        decision = apply_effort_override(decision, request.headers.get("x-harness-effort"))
         user_text = _extract_last_user_text(body.get("messages", []))
         tier_tag = build_tier_tag(decision.tier, detect_mode(user_text, decision.tier))
         requested_model = body.get("model")
@@ -517,6 +527,7 @@ def create_app(
             tag_injected = False
             tripped = False
             completed = False
+            anthropic_tag_guard = StreamTagGuard(tier_tag)
             failures: dict[str, str] = {}
             for mkey in selection.failover_chain:
                 chosen_key = mkey
@@ -547,9 +558,11 @@ def create_app(
                                         if delta.get("type") == "text_delta":
                                             text = str(delta.get("text", ""))
                                             out_chars += len(text)
-                                            if not tag_done and text.strip():
-                                                tag_injected = guard_anthropic_stream_delta(delta, tier_tag) or tag_injected
-                                                tag_done = True
+                                            if text:
+                                                emitted = anthropic_tag_guard.feed(text)
+                                                if emitted is not None:
+                                                    delta["text"] = emitted
+                                                tag_injected = anthropic_tag_guard.injected or tag_injected
                                         elif delta.get("type") == "thinking_delta":
                                             thinking = str(delta.get("thinking", ""))
                                             if thinking and guard.feed_thinking(thinking):

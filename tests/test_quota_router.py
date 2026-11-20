@@ -8,6 +8,8 @@ import unittest
 from fastapi.testclient import TestClient
 import httpx
 
+from tests.sse_util import sse_response
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
@@ -234,3 +236,38 @@ class TestProviderRequiredHeaders(unittest.TestCase):
                 "messages": [{"role": "user", "content": "同一会话的首条消息"}, {"role": "user", "content": follow_up}]})
         self.assertTrue(seen[0].startswith("hs-"))
         self.assertEqual(seen[0], seen[1])  # session-stable => provider-side cache affinity
+
+
+class TestCrossFamilyExclusionRealDispatch(unittest.TestCase):
+    """P0-1: exclusion must work for sub-agent dispatches (per-task session ids), not only same-session calls."""
+
+    def test_exclude_model_header_maps_to_drafter_pool(self) -> None:
+        from proxy_gateway.exclude_policy import resolve_excluded_pool
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        qm = QuotaManager(REPO_ROOT / "proxy_gateway" / "quota_policy.yaml", Path(tmp.name) / "l.db")
+        # drafter ran on kimi-for-coding; critic call uses a NEW session id but passes the header
+        pool = resolve_excluded_pool({"X-Harness-Exclude-Model": "kimi-for-coding"}, qm, {}, "task-1-critic", True)
+        self.assertEqual(pool, "kimi_allegretto")
+        # explicit pool header wins
+        pool2 = resolve_excluded_pool({"x-harness-exclude-pool": "zhipu_v2_max"}, qm, {}, "s", True)
+        self.assertEqual(pool2, "zhipu_v2_max")
+
+    def test_critic_dispatch_never_reuses_drafter_pool_end_to_end(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        qm = QuotaManager(REPO_ROOT / "proxy_gateway" / "quota_policy.yaml", Path(tmp.name) / "l.db")
+        seen: list[tuple[str, str | None]] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append((request.headers.get("x-harness-agent-id", ""),
+                         request.headers.get("x-harness-exclude-model")))
+            model = "kimi-for-coding"
+            return sse_response("评判：PASS", model=model)
+
+        now = datetime(2026, 11, 19, 3, 0, tzinfo=timezone.utc)
+        from orchestrator.dispatch import dispatch_subtask
+        dispatch_subtask(agent_profile="critic", task_text="review this", task_id="task-9",
+                         gateway_url="http://mock.local", transport=httpx.MockTransport(handler),
+                         exclude_model="kimi-for-coding")
+        self.assertEqual(seen[0][1], "kimi-for-coding")  # header actually sent

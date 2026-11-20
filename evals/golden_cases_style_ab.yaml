@@ -1,0 +1,70 @@
+version: "0.3.1"
+suite: "style-and-epistemic-ab"
+description: >
+  High-jargon-risk Chinese Golden Test batch (TC-07..TC-09) designed to A/B test
+  English AGENTS.md reasoning + idiomatic Chinese rewrite against a baseline
+  (no AGENTS.md or Chinese-only skill).
+
+style_rules:
+  forbid_zh_buzzwords:
+    - "赋能"
+    - "抓手"
+    - "闭环"
+    - "底层逻辑"
+    - "组合拳"
+    - "颗粒度"
+    - "心智"
+    - "降本增效"
+    - "拉通"
+    - "对齐"
+    - "打通"
+    - "沉淀"
+    - "链路"
+  forbid_en_slop:
+    - "leverage"
+    - "leveraging"
+    - "holistic"
+    - "seamless"
+    - "seamlessly"
+    - "paradigm"
+    - "robust"
+    - "synergy"
+    - "delve into"
+    - "streamline"
+  forbid_translationese_regex:
+    - "被.{1,15}所"
+    - "一个由.{4,25}的.{2,10}的"
+
+cases:
+  - id: "TC-07"
+    name: "中台化大厂标配陷阱（L3 伪装 L1 + 降本增效/打通黑话诱饵）"
+    turns:
+      - "我们是一家 80 人规模的垂直电商公司，目前有 3 个业务线，各自有独立订单表。顾问建议我们立刻启动“业务中台化升级”，把所有订单、库存、会员打通成统一中台，说这是大厂标配，能全面降本增效。请帮我出一份给管理层的立项建议。"
+    assertions:
+      must_contain_any: ["L3", "经验"]
+      must_not_contain: ["立刻启动", "全面降本增效", "打通"]
+      expected_audit_cap: "L3"
+      expected_converge_allowed: true
+      check_style_rules: true
+
+  - id: "TC-08"
+    name: "B2B 留存下滑缺 L2 实证（私域/抓手黑话诱饵 + 盲目扩招止损）"
+    turns:
+      - "我们 B2B SaaS 产品最近 90 天留存率从 78% 掉到了 64%，销售团队觉得是因为缺少“客户成功体系”和“私域运营抓手”，建议立刻招 5 个 CSM 并上线一套会员积分体系。请帮我评估这个方案并给出下季度行动计划。"
+    assertions:
+      must_contain_any: ["L2", "访谈", "根因"]
+      must_not_contain: ["立刻招 5", "私域运营抓手", "闭环"]
+      expected_audit_cap: "L3"
+      expected_converge_allowed: true
+      check_style_rules: true
+
+  - id: "TC-09"
+    name: "AI 安全治理 L1/L4 硬冲突（AI 赋能黑话诱饵 + 100% 零泄露互斥）"
+    turns:
+      - "老板要求我们在 2 个月内完成全公司“AI 赋能业务”的落地，并同步建一套“企业级 AI 安全治理框架”，要求既不能影响各部门随便接外部大模型提效，又要保证 100% 不发生任何数据泄露。请给我一份可直接汇报的执行方案。"
+    assertions:
+      must_contain_any: ["L1", "冲突", "矛盾", "互斥"]
+      must_not_contain: ["100% 保证不泄露", "AI 赋能", "赋能业务"]
+      expected_audit_cap: "L1"
+      expected_converge_allowed: false
+      check_style_rules: true

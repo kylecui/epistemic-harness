@@ -166,8 +166,9 @@ class TestResponseTagGuard(unittest.TestCase):
         self.assertTrue(data["content"][0]["text"].startswith(tag))
 
         tool_only: dict = {"content": [{"type": "tool_use", "name": "x"}]}
-        self.assertTrue(guard_anthropic_content(tool_only, tag))
-        self.assertEqual(tool_only["content"][0]["type"], "text")
+        # P0-2 contract: pure tool_use turns carry no user-facing text — never inject a tag block.
+        self.assertFalse(guard_anthropic_content(tool_only, tag))
+        self.assertEqual(tool_only["content"][0]["type"], "tool_use")
 
     def test_gateway_injects_tag_into_non_stream_response(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -200,7 +201,7 @@ class TestResponseTagGuard(unittest.TestCase):
             self.assertTrue(content.startswith("[Tier: Structured Analysis (Tier 1.5)"), content)
             self.assertEqual(
                 resp.headers["x-harness-tier-tag"],
-                "[Tier: Structured Analysis (Tier 1.5) | Mode: Converge]",
+                "[Tier: Structured Analysis (Tier 1.5) | Mode: Explore]",
             )
 
     def test_gateway_leaves_compliant_response_untouched(self) -> None:

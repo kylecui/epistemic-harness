@@ -185,6 +185,7 @@ class Orchestrator:
             synthesize=bool(args.get("synthesize", False)),
             timeout=float(args.get("timeout", 300)),
             skills_matcher=self.skills.match_for_task,
+            engine=self.engine,
         )
 
     def dispatch_subagent(self, args: dict[str, Any]) -> dict[str, Any]:

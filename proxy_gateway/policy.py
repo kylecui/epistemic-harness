@@ -29,6 +29,24 @@ TIER_PROFILES: dict[str, tuple[str, int, int, int, bool]] = {
     "system_2_plus": ("high",   16384, 36000, 6, True),
 }
 
+VALID_EFFORTS = ("minimal", "low", "medium", "high")
+
+
+def apply_effort_override(decision: RoutingDecision, effort: str | None) -> RoutingDecision:
+    """Allow an explicit X-Harness-Effort header to clamp/adjust the tier's reasoning effort.
+
+    Deliberate escape hatch: the caller (e.g. a sub-agent dispatch reacting to a
+    reasoning-budget blowout) can lower effort without changing the cognitive tier.
+    """
+    value = (effort or "").strip().lower()
+    if value not in VALID_EFFORTS:
+        return decision
+    return RoutingDecision(
+        decision.tier, value, decision.anthropic_budget,
+        decision.max_thinking_chars, decision.max_pivots, decision.cross_family_critic,
+        decision.reason + f"+effort_override({value})",
+    )
+
 SYSTEM_0_PATTERNS = re.compile(
     r"(转成|转换|格式化|camelCase|snake_case|JSON\s*key|直接给我结果|一行命令|翻译成\s*shell)",
     re.I,

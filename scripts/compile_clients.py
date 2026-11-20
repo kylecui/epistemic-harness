@@ -19,6 +19,13 @@ def _render_core_protocol(spec: dict, include_mcp: bool) -> str:
         "1. **Epistemic Layering**: Strictly separate axioms (L1), primary evidence (L2), and heuristics (L3). Never treat heuristics, blog notes, or engineering folklore as universal laws.",
         "2. **Adaptive Dual-Process Thinking**: Default to the lowest viable cognitive tier. Execute simple tasks directly; stop early when primary evidence is missing instead of thrashing.",
         f"3. **Thinking vs. Response Language**: {spec['thinking_language']['directive']}",
+    ]
+    tl = spec["thinking_language"]
+    if tl.get("reasoning_style"):
+        lines.append(f"4. **{tl['reasoning_style']['title']}**: {tl['reasoning_style']['directive']}")
+    if tl.get("output_style"):
+        lines.append(f"5. **{tl['output_style']['title']}**: {tl['output_style']['directive']}")
+    lines += [
         "",
         "## 1. Five-Layer Epistemic Taxonomy (L1-L5)",
     ]

@@ -1,13 +1,18 @@
 """Sub-agent dispatch: execute one subtask through the local proxy gateway.
 
-The gateway assigns the cognitive tier via the X-Harness-Agent-Id profile,
-selects the model dynamically (quota/peak/failover), injects the thinking
-policy, and enforces the output contract. This module only builds payloads and
-parses results — the main agent never touches implementation details.
+Design notes:
+  - Every dispatch rides the gateway's SSE stream (stream=True) so sub-agents get the
+    streaming thrashing guard and its seamless low-effort recovery (P0-3). Non-streaming
+    would silently bypass that guard and hang for the full timeout instead.
+  - Cross-family critic: the drafter's model is passed as X-Harness-Exclude-Model so the
+    gateway physically excludes the drafter's shared pool (P0-1) — session-id scoping alone
+    does not work for per-subtask session ids.
+  - Sub-agents have NO tools: they reason in plain text; the controller applies side effects.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -26,6 +31,14 @@ SUBAGENT_PREAMBLE = (
     "do not speculate beyond scope."
 )
 
+# Reasoning-heavy models can burn the whole output budget on reasoning_content; keep
+# generous budgets for deep tiers and retry with a clamped effort when content comes back empty.
+BUDGET_BY_PROFILE: dict[str, int] = {
+    "explorer": 2048,
+    "coder": 4096,
+    "deep": 8192,
+    "critic": 8192,
+}
 
 _BIAS_GUARD = None
 
@@ -40,6 +53,33 @@ def _get_bias_guard():
     return _BIAS_GUARD
 
 
+def _consume_openai_sse(resp: httpx.Response) -> tuple[str, dict[str, Any]]:
+    """Accumulate assistant text + usage from an OpenAI-compatible SSE stream."""
+    parts: list[str] = []
+    usage: dict[str, Any] = {}
+    for raw in resp.iter_lines():
+        if not raw:
+            continue
+        line = raw.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[5:].strip()
+        if payload == "[DONE]":
+            break
+        try:
+            obj = json.loads(payload)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj.get("usage"), dict):
+            usage = obj["usage"] or usage
+        for choice in obj.get("choices") or []:
+            delta = (choice or {}).get("delta") or {}
+            text = delta.get("content")
+            if isinstance(text, str) and text:
+                parts.append(text)
+    return "".join(parts), usage
+
+
 def dispatch_subtask(
     agent_profile: str,
     task_text: str,
@@ -50,18 +90,20 @@ def dispatch_subtask(
     transport: httpx.BaseTransport | None = None,
     timeout: float = 300.0,
     escalate_on_bias: bool = False,
+    exclude_model: str | None = None,
+    max_tokens: int | None = None,
 ) -> dict[str, Any]:
-    """Dispatch a single subtask to the gateway with the given agent profile."""
+    """Dispatch a single subtask to the gateway under the given agent profile."""
     base = (gateway_url or os.getenv("HARNESS_GATEWAY_URL", DEFAULT_GATEWAY_URL)).rstrip("/")
     system_parts = [SUBAGENT_PREAMBLE]
     for skill in attached_skills or []:
         system_parts.append(f"[Attached Skill: {skill.get('name', skill.get('id', 'unknown'))}]\n{skill.get('content', '')}")
     user_content = task_text if not context else f"{task_text}\n\n[Controller context]\n{context}"
 
+    budget = max_tokens or BUDGET_BY_PROFILE.get(agent_profile, 4096)
     payload: dict[str, Any] = {
-        "stream": False,
-        # Bounded output keeps sub-agent latency predictable (non-stream waits for full completion).
-        "max_tokens": 4096,
+        "stream": True,  # P0-3: ride the streaming guard (thrashing circuit-breaker + recovery)
+        "max_tokens": budget,
         "messages": [
             {"role": "system", "content": "\n\n".join(system_parts)},
             {"role": "user", "content": user_content},
@@ -72,20 +114,40 @@ def dispatch_subtask(
         "X-Harness-Session-Id": task_id,
         "Content-Type": "application/json",
     }
-    with httpx.Client(transport=transport, timeout=timeout) as client:
-        resp = client.post(f"{base}/v1/chat/completions", json=payload, headers=headers)
-    resp.raise_for_status()
-    data = resp.json()
-    message = (data.get("choices") or [{}])[0].get("message") or {}
-    content = message.get("content", "")
+    if exclude_model:
+        headers["X-Harness-Exclude-Model"] = exclude_model
+
+    content = ""
+    usage: dict[str, Any] = {}
+    routed_tier = selected_model = tier_tag = ""
+    attempts = 0
+    while True:
+        attempts += 1
+        with httpx.Client(transport=transport, timeout=timeout) as client:
+            with client.stream("POST", f"{base}/v1/chat/completions", json=payload, headers=headers) as resp:
+                if resp.status_code >= 400:
+                    body = resp.read().decode("utf-8", errors="replace")
+                    raise httpx.HTTPStatusError(
+                        f"gateway {resp.status_code}: {body[:300]}", request=resp.request, response=resp
+                    )
+                content, usage = _consume_openai_sse(resp)
+                routed_tier = resp.headers.get("X-Harness-Routed-Tier", "")
+                selected_model = resp.headers.get("X-Harness-Selected-Model", "")
+                tier_tag = resp.headers.get("X-Harness-Tier-Tag", "")
+        if content.strip() or attempts >= 3:
+            break
+        # Empty assistant text: the model spent the entire budget on reasoning. Clamp and retry.
+        payload["max_tokens"] = min(int(payload["max_tokens"]) * 2, 16384)
+        headers["X-Harness-Effort"] = "low" if attempts == 1 else "minimal"
+
     result = {
         "agent_profile": agent_profile,
         "task_id": task_id,
         "content": content,
-        "routed_tier": resp.headers.get("X-Harness-Routed-Tier", ""),
-        "selected_model": resp.headers.get("X-Harness-Selected-Model", ""),
-        "tier_tag": resp.headers.get("X-Harness-Tier-Tag", ""),
-        "usage": data.get("usage") or {},
+        "routed_tier": routed_tier,
+        "selected_model": selected_model,
+        "tier_tag": tier_tag,
+        "usage": usage or {},
         "bias_scan": _get_bias_guard().scan(content),
     }
     # L3 first-pass escalation: bias hits are re-dispatched to a cross-family critic pass.
@@ -104,6 +166,8 @@ def dispatch_subtask(
             gateway_url=gateway_url,
             transport=transport,
             timeout=timeout,
+            exclude_model=selected_model or None,  # P0-1: never let the drafter's family review itself
         )
         result["critic_verdict"] = verdict["content"].strip()
+        result["critic_model"] = verdict["selected_model"]
     return result

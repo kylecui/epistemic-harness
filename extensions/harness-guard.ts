@@ -4,11 +4,13 @@
  * Three enforcement layers (transport-level, no prompt trust required):
  *  1. before_agent_start: appends the compact controller contract to the system prompt of
  *     every user turn (survives missing/stale user-level AGENTS.md).
- *  2. tool_call: blocks concrete implementation work (edit/write) on non-trivial turns
- *     until the turn has used the orchestrator (run_plan / dispatch_subagent / plan_task).
- *     Max 2 blocks per turn, and explicit user override phrases bypass entirely.
- *  3. message_end: detects reasoning oscillation in assistant output (Wait, but ... /
- *     等等不对 ...) and injects a stop-loss directive into the next turn's system prompt.
+ *  2. tool_call: blocks LARGE implementation work on non-trivial turns until the turn has
+ *     used the orchestrator (run_plan / dispatch_subagent / plan_task). Small local edits
+ *     stay zero-friction: <=15 changed lines for edit, <=40 lines for write.
+ *     Max 2 blocks per turn; explicit user override phrases bypass entirely.
+ *  3. Oscillation detection lives in proxy_gateway/thrashing_guard.py (it sees the raw
+ *     thinking stream on every client), NOT here — scanning final prose caused false
+ *     positives when discussing the framework itself.
  *
  * Load: auto-discovered from ~/.pi/agent/extensions/harness-guard.js (global, all projects).
  */
@@ -23,7 +25,6 @@ Anti-thrashing: if you catch yourself re-litigating without new evidence, stop a
 
 User override phrases bypass all of the above: "直接做" / "不要派发" / "我自己来" / "bypass" / "skip dispatch".`;
 
-const OSCILLATION = /(wait,?\s*but|等等不对|话又说回来|let me reconsider|on second thought)/gi;
 const OVERRIDE = /(直接做|不要派发|不用派发|我自己来|bypass|skip dispatch)/i;
 const NONTRIVIAL = /(然后|并且|同时|步骤|先.{0,6}再|实现|重构|排查|修复|设计|部署|迁移|测试|优化|新增|compare|refactor|implement|migrate|debug|design)/i;
 
@@ -32,8 +33,19 @@ export default function (pi) {
   let dispatchedThisTurn = false;
   let blocksThisTurn = 0;
   let overrideThisTurn = false;
-  let pendingStopLoss = false;
-  let oscillatedThisTurn = 0;
+
+  const NEWLINE = String.fromCharCode(10);
+  const countLines = (v) => (typeof v === "string" && v.length ? v.split(NEWLINE).length : 0);
+  const isLargeChange = (event) => {
+    const input = event.input || {};
+    if (String(event.toolName) === "edit") {
+      const edits = Array.isArray(input.edits) ? input.edits : [];
+      const added = edits.reduce((n, e) => n + countLines(e && e.newText), 0);
+      return added > 15;
+    }
+    // write: whole-file creation/replacement
+    return countLines(input.content) > 40;
+  };
 
   const isDispatchCall = (event) => {
     const name = String(event.toolName || "");
@@ -61,15 +73,8 @@ export default function (pi) {
     dispatchedThisTurn = false;
     blocksThisTurn = 0;
     overrideThisTurn = OVERRIDE.test(prompt);
-    oscillatedThisTurn = 0;
 
-    let extra = CONTRACT;
-    if (pendingStopLoss) {
-      extra += `\n\n## Previous turn triggered the oscillation guard
-State only: (1) confirmed L1/L2 facts, (2) the single minimal unknown, (3) 1-3 concrete next actions. Do not resume the previous debate.`;
-      pendingStopLoss = false;
-    }
-    return { systemPrompt: (event.systemPrompt || "") + "\n\n" + extra };
+    return { systemPrompt: (event.systemPrompt || "") + "\n\n" + CONTRACT };
   });
 
   pi.on("tool_call", async (event, ctx) => {
@@ -80,6 +85,7 @@ State only: (1) confirmed L1/L2 facts, (2) the single minimal unknown, (3) 1-3 c
     const name = String(event.toolName || "");
     if (name !== "edit" && name !== "write") return undefined;
     if (!turnNeedsDispatch || dispatchedThisTurn || overrideThisTurn) return undefined;
+    if (!isLargeChange(event)) return undefined; // small local edits stay zero-friction
     if (blocksThisTurn >= 2) return undefined; // safety valve: never deadlock the user
     blocksThisTurn += 1;
     ctx.ui.notify("harness-guard: implementation work blocked until a sub-agent is dispatched", "warn");
@@ -92,25 +98,4 @@ State only: (1) confirmed L1/L2 facts, (2) the single minimal unknown, (3) 1-3 c
         "User can bypass with an explicit phrase (直接做 / 不要派发 / bypass).",
     };
   });
-
-  pi.on("message_end", async (event, _ctx) => {
-    if (!event.message || event.message.role !== "assistant") return undefined;
-    const text = extractText(event.message);
-    if (!text) return undefined;
-    const hits = text.match(OSCILLATION) || [];
-    if (hits.length >= 2) {
-      oscillatedThisTurn += 1;
-      pendingStopLoss = true;
-    }
-    return undefined;
-  });
-
-  function extractText(message) {
-    const parts = message.content ?? [];
-    if (typeof parts === "string") return parts;
-    if (!Array.isArray(parts)) return "";
-    return parts
-      .map((p) => (typeof p === "string" ? p : p && p.type === "text" ? String(p.text || "") : ""))
-      .join("\n");
-  }
 }
