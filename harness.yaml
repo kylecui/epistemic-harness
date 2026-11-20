@@ -119,3 +119,9 @@ orchestration:
       enforces tier tags, and trips anti-thrashing auto-recovery on every request
   - tool: epistemic-mcp and epistemic-orchestrator MCP servers are always connected;
       L5 claims and converge gates are enforced in code
+  tooled_dispatch:
+    title: Tooled sub-agents (implementation path)
+    directive: 'Text-only sub-agents cannot touch files. For real implementation work
+      delegate to a TOOLED sub-agent: `python -m orchestrator.tooled "<task>" --workdir
+      <path>` (isolated pi process, own session, hard timeout) or MCP `dispatch_tooled`.
+      The controller reviews the diff instead of writing the code itself.'

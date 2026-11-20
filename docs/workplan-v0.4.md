@@ -21,25 +21,25 @@
 | 新 | `harness.yaml` 增加 Reasoning/Output Style 切片，编译进 AGENTS.md/SKILL.md | ✅ |
 | 新 | 语言引力 A/B 评测器（`evals/run_style_ab_eval.py --replay/--live`）+ TC-07~09 | ✅ |
 
-## 二、P0 级遗留（下一迭代必须做）
+## 二、P0 级遗留（已关闭）
 
-1. **子 agent 无工具的结构性张力**
-   现状：子 agent 只能输出文本，控制器落盘。评审称其为"盲人写代码"。
-   方案（需决策）：
-   a. 维持现状 + 强化"子 agent 只做只读推理/审查"的定位（评审 P1-2 建议）；
-   b. 新增带工具的编码子 agent：`pi --mode json --no-skills --no-session` 派生隔离进程，
-      由 orchestrator 调度（实现量大，但彻底解决"控制器写代码"问题）。
-   **建议**：先 (a) 明确文档与合同，把 (b) 作为 v0.5 独立里程碑。
+1. **子 agent 无工具的结构性张力** → ✅ `orchestrator/tooled.py` + MCP `dispatch_tooled`：
+   隔离 `pi` 进程（`-p --no-session --no-mcp --no-skills`，硬超时+kill，workdir 白名单），
+   真机验证：14.7s 创建并运行文件。契约已编译进 AGENTS.md。宿主机执行（容器内无 pi 二进制，
+   MCP 会返回明确错误）。文本子 agent 保留给只读推理/审查。
+2. **critic 跨家族对客户端的依赖** → ✅ 网关会话级兜底：exact session → 去 `-critic` 后缀 →
+   全局最近起草方 pool，三级解析（header 优先）。OpenCode/Claude Code/Codex 零配合可用。
+3. **模型级 effort 悬崖** → ✅ `quota_policy.yaml max_effort`（证据驱动：opencode-deepseek
+   在 medium 上 content 为空、low 上正常）+ 网关逐请求钳制 + dispatch 空内容自动重试。
 
-2. **`plan_task` 拆解质量缺乏量化**
-   现状：启发式拆解器（编号列表/连词/序列词）无准确性评测。
-   方案：扩 `evals/`，构造 20 条拆解黄金样本（期望子任务数/依赖结构/档案），
-   在 CI 中断言；不达标时回退单子任务。
+## 三、周期 A/B（已上线 v1）
 
-3. **critic 跨家族仍依赖显式头**
-   现状：dispatch 传 header 才排除；其他客户端（OpenCode/Claude Code）不会自动带。
-   方案：网关侧补"会话级 drafter 记忆"——按 `session_id` 记录最近一次非 critic 请求的 pool，
-   critic 请求自动排除（header 优先，session 兜底）。
+- `scripts/style_ab_periodic.py`：实网跑 TC-07~09，追加 `evals/style_ab_history.jsonl`，
+  自动对比上一轮并报告 REGRESSION（exit 2 供调度器/CI 使用）。
+- 实测轨迹：基线 0/3（黑话泄漏 打通/抓手/赋能/链路）→ 网关注入完整风格禁令后 **2/3**，
+  TC-08/09 零泄漏；TC-07 残留"引用 prompt 黑话"泄漏——scorer 计全文本，下一轮迭代：
+  允许引号内引用或按 must_not 加引号豁免。
+- 建议周期：每次模型订阅变更 / 每月一次；`--models` 传多个可横向对比家族。
 
 ## 三、P1 级（架构收敛）
 
@@ -70,7 +70,7 @@ docker compose up -d --build && curl -s 127.0.0.1:8787/health  # 容器后端
 pi mcp list                                                    # MCP 双服务连通
 ```
 
-## 六、待你决策的三件事
+## 六、待你决策的事
 
 1. 子 agent 是否引入"带工具的隔离进程"（v0.5 里程碑）？
 2. critic 会话级兜底是否立刻做（不依赖客户端配合）？

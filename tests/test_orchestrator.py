@@ -268,3 +268,54 @@ class TestPlanAndRunPlan(unittest.TestCase):
             self.assertEqual(len(payload["results"]), 2)
         finally:
             plan_mod.dispatch_subtask = original
+
+
+class TestTooledSubAgent(unittest.TestCase):
+    def _proc(self, code=0, out="done", err=""):
+        import subprocess
+        return subprocess.CompletedProcess(args=[], returncode=code, stdout=out, stderr=err)
+
+    def test_builds_isolated_pi_command(self) -> None:
+        from orchestrator.tooled import dispatch_tooled
+        captured = {}
+
+        def fake_run(argv, **kw):
+            captured["argv"] = argv
+            captured["cwd"] = kw.get("cwd")
+            return self._proc()
+
+        res = dispatch_tooled("implement parser", runner=fake_run, pi_bin="pi")
+        self.assertEqual(res["status"], "ok")
+        argv = captured["argv"]
+        self.assertIn("-p", argv)
+        self.assertIn("--no-session", argv)
+        self.assertIn("--no-mcp", argv)
+        self.assertIn("--no-skills", argv)
+        self.assertEqual(argv[argv.index("--provider") + 1], "harness-router")
+        self.assertEqual(res["workdir"], str(Path(__file__).resolve().parent.parent))
+
+    def test_timeout_is_reported_not_raised(self) -> None:
+        import subprocess
+        from orchestrator.tooled import dispatch_tooled
+
+        def boom(argv, **kw):
+            raise subprocess.TimeoutExpired(cmd=argv, timeout=kw.get("timeout", 1))
+
+        res = dispatch_tooled("slow task", runner=boom, pi_bin="pi", timeout=0.01)
+        self.assertEqual(res["status"], "timeout")
+        self.assertIn("exceeded", res["error"])
+
+    def test_rejects_workdir_outside_allowed_roots(self) -> None:
+        from orchestrator.tooled import dispatch_tooled
+        res = dispatch_tooled("x", workdir="/", runner=lambda *a, **k: self._proc(), pi_bin="pi")
+        self.assertEqual(res["status"], "rejected")
+
+    def test_reports_missing_pi_binary(self) -> None:
+        from orchestrator import tooled
+        original = tooled.shutil.which
+        tooled.shutil.which = lambda _: None
+        try:
+            res = tooled.dispatch_tooled("x", pi_bin=None)
+        finally:
+            tooled.shutil.which = original
+        self.assertEqual(res["status"], "unavailable")

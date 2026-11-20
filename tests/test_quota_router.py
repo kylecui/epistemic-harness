@@ -271,3 +271,60 @@ class TestCrossFamilyExclusionRealDispatch(unittest.TestCase):
                          gateway_url="http://mock.local", transport=httpx.MockTransport(handler),
                          exclude_model="kimi-for-coding")
         self.assertEqual(seen[0][1], "kimi-for-coding")  # header actually sent
+
+
+class TestCriticSessionFallback(unittest.TestCase):
+    """Client-agnostic cross-family: no exclude headers needed (OpenCode/Claude Code/Codex)."""
+
+    def setUp(self) -> None:
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.qm = QuotaManager(REPO_ROOT / "proxy_gateway" / "quota_policy.yaml", Path(self.tmp.name) / "l.db")
+
+    def test_suffix_and_global_fallback_resolution(self) -> None:
+        from proxy_gateway.exclude_policy import resolve_excluded_pool
+        table = {"task-7": "kimi_allegretto"}
+        # 1) exact session
+        self.assertEqual(resolve_excluded_pool({}, self.qm, table, "task-7", True), "kimi_allegretto")
+        # 2) critic suffix stripped back to the drafter session
+        self.assertEqual(resolve_excluded_pool({}, self.qm, table, "task-7-critic", True), "kimi_allegretto")
+        # 3) globally remembered drafter
+        self.assertEqual(resolve_excluded_pool({}, self.qm, {}, "other-session", True, "zhipu_v2_max"), "zhipu_v2_max")
+        # 4) non-critic turns never exclude
+        self.assertIsNone(resolve_excluded_pool({}, self.qm, table, "task-7", False))
+
+    def test_gateway_remembers_drafter_and_excludes_it_without_headers(self) -> None:
+        pools_seen: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            body = json.loads(request.content.decode("utf-8"))
+            user = body["messages"][-1]["content"]
+            # critic turn (system_2_plus fingerprint) must not land on the drafter's pool
+            return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}})
+
+        now = datetime(2026, 11, 19, 3, 0, tzinfo=timezone.utc)
+        qm = self.qm
+        # make kimi the only fast option for the drafter request
+        client = TestClient(create_app(transport=httpx.MockTransport(handler), quota_manager=qm, now_provider=lambda: now))
+        first = client.post("/v1/chat/completions", json={"stream": False, "model": "kimi-for-coding",
+                                                         "messages": [{"role": "user", "content": "写一个函数"}]})
+        pool1 = first.headers["x-harness-selected-model"] and qm.pool_for_model(first.headers["x-harness-selected-model"])[0]
+        # critic request, DIFFERENT session id, NO exclude headers
+        second = client.post("/v1/chat/completions", headers={"x-harness-session-id": "brand-new"},
+                             json={"stream": False, "messages": [{"role": "user", "content": "请做独立复核并给出最终裁决"}]})
+        pool2 = qm.pool_for_model(second.headers["x-harness-selected-model"])[0]
+        self.assertNotEqual(pool1, pool2, "critic must move to a different provider family")
+
+
+class TestModelEffortCeiling(unittest.TestCase):
+    def test_model_max_effort_clamps_decision(self) -> None:
+        from proxy_gateway.policy import clamp_effort_for_model, decide_routing
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        qm = QuotaManager(REPO_ROOT / "proxy_gateway" / "quota_policy.yaml", Path(tmp.name) / "l.db")
+        d = decide_routing([{"role": "user", "content": "请做第一性原理推演并形式化证明" }])  # system_2 -> high
+        clamped = clamp_effort_for_model(qm, "opencode-deepseek-v4.1-flash", d)
+        self.assertEqual(clamped.tier, d.tier)          # tier unchanged
+        self.assertEqual(clamped.openai_effort, "low")  # effort clamped by evidence
+        # models without a ceiling are untouched
+        self.assertEqual(clamp_effort_for_model(qm, "zhipu-glm-5.3", d).openai_effort, d.openai_effort)

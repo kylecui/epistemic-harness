@@ -11,6 +11,7 @@ Tools exposed to the main agent (controller):
   bias_scan           - deterministic cognitive-bias first-pass screen (L3 heuristic)
   plan_task           - decompose a task into subtasks with tier/profile + dependency waves
   run_plan            - execute the plan: create sub-agents (parallel waves, context passing)
+  dispatch_tooled     - run one TOOLED sub-agent (isolated pi process, can read/write/run)
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ from mcp_server.dag_engine import EpistemicEngine
 from orchestrator.bias_guard import BiasGuard
 from orchestrator.dispatch import dispatch_subtask
 from orchestrator.plan import plan_task, run_plan
+from orchestrator.tooled import dispatch_tooled
 from orchestrator.planner import classify_task
 from orchestrator.skills import SkillRegistry
 
@@ -115,6 +117,25 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "dispatch_tooled",
+        "description": (
+            "Run a TOOLED sub-agent in an isolated pi process (separate context/session, hard timeout). "
+            "Use it for real implementation work in a workspace: it can read/write files and run commands, "
+            "unlike dispatch_subagent which is text-only. Host-side only (requires the pi binary)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_text": {"type": "string"},
+                "workdir": {"type": "string", "description": "Workspace directory (defaults to repo root)"},
+                "profile": {"type": "string", "enum": ["explorer", "coder", "deep", "critic"], "default": "coder"},
+                "model": {"type": "string"},
+                "timeout": {"type": "number", "default": 600},
+            },
+            "required": ["task_text"],
+        },
+    },
+    {
         "name": "query_skills",
         "description": "Search the skill registry by keyword (id/name/description/tags/triggers).",
         "inputSchema": {
@@ -199,6 +220,15 @@ class Orchestrator:
             escalate_on_bias=bool(args.get("escalate_on_bias", False)),
         )
 
+    def dispatch_tooled(self, args: dict[str, Any]) -> dict[str, Any]:
+        return dispatch_tooled(
+            task_text=str(args["task_text"]),
+            workdir=args.get("workdir"),
+            profile=str(args.get("profile", "coder")),
+            model=args.get("model"),
+            timeout=float(args.get("timeout", 600)),
+        )
+
     def query_skills(self, query: str, limit: int = 5) -> dict[str, Any]:
         return {"skills": self.skills.query(query, limit=limit)}
 
@@ -255,6 +285,8 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
                 res = orch.plan_task(args["task_text"])
             elif name == "run_plan":
                 res = orch.run_plan(args)
+            elif name == "dispatch_tooled":
+                res = orch.dispatch_tooled(args)
             else:
                 return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Unknown tool: {name}"}}
             return {

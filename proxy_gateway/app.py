@@ -153,6 +153,7 @@ def create_app(
     qm = quota_manager or QuotaManager(DEFAULT_QUOTA_POLICY, DEFAULT_QUOTA_DB)
     get_now = now_provider or (lambda: datetime.now(timezone.utc))
     session_last_pool: dict[str, str] = {}
+    drafter_state: dict[str, str | None] = {"last_pool": None}
     thinking_lang_mode = os.getenv("HARNESS_THINKING_LANG", "en_with_native_terms")
     # Long deliberative tiers (system_2+, budget 8192) routinely exceed 120s; make it configurable.
     upstream_timeout = httpx.Timeout(float(os.getenv("HARNESS_UPSTREAM_TIMEOUT_SECONDS", "600")))
@@ -213,7 +214,8 @@ def create_app(
             requested_model = str(profile["model"]).strip()
         sess_id = request.headers.get("x-harness-session-id", "default")
         exclude_pool = resolve_excluded_pool(
-            dict(request.headers), qm, session_last_pool, sess_id, decision.cross_family_critic
+            dict(request.headers), qm, session_last_pool, sess_id,
+            decision.cross_family_critic, drafter_state["last_pool"],
         )
         selection = qm.select_candidates(
             decision.tier,
@@ -224,6 +226,8 @@ def create_app(
             exclude_pool=exclude_pool,
         )
         session_last_pool[sess_id] = selection.pool_id
+        if not decision.cross_family_critic:
+            drafter_state["last_pool"] = selection.pool_id
         is_stream = bool(body.get("stream", False))
         guard = GuardState(decision.tier, decision.max_thinking_chars, decision.max_pivots)
         chosen_key = selection.model_key
@@ -482,9 +486,18 @@ def create_app(
         requested_model = body.get("model")
         if not requested_model and profile and profile.get("model"):
             requested_model = str(profile["model"]).strip()
-        selection = qm.select_candidates(
-            decision.tier, "anthropic", requested_model, now_utc=now, fallback_base_url=an_fallback
+        sess_id = request.headers.get("x-harness-session-id", "default")
+        exclude_pool = resolve_excluded_pool(
+            dict(request.headers), qm, session_last_pool, sess_id,
+            decision.cross_family_critic, drafter_state["last_pool"],
         )
+        selection = qm.select_candidates(
+            decision.tier, "anthropic", requested_model, now_utc=now,
+            fallback_base_url=an_fallback, exclude_pool=exclude_pool,
+        )
+        session_last_pool[sess_id] = selection.pool_id
+        if not decision.cross_family_critic:
+            drafter_state["last_pool"] = selection.pool_id
         is_stream = bool(body.get("stream", False))
         guard = GuardState(decision.tier, decision.max_thinking_chars, decision.max_pivots)
 

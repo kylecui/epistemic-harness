@@ -1,17 +1,22 @@
-"""Cross-family exclusion resolution (P0-1).
+"""Cross-family exclusion resolution (P0-1) with session-level fallback.
 
-The session-scoped drafter-pool map only works when the critic call reuses the
-drafter's session id. Sub-agent dispatches use per-subtask ids, so exclusion is
-also driven by explicit headers:
+Resolution order (first hit wins):
+  1. X-Harness-Exclude-Pool   — explicit pool, highest precedence
+  2. X-Harness-Exclude-Model  — mapped to that model's shared pool
+  3. exact session id         — the drafter used the same session (same-client critic pass)
+  4. session id without a critic suffix (…-critic / -review / -audit)
+  5. last drafter pool seen by this gateway instance (client-agnostic fallback)
 
-    X-Harness-Exclude-Pool: <pool_id>      highest precedence
-    X-Harness-Exclude-Model: <model_key>   mapped to that model's shared pool
-    (fallback) session-last-pool when the routing decision is a critic turn
+Steps 3–5 only apply to critic turns. This keeps cross-family review working for
+clients that know nothing about the exclude headers (OpenCode, Claude Code, Codex).
 """
 
 from __future__ import annotations
 
+import re
 from typing import Any
+
+_CRITIC_SUFFIX = re.compile(r"-(?:critic|review|audit|judge)$", re.I)
 
 
 def resolve_excluded_pool(
@@ -20,6 +25,7 @@ def resolve_excluded_pool(
     session_last_pool: dict[str, str],
     sess_id: str,
     is_critic: bool,
+    last_drafter_pool: str | None = None,
 ) -> str | None:
     hdrs = {str(k).lower(): str(v).strip() for k, v in (headers or {}).items()}
 
@@ -32,6 +38,14 @@ def resolve_excluded_pool(
         pool_id, _ = qm.pool_for_model(explicit_model)
         return pool_id
 
-    if is_critic:
-        return session_last_pool.get(sess_id)
-    return None
+    if not is_critic:
+        return None
+
+    if sess_id in session_last_pool:
+        return session_last_pool[sess_id]
+
+    base = _CRITIC_SUFFIX.sub("", sess_id or "")
+    if base and base in session_last_pool:
+        return session_last_pool[base]
+
+    return last_drafter_pool

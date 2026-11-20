@@ -30,6 +30,7 @@ TIER_PROFILES: dict[str, tuple[str, int, int, int, bool]] = {
 }
 
 VALID_EFFORTS = ("minimal", "low", "medium", "high")
+_EFFORT_ORDER = {name: i for i, name in enumerate(VALID_EFFORTS)}
 
 
 def apply_effort_override(decision: RoutingDecision, effort: str | None) -> RoutingDecision:
@@ -142,7 +143,12 @@ def rewrite_anthropic_payload(payload: dict[str, Any], decision: RoutingDecision
 THINKING_EN_DIRECTIVE = (
     "[Harness Thinking Policy] Conduct internal reasoning/thinking in concise English "
     "(keep domain-specific non-English terms verbatim when needed to prevent translation loss). "
-    "Always write the final user-facing answer strictly in the user's language."
+    "Always write the final user-facing answer strictly in the user's language, rewritten naturally "
+    "in idiomatic phrasing (short sentences, active verbs) — not a literal translation of the English reasoning. "
+    "Style bans: internal reasoning must not use corporate filler (leverage, holistic, seamless, paradigm, "
+    "robust, synergy, streamline, delve into); the user-facing answer must not use internet/corporate buzzwords "
+    "(赋能, 抓手, 闭环, 底层逻辑, 组合拳, 颗粒度, 心智, 降本增效, 拉通, 对齐, 打通, 沉淀, 链路) "
+    "or stiff translationese (passive 被...所..., stacked 的...的... modifiers)."
 )
 
 
@@ -174,3 +180,23 @@ def inject_thinking_language_anthropic(payload: dict[str, Any], mode: str = "en_
         updated["system"] = THINKING_EN_DIRECTIVE
     return updated
 
+
+
+def clamp_effort_for_model(qm: Any, model_key: str | None, decision: RoutingDecision) -> RoutingDecision:
+    """Clamp reasoning effort to a model's empirical ceiling (quota_policy `max_effort`).
+
+    Evidence-driven: some models (e.g. deepseek flash behind OpenCode Go) spend the whole
+    output budget on reasoning_content at medium/high effort and return empty content.
+    """
+    if not model_key or model_key not in getattr(qm, "models", {}):
+        return decision
+    ceiling = str(qm.models[model_key].get("max_effort", "")).strip().lower()
+    if ceiling not in _EFFORT_ORDER:
+        return decision
+    if _EFFORT_ORDER[decision.openai_effort] <= _EFFORT_ORDER[ceiling]:
+        return decision
+    return RoutingDecision(
+        decision.tier, ceiling, decision.anthropic_budget,
+        decision.max_thinking_chars, decision.max_pivots, decision.cross_family_critic,
+        decision.reason + f"+model_ceiling({model_key}:{ceiling})",
+    )

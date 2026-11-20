@@ -137,6 +137,9 @@ models:
     default_base_url: https://opencode.ai/inference/go/v1
     api_key_env: OPENCODE_GO_API_KEY
     upstream_model: deepseek-v4.1-flash
+    # Empirical (2026-11-20 live): at medium/high effort this model spends the whole output
+    # budget on reasoning_content and returns empty content; low restores real answers.
+    max_effort: low
     upstream_headers:
       x-opencode-session: '{session}'
     cost_per_1m:

@@ -1,0 +1,12 @@
+{"ts": "2026-11-20T03:11:57.032576+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-07", "error": "KeyError: 'prompt'"}
+{"ts": "2026-11-20T03:11:57.032576+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-08", "error": "KeyError: 'prompt'"}
+{"ts": "2026-11-20T03:11:57.032576+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-09", "error": "KeyError: 'prompt'"}
+{"ts": "2026-11-20T03:12:08.593049+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-07", "passed": false, "thought_lang": "MIXED", "zh_buzzwords": [], "en_slop_hits": [], "translationese_hits": []}
+{"ts": "2026-11-20T03:12:08.593049+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-08", "passed": false, "thought_lang": "EN", "zh_buzzwords": [], "en_slop_hits": [], "translationese_hits": []}
+{"ts": "2026-11-20T03:12:08.593049+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-09", "passed": false, "thought_lang": "ZH", "zh_buzzwords": [], "en_slop_hits": [], "translationese_hits": []}
+{"ts": "2026-11-20T03:18:21.484101+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-07", "passed": false, "thought_lang": "EN", "zh_buzzwords": ["打通"], "en_slop_hits": [], "translationese_hits": []}
+{"ts": "2026-11-20T03:18:21.484101+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-08", "passed": false, "thought_lang": "EN", "zh_buzzwords": ["抓手"], "en_slop_hits": [], "translationese_hits": []}
+{"ts": "2026-11-20T03:18:21.484101+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-09", "passed": false, "thought_lang": "EN", "zh_buzzwords": ["赋能", "链路"], "en_slop_hits": [], "translationese_hits": []}
+{"ts": "2026-11-20T03:20:58.638905+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-07", "passed": false, "thought_lang": "MIXED", "zh_buzzwords": ["打通"], "en_slop_hits": [], "translationese_hits": []}
+{"ts": "2026-11-20T03:20:58.638905+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-08", "passed": true, "thought_lang": "MIXED", "zh_buzzwords": [], "en_slop_hits": [], "translationese_hits": []}
+{"ts": "2026-11-20T03:20:58.638905+00:00", "model": "opencode-deepseek-v4.1-flash", "case": "TC-09", "passed": true, "thought_lang": "MIXED", "zh_buzzwords": [], "en_slop_hits": [], "translationese_hits": []}
