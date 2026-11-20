@@ -119,7 +119,7 @@ def dispatch_subtask(
 
     content = ""
     usage: dict[str, Any] = {}
-    routed_tier = selected_model = tier_tag = ""
+    routed_tier = selected_model = tier_tag = effort = ""
     attempts = 0
     while True:
         attempts += 1
@@ -134,6 +134,7 @@ def dispatch_subtask(
                 routed_tier = resp.headers.get("X-Harness-Routed-Tier", "")
                 selected_model = resp.headers.get("X-Harness-Selected-Model", "")
                 tier_tag = resp.headers.get("X-Harness-Tier-Tag", "")
+                effort = resp.headers.get("X-Harness-Effort", "")
         if content.strip() or attempts >= 3:
             break
         # Empty assistant text: the model spent the entire budget on reasoning. Clamp and retry.
@@ -147,6 +148,7 @@ def dispatch_subtask(
         "routed_tier": routed_tier,
         "selected_model": selected_model,
         "tier_tag": tier_tag,
+        "effort": effort,
         "usage": usage or {},
         "bias_scan": _get_bias_guard().scan(content),
     }

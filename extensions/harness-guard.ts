@@ -16,8 +16,19 @@
 
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+
+const AUDIT_LOG = join(homedir(), ".pi", "agent", "harness-guard.log");
+function audit(line: string): void {
+  try {
+    mkdirSync(dirname(AUDIT_LOG), { recursive: true });
+    appendFileSync(AUDIT_LOG, `${new Date().toISOString()} ${line}` + String.fromCharCode(10));
+  } catch {
+    /* logging must never break the session */
+  }
+}
 
 const CONTRACT = `## Harness Epistemic, Dual-Process & Zero-Residue Contract
 - Separate L1 (axioms), L2 (primary evidence), and L3 (heuristics with scope + counter-examples).
@@ -176,6 +187,7 @@ export default function (pi: any) {
   };
 
   pi.on("session_start", async (_event: any, ctx: any) => {
+    audit("[session] harness-guard v0.4.1 loaded");
     try {
       const res = await fetch("http://127.0.0.1:8787/health");
       if (!res.ok) ctx.ui.notify("harness-guard: gateway unhealthy (127.0.0.1:8787)", "warn");
@@ -202,12 +214,87 @@ export default function (pi: any) {
     return { systemPrompt: (event.systemPrompt || "") + "\n\n" + CONTRACT };
   });
 
+  const MUTATING_BASH = /(>>?\s*\S|tee|mv|cp|sed\s+-i|rm|mkdir|git\s+(add|commit|checkout|reset|restore)|open\([^)]*['\"]w|write_text\(|Path\([^)]*\)\.write)/;
+  const isMutatingBash = (input: any) => {
+    const cmd = typeof input?.command === "string" ? input.command : "";
+    return MUTATING_BASH.test(cmd);
+  };
+
+  // ---- sub-agent visibility: every dispatch is announced with profile, model, tier, effort ----
+  const hookAgent = (ctx: any, label: string, taskId: string, profile: string) => {
+    const msg = `[sub-agent] start ${label} id=${taskId} profile=${profile}`;
+    ctx.ui.notify(msg, "info");
+    audit(msg);
+  };
+  const finishAgent = (ctx: any, label: string, text: string) => {
+    const collect = (obj: any, out: any[] = []): any[] => {
+      if (Array.isArray(obj)) { obj.forEach((x) => collect(x, out)); return out; }
+      if (obj && typeof obj === "object") {
+        if (typeof obj.selected_model === "string") out.push(obj);
+        Object.values(obj).forEach((v) => collect(v, out));
+        return out;
+      }
+      return out;
+    };
+    const emitDone = (m: any) => {
+      const msg = `[sub-agent] done ${label} model=${m.selected_model || "?"} tier=${m.routed_tier || "?"} effort=${m.effort || "-"}`;
+      ctx.ui.notify(msg, "info");
+      audit(msg);
+    };
+    const emitUnknown = () => {
+      const msg = `[sub-agent] done ${label} (no model metadata in result)`;
+      ctx.ui.notify(msg, "info");
+      audit(msg);
+    };
+
+    if (process.env.HARNESS_GUARD_DEBUG) audit(`[debug] result head: ${text.slice(0, 400)}`);
+    let parsed: any = null;
+    const tryParse = (candidate: string) => {
+      try { return JSON.parse(candidate); } catch { return null; }
+    };
+    // 1) direct tool results are clean JSON; 2) codemode wraps output after "Output:";
+    // 3) fall back to unescaping the whole text.
+    parsed = tryParse(text);
+    if (parsed === null) {
+      const outIdx = text.indexOf("Output:");
+      if (outIdx >= 0) parsed = tryParse(text.slice(outIdx + "Output:".length).trim());
+    }
+    if (parsed === null) parsed = tryParse(text.replace(/\\"/g, '"'));
+    if (process.env.HARNESS_GUARD_DEBUG) audit(`[debug] parsed=${parsed !== null} len=${text.length}`);
+    if (parsed !== null) {
+      const found = collect(parsed);
+      if (process.env.HARNESS_GUARD_DEBUG) audit(`[debug] collect found=${found.length} keys=${parsed && typeof parsed === "object" ? Object.keys(parsed).join("|") : typeof parsed}`);
+      if (found.length) { found.forEach(emitDone); return; }
+    }
+    const norm = text.replace(/\\"/g, '"');
+    const re = /"selected_model":\s*"([^"]*)"[[\s\S]{0,200}?"routed_tier":\s*"([^"]*)"[[\s\S]{0,120}?"effort":\s*"([^"]*)"/g;
+    const rows = [...norm.matchAll(re)];
+    if (!rows.length) { emitUnknown(); return; }
+    for (const m of rows) {
+      emitDone({ selected_model: m[1], routed_tier: m[2], effort: m[3] });
+    }
+  };
+
   pi.on("tool_call", async (event: any, ctx: any) => {
+    if (process.env.HARNESS_GUARD_DEBUG) {
+      const keys = Object.keys(event.input || {}).join(",");
+      audit(`[debug] tool_call name=${event.toolName} inputKeys=${keys}`);
+    }
+    if (isDispatchCall(event)) {
+      const code = typeof event.input?.code === "string" ? event.input.code : "";
+      const profile = (code.match(/agent_profile["']?\s*[:=]\s*["']([a-z_]+)["']/) || [])[1] || "auto";
+      const id = (code.match(/task_id["']?\s*[:=]\s*["']([^"']+)["']/) || [])[1] || "-";
+      hookAgent(ctx, String(event.toolName || "dispatch"), id, profile);
+    }
     if (isDispatchCall(event)) {
       dispatchedThisTurn = true;
       return undefined;
     }
     const name = String(event.toolName || "");
+    if (name === "bash" && isMutatingBash(event.input)) {
+      mutatedThisTurn = true; // bash-side writes count too: the exit gate must not depend on the tool name
+      return undefined;
+    }
     if (name !== "edit" && name !== "write") return undefined;
 
     mutatedThisTurn = true;
@@ -227,6 +314,15 @@ export default function (pi: any) {
         `Large ${name} detected (${lines} lines). Run orchestrator.plan_task or dispatch_subagent(profile='critic') ` +
         `to review architectural impact first, or retry directly if already validated (user can say '直接做' / 'bypass').`,
     };
+  });
+
+  pi.on("tool_execution_end", async (event: any, ctx: any) => {
+    const name = String(event.toolName || "");
+    if (!/run_plan|dispatch_subagent|dispatch_tooled|codemode/.test(name)) return undefined;
+    const parts = (event.result?.content || []) as any[];
+    const text = parts.map((c) => (typeof c?.text === "string" ? c.text : "")).join(String.fromCharCode(10));
+    finishAgent(ctx, `tool=${name}`, text);
+    return undefined;
   });
 
   // Deterministic Exit Gate + State-Coupled Anti-Shirking Guard
