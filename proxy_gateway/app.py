@@ -27,6 +27,8 @@ from proxy_gateway.policy import (
 from proxy_gateway.exclude_policy import resolve_excluded_pool
 from proxy_gateway.provider_auth import copilot_auth, google_headers
 from proxy_gateway.response_guard import (
+    build_contract_intercept,
+    check_response_contract,
     build_tier_tag,
     detect_mode,
     guard_anthropic_content,
@@ -158,6 +160,14 @@ def create_app(
     # Long deliberative tiers (system_2+, budget 8192) routinely exceed 120s; make it configurable.
     upstream_timeout = httpx.Timeout(float(os.getenv("HARNESS_UPSTREAM_TIMEOUT_SECONDS", "600")))
 
+    def _openai_contract_chunk(chunk_id: str, text: str) -> str:
+        """Inject a corrective content delta before the final [DONE] (no finish_reason)."""
+        return "data: " + json.dumps({
+            "id": chunk_id,
+            "object": "chat.completion.chunk",
+            "choices": [{"index": 0, "delta": {"content": text}, "finish_reason": None}],
+        }) + "\n\n"
+
     def _openai_terminal_chunk(chunk_id: str, text: str, finish_reason: str = "stop") -> str:
         chunk = {
             "id": chunk_id,
@@ -265,6 +275,49 @@ def create_app(
                 )
             data = last_resp.json()
             tag_injected = guard_openai_message(data, tier_tag)
+
+            # Review-turn output-contract check (issue #1): bounce exactly once
+            # with a corrective directive; on repeat violation append an L2
+            # escalation intercept instead of looping.
+            resp_mode = detect_mode(user_text, decision.tier)
+            contract_violations: list[str] = []
+            _msg = (data.get("choices") or [{}])[0].get("message") or {}
+            _resp_text = _msg.get("content") if isinstance(_msg.get("content"), str) else ""
+            if _resp_text:
+                contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode)
+            if contract_violations and isinstance(_msg.get("content"), str):
+                retry_payload = dict(rewritten)
+                _rmsgs = list(retry_payload.get("messages") or [])
+                _rmsgs.append({"role": "system", "content": build_contract_intercept(contract_violations, retry=True)})
+                retry_payload["messages"] = _rmsgs
+                try:
+                    async with httpx.AsyncClient(transport=transport, timeout=upstream_timeout) as rclient:
+                        rresp = await rclient.post(
+                            f"{target_base}/chat/completions",
+                            json=retry_payload,
+                            headers=_build_upstream_headers(request, qm, chosen_key, "openai", retry_payload),
+                        )
+                    if rresp.status_code < 400:
+                        rdata = rresp.json()
+                        _rmsg = (rdata.get("choices") or [{}])[0].get("message") or {}
+                        _rtext = _rmsg.get("content") if isinstance(_rmsg.get("content"), str) else ""
+                        _still = (
+                            check_response_contract(_rtext, decision.tier, resp_mode)
+                            if _rtext else list(contract_violations)
+                        )
+                        if _rtext and not _still:
+                            data = rdata
+                            contract_violations = []
+                            tag_injected = guard_openai_message(data, tier_tag)
+                except httpx.HTTPError:
+                    pass
+            if contract_violations:
+                _msg2 = (data.get("choices") or [{}])[0].get("message") or {}
+                if isinstance(_msg2.get("content"), str):
+                    _msg2["content"] = (
+                        _msg2["content"] + "\n\n" + build_contract_intercept(contract_violations, retry=False)
+                    )
+
             usage = data.get("usage") or {}
             qm.record_usage(
                 chosen_key,
@@ -286,6 +339,7 @@ def create_app(
                 "tripped": False,
                 "agent_id": agent_id or None,
                 "tag_injected": tag_injected,
+                "contract_violations": contract_violations or None,
             })
             return JSONResponse(
                 status_code=last_resp.status_code,
@@ -309,6 +363,10 @@ def create_app(
             last_chunk_id = "harness-fallback"
             openai_tag_guard = StreamTagGuard(tier_tag)
             failures: dict[str, str] = {}
+            resp_mode = detect_mode(user_text, decision.tier)
+            full_text = ""
+            done_line: str | None = None
+            contract_violations: list[str] = []
             for mkey in selection.failover_chain:
                 chosen_key = mkey
                 rewritten = inject_thinking_language_openai(rewrite_openai_payload(body, decision), thinking_lang_mode)
@@ -333,7 +391,7 @@ def create_app(
                                     continue
                                 if raw_line == "data: [DONE]":
                                     saw_done = True
-                                    yield (raw_line + "\n").encode("utf-8")
+                                    done_line = raw_line  # held: contract check runs before [DONE]
                                     continue
                                 if raw_line.startswith("data: "):
                                     try:
@@ -345,6 +403,7 @@ def create_app(
                                         if choice.get("finish_reason"):
                                             saw_finish = True
                                         if delta.get("content"):
+                                            full_text += str(delta["content"])
                                             emitted = openai_tag_guard.feed(str(delta["content"]))
                                             if emitted is not None:
                                                 delta["content"] = emitted
@@ -364,13 +423,26 @@ def create_app(
                 if tripped:
                     completed = True
                     break
-                if not saw_done or not saw_finish:
+                if not (saw_done and saw_finish):
                     # Upstream truncated the stream (no finish chunk / no [DONE]):
                     # synthesize terminal frames so clients never see
-                    # "Stream ended without finish_reason".
+                    # "Stream ended without finish_reason". The synthesized
+                    # frame carries its own [DONE]; the held line is dropped.
                     yield _openai_terminal_chunk(
                         last_chunk_id, "\n\n[HARNESS_GATEWAY] upstream stream terminated without finish_reason; terminal frame synthesized."
                     ).encode("utf-8")
+                else:
+                    if full_text.strip():
+                        # Review-turn contract check (issue #1): inject the
+                        # intercept once, before the held [DONE], so the client
+                        # sees the bounce.
+                        contract_violations = check_response_contract(full_text, decision.tier, resp_mode)
+                        if contract_violations:
+                            yield _openai_contract_chunk(
+                                last_chunk_id, "\n\n" + build_contract_intercept(contract_violations, retry=True)
+                            ).encode("utf-8")
+                    if done_line is not None:
+                        yield (done_line + "\n").encode("utf-8")
                 completed = True
                 break
             if tripped:
@@ -457,6 +529,7 @@ def create_app(
                 "upstream_failures": failures or None,
                 "agent_id": agent_id or None,
                 "tag_injected": tag_injected,
+                "contract_violations": contract_violations or None,
             })
 
         return StreamingResponse(
@@ -516,6 +589,57 @@ def create_app(
                 await _record_upstream_failure(qm, chosen_key, resp, {}, now)
             data = resp.json()
             guard_anthropic_content(data, tier_tag)
+
+            # Review-turn output-contract check (issue #1): bounce exactly once.
+            resp_mode = detect_mode(user_text, decision.tier)
+            contract_violations: list[str] = []
+            _blocks = data.get("content") if isinstance(data.get("content"), list) else []
+            _resp_text = "".join(
+                str(b.get("text")) for b in _blocks
+                if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str)
+            )
+            if _resp_text:
+                contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode)
+            if contract_violations:
+                retry_payload = dict(rewritten)
+                _existing_sys = retry_payload.get("system")
+                _intercept = build_contract_intercept(contract_violations, retry=True)
+                retry_payload["system"] = (
+                    (_existing_sys + "\n\n" + _intercept)
+                    if isinstance(_existing_sys, str) else _intercept
+                )
+                try:
+                    async with httpx.AsyncClient(transport=transport, timeout=upstream_timeout) as rclient:
+                        rresp = await rclient.post(
+                            f"{an_fallback}/v1/messages",
+                            json=retry_payload,
+                            headers=_build_upstream_headers(request, qm, chosen_key, "anthropic", retry_payload),
+                        )
+                    if rresp.status_code < 400:
+                        rdata = rresp.json()
+                        _rblocks = rdata.get("content") if isinstance(rdata.get("content"), list) else []
+                        _rtext = "".join(
+                            str(b.get("text")) for b in _rblocks
+                            if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str)
+                        )
+                        _still = (
+                            check_response_contract(_rtext, decision.tier, resp_mode)
+                            if _rtext else list(contract_violations)
+                        )
+                        if _rtext and not _still:
+                            data = rdata
+                            contract_violations = []
+                            guard_anthropic_content(data, tier_tag)
+                except httpx.HTTPError:
+                    pass
+            if contract_violations:
+                _blocks2 = data.get("content")
+                if isinstance(_blocks2, list):
+                    _blocks2.append({
+                        "type": "text",
+                        "text": "\n\n" + build_contract_intercept(contract_violations, retry=False),
+                    })
+
             usage = data.get("usage") or {}
             qm.record_usage(
                 chosen_key,
@@ -542,6 +666,10 @@ def create_app(
             completed = False
             anthropic_tag_guard = StreamTagGuard(tier_tag)
             failures: dict[str, str] = {}
+            resp_mode = detect_mode(user_text, decision.tier)
+            full_text = ""
+            stop_lines: list[str] = []
+            contract_violations: list[str] = []
             for mkey in selection.failover_chain:
                 chosen_key = mkey
                 rewritten = inject_thinking_language_anthropic(rewrite_anthropic_payload(body, decision), thinking_lang_mode)
@@ -562,14 +690,20 @@ def create_app(
                                 if not raw_line:
                                     yield b"\n"
                                     continue
+                                if raw_line.startswith("event: ") and raw_line.strip() == "event: message_stop":
+                                    stop_lines = [raw_line]  # held: contract check runs before stop
+                                    continue
                                 if raw_line.startswith("data: "):
                                     try:
                                         ev = json.loads(raw_line[6:])
                                         if ev.get("type") == "message_stop":
                                             saw_stop = True
+                                            stop_lines.append(raw_line)
+                                            continue
                                         delta = ev.get("delta") or {}
                                         if delta.get("type") == "text_delta":
                                             text = str(delta.get("text", ""))
+                                            full_text += text
                                             out_chars += len(text)
                                             if text:
                                                 emitted = anthropic_tag_guard.feed(text)
@@ -595,6 +729,21 @@ def create_app(
                     yield _anthropic_terminal_events(
                         "[HARNESS_GATEWAY] upstream stream terminated without message_stop; terminal frame synthesized."
                     )
+                if stop_lines and full_text.strip():
+                    # Review-turn contract check (issue #1): inject the intercept
+                    # once, before the held message_stop.
+                    contract_violations = check_response_contract(full_text, decision.tier, resp_mode)
+                    if contract_violations:
+                        yield (
+                            "event: content_block_delta\n"
+                            + "data: " + json.dumps({
+                                "type": "content_block_delta",
+                                "delta": {"type": "text_delta", "text": "\n\n" + build_contract_intercept(contract_violations, retry=True)},
+                            })
+                            + "\n\n"
+                        ).encode("utf-8")
+                for _sl in stop_lines:
+                    yield (_sl + "\n").encode("utf-8")
                 completed = True
                 break
             if tripped:
@@ -670,6 +819,7 @@ def create_app(
                 "tripped": tripped or guard.tripped,
                 "agent_id": agent_id or None,
                 "tag_injected": tag_injected,
+                "contract_violations": contract_violations or None,
             })
 
         return StreamingResponse(

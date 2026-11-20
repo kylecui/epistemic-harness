@@ -58,7 +58,8 @@ def _render_core_protocol(spec: dict, include_mcp: bool) -> str:
         "- **Explore Mode**: Allow broad L3 heuristic ideation, clearly tagged `[L3 | provisional]`.",
         "- **Converge Mode**: Filter unsupported assertions, attach scope & counter-examples to every L3 item, and surface the exact confidence cap.",
         "- **Tier 0 / Tier 1 Output**: Start with `[Tier: <name> | Mode: Explore/Converge]` followed directly by the concise result (no heavy boilerplate tables).",
-        "- **Tier 1.5 / Tier 2 / Tier 2+ / Converge Output**: Start with `[Tier: <name> | Mode: <Explore/Converge> | Confidence Cap: L1/L2/L3]`, followed by: (1) Core Conclusion, (2) Epistemic Breakdown (`[L1]`, `[L2]`, `[L3 + scope/counter-examples]`, `[L4]`), and (3) Evidence Gaps & Minimal Next Actions (if any).",
+        "- **Tier 1.5 / Tier 2 / Tier 2+ / Converge Output**: Start with `[Tier: <name> | Mode: <Explore/Converge> | Confidence Cap: L1/L2/L3]`, followed by: (1) Core Conclusion, (2) Epistemic Breakdown (`[L1]`, `[L2]`, `[L3 + scope/counter-examples]`, `[L4]`), and (3) Evidence Gaps & Complete Remediation Plan (if any).",
+        "- **Remediation Completeness (hard rule, enforced in code)**: Any item you declare as a code or data defect MUST ship a complete fix plan in the same reply: concrete change points, data/migration impact, rollback path, and falsifiable acceptance criteria. Downgrading a declared defect to \"write a doc\", \"add to known issues\", or \"defer\" is a contract violation unless the reply explicitly cites the L4 operational trade-off (who accepts which risk, and why). The anti-thrashing \"1-3 minimal actions\" rule is stop-loss for missing evidence — it is NOT a vehicle for defect downgrade.",
     ])
     orch = spec.get("orchestration")
     if orch:

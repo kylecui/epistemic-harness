@@ -17,6 +17,7 @@
 | P1-1 | orchestrator ↔ L5 DAG 打通：子任务登记 claim、综合前 `audit_dag` | ✅ |
 | P1-2 | harness-guard 改为按**变更行数**判定（≤15 行 edit / ≤40 行 write 放行） | ✅ |
 | P2-1 | 移除扩展内正文震荡扫描，统一收敛到 `thrashing_guard` | ✅ |
+| P1-3 | 评审回合完整性（issue #1）：缺陷必须附完整修复方案（改动点/迁移影响/回退/验收），降级措辞打回；三段式/silent promotion/L3 scope 结构自检；TC-12~15 黄金用例 + 网关与 exit_gate 双端强制 | ✅ |
 | 新 | 网关 `X-Harness-Effort` 覆写 + 按档案 token 预算 + 空内容重试（实战触发） | ✅ |
 | 新 | `harness.yaml` 增加 Reasoning/Output Style 切片，编译进 AGENTS.md/SKILL.md | ✅ |
 | 新 | 语言引力 A/B 评测器（`evals/run_style_ab_eval.py --replay/--live`）+ TC-07~09 | ✅ |

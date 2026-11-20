@@ -3,6 +3,11 @@
 Mirrors `extensions/harness-guard.ts` so headless `orchestrator/plan.py` runs,
 automated evals (`TC-10` / `TC-11`), and CI scripts enforce the exact same
 Zero-Residue & Green-Baseline contract.
+
+Also mirrors the review-turn contract checks from
+`proxy_gateway/response_guard.py` (issue #1): a review turn that declares a
+defect must ship a complete remediation plan (acceptance criteria + rollback),
+and structured outputs must not silently promote L3-derived conclusions.
 """
 
 from __future__ import annotations
@@ -27,6 +32,131 @@ SHIRKING_PATTERNS: list[re.Pattern[str]] = [
 
 DEFAULT_RESIDUE_GLOBS = ["*.tmp", "*.bak", "*.orig", "debug_*.py", "scratch_*", "tmp_*"]
 
+# ---------------------------------------------------------------------------
+# Review-turn contract checks (mirror of proxy_gateway/response_guard.py)
+# ---------------------------------------------------------------------------
+
+_DEFECT_ITEM_RE = re.compile(
+    r"(?:\bP[1-9]\d?\b|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
+    r"\bdefect\s*#?[1-9]\d?|\bissue\s*#?[1-9]\d?)",
+    re.I,
+)
+_ACCEPTANCE_RE = re.compile(r"(验收|acceptance)", re.I)
+_ROLLBACK_RE = re.compile(r"(回退|回滚|rollback|恢复路径)", re.I)
+_DOWNGRADE_RE = re.compile(
+    r"(最小后续动作|minimal next (?:actions|steps)|补一段文档|补充文档|写进已知问题|"
+    r"记为已知问题|记入已知问题|留待观察|defer(?:red)? to)",
+    re.I,
+)
+_L4_TRADEOFF_RE = re.compile(
+    r"(本次只出评审结论|只要评审结论|只出评审结论|只列\s*file:line|只记录\s*file:line|"
+    r"不需要修复方案|暂不修复|review[- ]only|no fix (?:needed|required))",
+    re.I,
+)
+_HEADER_CAP_RE = re.compile(r"Confidence Cap:\s*(L[1-5])", re.I)
+_BODY_LAYER_RE = re.compile(r"\[L([1-5])\b")
+_L3_TAG_RE = re.compile(r"\[L3\b")
+_L3_SCOPE_RE = re.compile(r"(适用|scope|适用范围)", re.I)
+_L3_COUNTER_RE = re.compile(r"(反例|counter[- ]?example|失效)", re.I)
+_SECTION_CORE_RE = re.compile(r"(核心结论|core conclusion)", re.I)
+_SECTION_BREAKDOWN_RE = re.compile(r"(认识论分解|epistemic breakdown|依据分层)", re.I)
+_SECTION_GAPS_RE = re.compile(r"(证据缺口|evidence gap)", re.I)
+
+
+def _defect_items(text: str) -> list[tuple[str, str]]:
+    matches = list(_DEFECT_ITEM_RE.finditer(text))
+    items: list[tuple[str, str]] = []
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        items.append((m.group(0), text[m.start():end]))
+    return items
+
+
+def check_remediation_completeness(text: str) -> list[str]:
+    """Declared defects must ship a complete fix plan (issue #1).
+
+    No defect anchors -> not a defect-review turn -> pass. An explicit L4
+    trade-off cited in the reply (review-only request) -> pass.
+    """
+    if not text or not text.strip():
+        return []
+    items = _defect_items(text)
+    if not items:
+        return []
+    if _L4_TRADEOFF_RE.search(text):
+        return []
+    violations: list[str] = []
+    for label, segment in items:
+        if not _ACCEPTANCE_RE.search(segment):
+            violations.append(f"{label}: 已声明缺陷但缺少验收判据 (验收/acceptance)")
+        if not _ROLLBACK_RE.search(segment):
+            violations.append(f"{label}: 已声明缺陷但缺少回退路径 (回退/rollback)")
+    downgrade = _DOWNGRADE_RE.search(text)
+    if downgrade:
+        violations.append(
+            f"缺陷降级: '{downgrade.group(0)}' 与已声明缺陷同现; "
+            f"缺陷必须给出完整修复方案(改动点/迁移影响/回退/验收), "
+            f"除非显式引用 L4 运营决策依据"
+        )
+    return violations
+
+
+def check_silent_promotion(text: str) -> list[str]:
+    """Header Confidence Cap must not be stronger than the weakest body layer."""
+    m = _HEADER_CAP_RE.search(text or "")
+    layers = [int(n) for n in _BODY_LAYER_RE.findall(text or "")]
+    if not m or not layers:
+        return []
+    cap, body = int(m.group(1)[1]), max(layers)
+    if cap < body:
+        return [
+            f"silent promotion: 头部 Confidence Cap L{cap} 弱于正文最弱依据 L{body} "
+            f"(代码推演/经验判断封顶 L{body})"
+        ]
+    return []
+
+
+def check_l3_scope(text: str) -> list[str]:
+    """Each `[L3` label needs scope + counter-example anchors within 3 lines."""
+    lines = (text or "").splitlines()
+    violations: list[str] = []
+    for idx, line in enumerate(lines):
+        for _m in _L3_TAG_RE.finditer(line):
+            window = "\n".join(lines[idx:idx + 3])
+            missing = []
+            if not _L3_SCOPE_RE.search(window):
+                missing.append("适用/scope")
+            if not _L3_COUNTER_RE.search(window):
+                missing.append("反例/counter-example")
+            if missing:
+                violations.append(f"[L3] 标签(第{idx + 1}行)后 3 行内缺少: {', '.join(missing)}")
+    return violations
+
+
+def check_review_completeness(text: str) -> list[str]:
+    """Union of review-turn contract checks. Empty means compliant."""
+    return (
+        check_remediation_completeness(text)
+        + check_silent_promotion(text)
+        + check_l3_scope(text)
+    )
+
+
+def build_review_intercept(violations: list[str], *, retry: bool) -> str:
+    lines = [
+        "[REVIEW_CONTRACT_INTERCEPT] 评审回合契约违规:",
+        *[f"  - {v}" for v in violations],
+    ]
+    if retry:
+        lines.append(
+            "请按契约重做本回合: 已声明缺陷必须给出完整修复方案 "
+            "(改动点/迁移影响/回退路径/可证伪验收判据), Confidence Cap 不得高于"
+            "正文最弱依据层, 每个 [L3] 附适用范围与反例。"
+        )
+    else:
+        lines.append("[ESCALATE_TO_L2] 重试后仍违规, 按 L2 上报人工复核, 不得再次自动打回。")
+    return "\n".join(lines)
+
 
 @dataclass
 class CheckSpec:
@@ -49,6 +179,7 @@ class GateDecision:
     failures: list[CheckFailure] = field(default_factory=list)
     residue_files: list[str] = field(default_factory=list)
     shirking_hits: list[str] = field(default_factory=list)
+    contract_violations: list[str] = field(default_factory=list)
     fingerprint: str = ""
     retry_count: int = 0
     bounce_prompt: str = ""
@@ -118,6 +249,7 @@ class ExitGateEngine:
         self.command_timeout_sec = command_timeout_sec
         self.retry_count = 0
         self.last_fingerprint = ""
+        self.review_retry_count = 0
 
     @classmethod
     def from_repo_config(cls, repo_dir: Path) -> "ExitGateEngine":
@@ -143,7 +275,29 @@ class ExitGateEngine:
 
     def evaluate(self, assistant_text: str, mutated_this_turn: bool = True) -> GateDecision:
         if not mutated_this_turn:
-            return GateDecision(passed=True, action="pass")
+            # Review turn (zero file changes): the file/residue gate stays off,
+            # but a declared defect must still ship a complete remediation plan
+            # (issue #1). Bounce at most once, then escalate to an L2 report.
+            violations = check_review_completeness(assistant_text)
+            if not violations:
+                self.review_retry_count = 0
+                return GateDecision(passed=True, action="pass")
+            if self.review_retry_count >= 1:
+                return GateDecision(
+                    passed=False,
+                    action="halt_to_user",
+                    contract_violations=violations,
+                    retry_count=self.review_retry_count,
+                    bounce_prompt=build_review_intercept(violations, retry=False),
+                )
+            self.review_retry_count += 1
+            return GateDecision(
+                passed=False,
+                action="bounce",
+                contract_violations=violations,
+                retry_count=self.review_retry_count,
+                bounce_prompt=build_review_intercept(violations, retry=True),
+            )
 
         failures: list[CheckFailure] = []
         for chk in self.checks:
@@ -166,6 +320,7 @@ class ExitGateEngine:
         if not failures and not residue:
             self.retry_count = 0
             self.last_fingerprint = ""
+            self.review_retry_count = 0
             return GateDecision(passed=True, action="pass")
 
         fp = _fingerprint(failures, residue)

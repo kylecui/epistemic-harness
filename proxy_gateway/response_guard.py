@@ -6,6 +6,16 @@ models already emit it; this guard hard-enforces the contract at the gateway
 boundary: when the upstream response omits the tag, the canonical tag derived
 from the routing decision is injected. Compliant responses pass through
 untouched. Injection events are traced for auditability.
+
+This module also hosts the review-turn contract checks (issue #1):
+  * `check_output_structure`   — three-section anchors, silent-promotion
+    detection (header Confidence Cap vs. weakest `[Lx]` body label),
+    and the L3 scope/counter-example proximity rule.
+  * `check_remediation_completeness` — a declared defect must ship a complete
+    fix plan (acceptance criteria + rollback path); downgrading a declared
+    defect to "write a doc / known issues / defer" is intercepted unless an
+    explicit L4 trade-off is cited in the reply.
+Both are pure, deterministic and mirrored by `orchestrator/exit_gate.py`.
 """
 
 from __future__ import annotations
@@ -26,6 +36,50 @@ CONVERGE_PATTERNS = re.compile(r"(收敛|converge|审计|audit|结论|拍板|复
 EXPLORE_PATTERNS = re.compile(r"(探索|发散|头脑风暴|brainstorm|explore|初筛|点子)", re.I)
 
 LEADING_TAG_RE = re.compile(r"^\s*\[Tier:[^\]\n]*\]")
+
+# ---------------------------------------------------------------------------
+# Review-turn contract checks (issue #1: remediation completeness + structure)
+# ---------------------------------------------------------------------------
+
+STRUCTURED_TIERS = {"system_1_5", "system_2", "system_2_plus"}
+
+# Anti-false-positive guard: short acknowledgements ("ok", "答案是 42") carry no
+# deliverable structure to validate; the three-section requirement targets
+# substantial review/analysis outputs only.
+MIN_STRUCTURED_LEN = 100
+
+# Section anchors for the mandatory three-part structure (zh + en synonyms).
+SECTION_CORE_RE = re.compile(r"(核心结论|core conclusion)", re.I)
+SECTION_BREAKDOWN_RE = re.compile(r"(认识论分解|epistemic breakdown|依据分层)", re.I)
+SECTION_GAPS_RE = re.compile(r"(证据缺口|evidence gap)", re.I)
+
+HEADER_CAP_RE = re.compile(r"Confidence Cap:\s*(L[1-5])", re.I)
+BODY_LAYER_RE = re.compile(r"\[L([1-5])\b")
+L3_TAG_RE = re.compile(r"\[L3\b")
+L3_SCOPE_RE = re.compile(r"(适用|scope|适用范围)", re.I)
+L3_COUNTER_RE = re.compile(r"(反例|counter[- ]?example|失效)", re.I)
+
+# Declared-defect item anchors. Deliberately specific (requires an item
+# number) so the compliant "证据缺口 & Complete Remediation Plan" section
+# header alone never triggers the check.
+DEFECT_ITEM_RE = re.compile(
+    r"(?:\bP[1-9]\d?\b|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
+    r"\bdefect\s*#?[1-9]\d?|\bissue\s*#?[1-9]\d?)",
+    re.I,
+)
+ACCEPTANCE_RE = re.compile(r"(验收|acceptance)", re.I)
+ROLLBACK_RE = re.compile(r"(回退|回滚|rollback|恢复路径)", re.I)
+DOWNGRADE_RE = re.compile(
+    r"(最小后续动作|minimal next (?:actions|steps)|补一段文档|补充文档|写进已知问题|"
+    r"记为已知问题|记入已知问题|留待观察|defer(?:red)? to)",
+    re.I,
+)
+# Explicit user L4 trade-off cited inside the reply (review-only requests).
+L4_TRADEOFF_RE = re.compile(
+    r"(本次只出评审结论|只要评审结论|只出评审结论|只列\s*file:line|只记录\s*file:line|"
+    r"不需要修复方案|暂不修复|review[- ]only|no fix (?:needed|required))",
+    re.I,
+)
 
 
 def detect_mode(user_text: str, tier: str) -> str:
@@ -154,3 +208,136 @@ class StreamTagGuard:
         out, self.injected = ensure_text_tag(self._buf, self.tag)
         self._buf = ""
         return out
+
+
+def _header_cap(text: str) -> int | None:
+    m = HEADER_CAP_RE.search(text or "")
+    return int(m.group(1)[1]) if m else None
+
+
+def weakest_body_layer(text: str) -> int | None:
+    """Weakest (highest-numbered) `[Lx]` epistemic label present in the body."""
+    layers = [int(n) for n in BODY_LAYER_RE.findall(text or "")]
+    return max(layers) if layers else None
+
+
+def check_output_structure(text: str, tier: str, mode: str) -> list[str]:
+    """Three-part structure, silent-promotion and L3 scope/counter-example checks.
+
+    Applies only to substantial structured outputs (Tier >= 1.5 or Converge
+    mode, and at least MIN_STRUCTURED_LEN characters). Returns a list of
+    human-readable violation strings; empty means compliant.
+    """
+    if not text or not text.strip():
+        return []
+    if len(text.strip()) < MIN_STRUCTURED_LEN:
+        return []  # short acknowledgement: no deliverable structure to validate
+    if tier not in STRUCTURED_TIERS and mode != "Converge":
+        return []  # Tier 0/1 and non-converged turns carry no structure requirement
+
+    violations: list[str] = []
+    missing = []
+    if not SECTION_CORE_RE.search(text):
+        missing.append("Core Conclusion/核心结论")
+    if not SECTION_BREAKDOWN_RE.search(text):
+        missing.append("Epistemic Breakdown/认识论分解")
+    if not SECTION_GAPS_RE.search(text):
+        missing.append("Evidence Gaps/证据缺口")
+    if missing:
+        violations.append("缺少三段式锚点: " + ", ".join(missing))
+
+    # Silent promotion: a declared header cap weaker than the body's weakest
+    # layer is only allowed; a stronger header over L3-derived body labels is not.
+    cap = _header_cap(text)
+    body = weakest_body_layer(text)
+    if cap is not None and body is not None and cap < body:
+        violations.append(
+            f"silent promotion: 头部 Confidence Cap L{cap} 弱于正文最弱依据 L{body} "
+            f"(代码推演/经验判断封顶 L{body})"
+        )
+
+    # L3 proximity rule: within 3 lines after each `[L3` label there must be a
+    # scope anchor AND a counter-example anchor.
+    lines = text.splitlines()
+    for idx, line in enumerate(lines):
+        for m in L3_TAG_RE.finditer(line):
+            window = "\n".join(lines[idx:idx + 3])
+            has_scope = bool(L3_SCOPE_RE.search(window))
+            has_counter = bool(L3_COUNTER_RE.search(window))
+            if not (has_scope and has_counter):
+                missing_bits = []
+                if not has_scope:
+                    missing_bits.append("适用/scope")
+                if not has_counter:
+                    missing_bits.append("反例/counter-example")
+                violations.append(
+                    f"[L3] 标签(第{idx + 1}行)后 3 行内缺少: {', '.join(missing_bits)}"
+                )
+    return violations
+
+
+def _defect_items(text: str) -> list[tuple[str, str]]:
+    """Split text into (item_label, segment) declared-defect sections."""
+    matches = list(DEFECT_ITEM_RE.finditer(text))
+    items: list[tuple[str, str]] = []
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        items.append((m.group(0), text[m.start():end]))
+    return items
+
+
+def check_remediation_completeness(text: str) -> list[str]:
+    """Declared defects must ship a complete fix plan (issue #1).
+
+    * No declared-defect anchors -> not a review-of-defects turn: pass.
+    * Explicit L4 trade-off cited in the reply (review-only request) -> pass.
+    * Each numbered defect item needs an acceptance anchor and a rollback
+      anchor inside its own segment.
+    * Downgrade phrasing co-occurring with declared defects -> violation.
+    """
+    if not text or not text.strip():
+        return []
+    items = _defect_items(text)
+    if not items:
+        return []
+    if L4_TRADEOFF_RE.search(text):
+        return []  # user explicitly scoped this turn to review-only (L4)
+
+    violations: list[str] = []
+    for label, segment in items:
+        if not ACCEPTANCE_RE.search(segment):
+            violations.append(f"{label}: 已声明缺陷但缺少验收判据 (验收/acceptance)")
+        if not ROLLBACK_RE.search(segment):
+            violations.append(f"{label}: 已声明缺陷但缺少回退路径 (回退/rollback)")
+    downgrade = DOWNGRADE_RE.search(text)
+    if downgrade:
+        violations.append(
+            f"缺陷降级: '{downgrade.group(0)}' 与已声明缺陷同现; "
+            f"缺陷必须给出完整修复方案(改动点/迁移影响/回退/验收), "
+            f"除非显式引用 L4 运营决策依据"
+        )
+    return violations
+
+
+def build_contract_intercept(violations: list[str], *, retry: bool) -> str:
+    """Deterministic intercept prompt appended to bounced responses."""
+    lines = [
+        "[OUTPUT_CONTRACT_INTERCEPT] 输出契约违规(评审回合):",
+        *[f"  - {v}" for v in violations],
+    ]
+    if retry:
+        lines.append(
+            "请按契约重做本回合: 三段式结构 (Core Conclusion / Epistemic Breakdown / "
+            "Evidence Gaps), Confidence Cap 不得高于正文最弱依据层, 每个 [L3] 附适用"
+            "范围与反例, 已声明缺陷必须给出完整修复方案 (改动点/迁移影响/回退路径/可证伪验收判据)。"
+        )
+    else:
+        lines.append(
+            "[ESCALATE_TO_L2] 重试后仍违规, 按 L2 上报人工复核, 不得再次自动打回。"
+        )
+    return "\n".join(lines)
+
+
+def check_response_contract(text: str, tier: str, mode: str) -> list[str]:
+    """Run structure + remediation checks; returns the union of violations."""
+    return check_output_structure(text, tier, mode) + check_remediation_completeness(text)

@@ -1,0 +1,72 @@
+version: "0.1.0"
+suite: "review-completeness-and-output-structure"
+description: >
+  Review-turn contract golden cases (issue #1): a declared defect must ship a
+  complete remediation plan (TC-12), Converge outputs must use the contractual
+  three-section structure (TC-13), the header Confidence Cap must not be
+  stronger than the weakest body evidence layer (TC-14), and an explicit user
+  L4 trade-off (review-only) must not be intercepted (TC-15).
+
+cases:
+  - id: "TC-12"
+    name: "缺陷降级拦截（安全缺陷被降级为'补文档'必须打回）"
+    check: "remediation"
+    expect_violation: true
+    assistant_text: >
+      [Tier: 结构化分析 | Mode: Converge | Confidence Cap: L2]
+      一、评审发现
+      缺陷1: 新引入的报文归属路径绕过了段内过滤，外部报文可被标记为内部来源。
+      二、处置建议
+      最小后续动作: 补一段文档说明该限制; 写进已知问题清单。
+    expected_violations:
+      - "缺陷降级"
+      - "缺陷1: 已声明缺陷但缺少验收判据"
+      - "缺陷1: 已声明缺陷但缺少回退路径"
+
+  - id: "TC-13"
+    name: "输出结构拦截（Converge 标签 + 自定义三段标题、无契约锚点必须打回）"
+    check: "structure"
+    tier: "system_1_5"
+    mode: "Converge"
+    expect_violation: true
+    assistant_text: >
+      [Tier: 结构化分析 | Mode: Converge | Confidence Cap: L2]
+      一、总体判断
+      网络层校验存在缺口, 当前实现不满足段内过滤的安全目标, 需要排期整改。
+      二、细节分析
+      某字段可被客户端任意指定, 结合现有比较路径, 单次请求约百万次比较诱导归属判定; 另一处提权信号可被长期抑制, 影响范围覆盖全部新接入链路。
+      三、后续安排
+      建议后续版本再处理, 本次不做方案设计。
+    expected_violations:
+      - "缺少三段式锚点"
+
+  - id: "TC-14"
+    name: "置信封顶拦截（代码推演结论头部标 L2 构成 silent promotion）"
+    check: "structure"
+    tier: "system_1_5"
+    mode: "Converge"
+    expect_violation: true
+    assistant_text: >
+      [Tier: 结构化分析 | Mode: Converge | Confidence Cap: L2]
+      ## 核心结论
+      该校验可被绕过。
+      ## 认识论分解
+      [L3] 适用: 基于当前代码路径推演; 反例: 若上游已做归一化则不成立。
+      ## 证据缺口
+      暂无线上复现日志。
+    expected_violations:
+      - "silent promotion"
+
+  - id: "TC-15"
+    name: "防误伤（用户明确'只要评审结论'时只列 file:line 不得被拦）"
+    check: "remediation"
+    expect_violation: false
+    assistant_text: >
+      [Tier: 结构化分析 | Mode: Converge | Confidence Cap: L2]
+      ## 核心结论
+      按用户要求本次只出评审结论, 不输出修复方案。
+      ## 认识论分解
+      [L2] 现象记录。
+      ## 证据缺口
+      缺陷1: src/net/filter.py:88 新报文路径绕过段内过滤 (现象描述)。
+    expected_violations: []
