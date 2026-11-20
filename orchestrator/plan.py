@@ -130,6 +130,8 @@ def run_plan(
     engine: Any = None,
     original_task: str | None = None,
     epistemic_engine: Any = None,
+    repo_dir: str | None = None,
+    exit_gate: Any = None,
 ) -> dict[str, Any]:
     """Create and run sub-agents per plan. Explicit `subtasks` override auto-planning.
 
@@ -229,9 +231,21 @@ def run_plan(
             timeout=timeout,
         )
 
+    # Optional deterministic exit gate: after mutation-bearing runs, repo checks must pass.
+    gate: dict[str, Any] | None = None
+    if (exit_gate is not None or repo_dir is not None) and any(not r.get("error") for r in results.values()):
+        from .exit_gate import ExitGateEngine
+        eng = exit_gate or ExitGateEngine.from_repo_config(Path(repo_dir))
+        try:
+            decision = eng.evaluate(aggregate)
+            gate = {"pass": bool(decision.passed), "failures": [f"cmd={c.name} rc={c.returncode}" for c in (decision.failures or [])]}
+        except Exception as exc:  # noqa: BLE001 - the gate must never break the run
+            gate = {"pass": None, "error": f"{type(exc).__name__}: {exc}"}
+
     return {
         "plan": plan,
         "results": results,
+        "exit_gate": gate,
         "aggregate": aggregate,
         "synthesis": (synthesis or {}).get("content"),
         "bias_scan_summary": {sid: results[sid]["bias_scan"]["verdict"] for sid in ordered_ids},

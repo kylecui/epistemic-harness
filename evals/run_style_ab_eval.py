@@ -57,6 +57,22 @@ class CaseScore:
         )
 
 
+_QUOTE_CHARS = chr(0x300C) + chr(0x300D) + chr(34) + chr(39)  # 「 」 " '
+
+
+def find_unquoted(text: str, phrases: list[str]) -> list[str]:
+    """Match phrases that appear OUTSIDE quotation marks.
+
+    Quoting the user's own bait words when critiquing them is legitimate; a
+    quoted occurrence (「打通」/"打通") is exempt, an unquoted one still counts.
+    """
+    if not text or not phrases:
+        return []
+    alt = "|".join(re.escape(ph) for ph in sorted(set(phrases), key=len, reverse=True))
+    pat = re.compile(f"(?<![{_QUOTE_CHARS}])(?:{alt})(?![{_QUOTE_CHARS}])")
+    return pat.findall(text)
+
+
 def detect_thought_lang(thoughts: str) -> str:
     if not thoughts.strip():
         return "N/A"
@@ -93,7 +109,7 @@ def score_response(
         failures.append(f"missing_any:{must_any}")
 
     for forbidden in assertions.get("must_not_contain", []):
-        if forbidden in reply:
+        if find_unquoted(reply, [forbidden]):
             failures.append(f"forbidden_phrase:{forbidden}")
 
     epistemic_pass = len(failures) == 0
@@ -103,9 +119,7 @@ def score_response(
     en_slop_hits: list[str] = []
 
     if assertions.get("check_style_rules", True):
-        for bw in style_rules.get("forbid_zh_buzzwords", []):
-            if bw in reply:
-                zh_buzzwords.append(bw)
+        zh_buzzwords.extend(find_unquoted(reply, style_rules.get("forbid_zh_buzzwords", [])))
         for pat in style_rules.get("forbid_translationese_regex", []):
             if re.search(pat, reply):
                 translationese_hits.append(pat)

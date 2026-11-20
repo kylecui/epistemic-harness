@@ -73,6 +73,12 @@ def _render_core_protocol(spec: dict, include_mcp: bool) -> str:
             lines.append("- **Skill Auto-Attach**: Matching skills are retrieved and injected into the sub-agent prompt automatically by code at dispatch time; use `query_skills` to browse and `register_skill` to queue new skills for human approval.")
         if orch.get("tooled_dispatch"):
             lines.append(f"- **{orch['tooled_dispatch']['title']}**: {orch['tooled_dispatch']['directive']}")
+        if orch.get("loop_completion_contract"):
+            lines.extend([
+                "",
+                "### Zero-Residue & Green-Baseline Ownership (Loop Completion Contract)",
+                *[f"- {item}" for item in orch["loop_completion_contract"]],
+            ])
         lines.append(
             "- **Automatic Enforcement (no manual skill invocation)**: Prompt layer — this contract is auto-compiled into AGENTS.md and loaded by the client; "
             "Transport layer — the proxy gateway injects the thinking policy, clamps reasoning effort, enforces tier tags, and runs anti-thrashing auto-recovery on every request; "

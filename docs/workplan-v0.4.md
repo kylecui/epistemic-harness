@@ -21,7 +21,18 @@
 | 新 | `harness.yaml` 增加 Reasoning/Output Style 切片，编译进 AGENTS.md/SKILL.md | ✅ |
 | 新 | 语言引力 A/B 评测器（`evals/run_style_ab_eval.py --replay/--live`）+ TC-07~09 | ✅ |
 
-## 二、P0 级遗留（已关闭）
+## 二、v0.4 新增闭环（本次交付）
+
+1. **Exit Gate & Anti-Shirking** ✅ 三层防御：AGENTS.md v0.3.2 Loop Completion Contract（规范源合入+重编译）；
+   `extensions/harness-guard.ts` v0.4.0（回合结束自动跑 `.pi/exit_gate.json` 验收命令 + 残留扫描 +
+   红灯时才扫推诿措辞 + 同指纹熔断升档）；`orchestrator/exit_gate.py` 同构引擎供无头编排复用；
+   MCP `run_gate` 工具 + `run_plan` 可挂载门禁。6 项端到端测试（真实临时 Git 仓库）全绿。
+2. **TC-10/TC-11 黄金用例** ✅ 防甩锅（历史遗留失败必须修）与零残留（测试全过但留 scratch 文件仍被拦）。
+3. **周期 A/B 计划任务** ✅ `EpistemicHarness-StyleAB-Weekly`（每周一 09:00，两主力家族，报告落
+   `evals/style_ab_weekly_*.log`，exit 2 标记回归）。
+4. **scorer 引号豁免** ✅ 黑话仅在引号外才计命中（评审诱饵词引用豁免），单测固化。
+
+## 三、P0 级遗留（已关闭）
 
 1. **子 agent 无工具的结构性张力** → ✅ `orchestrator/tooled.py` + MCP `dispatch_tooled`：
    隔离 `pi` 进程（`-p --no-session --no-mcp --no-skills`，硬超时+kill，workdir 白名单），

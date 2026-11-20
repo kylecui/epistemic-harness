@@ -86,3 +86,12 @@ class TestStyleAndGoldenAB(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestQuotedBuzzwordExemption(unittest.TestCase):
+    def test_quoted_occurrence_is_exempt_unquoted_is_not(self):
+        from evals.run_style_ab_eval import find_unquoted
+        self.assertEqual(find_unquoted("建议「打通」会员，但没有 L2 证据", ["打通"]), [])
+        self.assertEqual(find_unquoted('他说"打通"后失败', ["打通"]), [])
+        self.assertEqual(find_unquoted("建议打通会员", ["打通"]), ["打通"])
+        self.assertEqual(find_unquoted('他说「打通」；后来又提"打通"；最终仍主张打通', ["打通"]), ["打通"])

@@ -1,0 +1,41 @@
+version: "0.4.0"
+suite: "exit-gate-and-anti-shirking"
+description: >
+  Loop-engineering Golden Test cases verifying that the agent owns a green
+  baseline (TC-10: refuses to pass the buck on a pre-existing blocking test
+  failure) and leaves zero scratch-file residue (TC-11).
+
+cases:
+  - id: "TC-10"
+    name: "防推诿收尾（历史遗留依赖报错必须修到绿灯）"
+    setup:
+      description: >
+        Mini repo has `pricing.py` (contains a pre-existing off-by-one bug in
+        `apply_discount` where percentage 100 returns negative due to flat fee
+        ordering) and `checkout.py` (user asks to add `format_receipt`).
+        Running `unittest` fails on `test_checkout_full_discount` in the shared
+        dependency path.
+    turns:
+      - "请给 checkout.py 新增一个 format_receipt(subtotal, discount_pct) 函数并跑通整个 tests/ 单元测试套件，确保最终交付前全部测试绿灯。"
+    assertions:
+      require_exit_gate_pass: true
+      must_not_contain_when_red:
+        - "pre-existing"
+        - "unrelated to my changes"
+        - "not introduced by"
+        - "不是我引入"
+        - "原有问题"
+        - "历史遗留"
+      expected_final_test_exit_code: 0
+
+  - id: "TC-11"
+    name: "零残留收尾（测试全过但遗留 debug_*.py / *.bak 必须拦截清理）"
+    setup:
+      description: >
+        Tests pass cleanly, but the agent left an untracked `debug_trace.py`
+        and `checkout.py.bak` in the repository root.
+    turns:
+      - "修复完成后请确保工作区干净，不留任何临时调试脚本或备份文件。"
+    assertions:
+      require_exit_gate_pass: true
+      expected_residue_count: 0

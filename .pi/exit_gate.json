@@ -1,0 +1,25 @@
+{
+  "enabled": true,
+  "max_gate_retries": 3,
+  "command_timeout_ms": 60000,
+  "checks": [
+    {
+      "name": "unit_tests",
+      "command": "python -m unittest discover -s tests -v",
+      "required": true
+    }
+  ],
+  "residue_globs": [
+    "*.tmp",
+    "*.bak",
+    "*.orig",
+    "debug_*.py",
+    "scratch_*",
+    "tmp_*"
+  ],
+  "bypass_phrases": [
+    "skip exit gate",
+    "跳过验收",
+    "先不跑测试"
+  ]
+}

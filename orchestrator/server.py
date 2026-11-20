@@ -30,6 +30,7 @@ from orchestrator.bias_guard import BiasGuard
 from orchestrator.dispatch import dispatch_subtask
 from orchestrator.plan import plan_task, run_plan
 from orchestrator.tooled import dispatch_tooled
+from orchestrator.exit_gate import ExitGateEngine
 from orchestrator.planner import classify_task
 from orchestrator.skills import SkillRegistry
 
@@ -136,6 +137,21 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "run_gate",
+        "description": (
+            "Deterministic exit gate: runs repo-configured checks (.pi/exit_gate.json), scans for residue files, "
+            "and flags shirking phrasing in the assistant text while verification is red. Use at task completion."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "assistant_text": {"type": "string", "default": ""},
+                "repo_dir": {"type": "string", "description": "Repo containing .pi/exit_gate.json (default: repo root)"},
+                "mutated_this_turn": {"type": "boolean", "default": True},
+            },
+        },
+    },
+    {
         "name": "query_skills",
         "description": "Search the skill registry by keyword (id/name/description/tags/triggers).",
         "inputSchema": {
@@ -229,6 +245,15 @@ class Orchestrator:
             timeout=float(args.get("timeout", 600)),
         )
 
+    def run_gate(self, args: dict[str, Any]) -> dict[str, Any]:
+        repo = Path(args.get("repo_dir") or REPO_ROOT)
+        eng = ExitGateEngine.from_repo_config(repo)
+        decision = eng.evaluate(str(args.get("assistant_text", "")),
+                                mutated_this_turn=bool(args.get("mutated_this_turn", True)))
+        out = decision.__dict__.copy()
+        out["failures"] = [f.__dict__ for f in decision.failures]
+        return out
+
     def query_skills(self, query: str, limit: int = 5) -> dict[str, Any]:
         return {"skills": self.skills.query(query, limit=limit)}
 
@@ -287,6 +312,8 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
                 res = orch.run_plan(args)
             elif name == "dispatch_tooled":
                 res = orch.dispatch_tooled(args)
+            elif name == "run_gate":
+                res = orch.run_gate(args)
             else:
                 return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Unknown tool: {name}"}}
             return {

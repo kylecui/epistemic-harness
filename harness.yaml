@@ -1,5 +1,5 @@
 # 单一规范源 — Epistemic & Dual-Process Governance Harness
-version: 0.3.0
+version: 0.3.2
 name: epistemic-dual-process-harness
 description: Canonical Single Source of Truth for the Epistemic & Dual-Process Governance
   Harness (Phase 1+2).
@@ -125,3 +125,16 @@ orchestration:
       delegate to a TOOLED sub-agent: `python -m orchestrator.tooled "<task>" --workdir
       <path>` (isolated pi process, own session, hard timeout) or MCP `dispatch_tooled`.
       The controller reviews the diff instead of writing the code itself.'
+  loop_completion_contract:
+  - '**Own the Green State**: A task is incomplete until all relevant tests, builds,
+    and linters pass cleanly. Never dismiss a blocking failure on your execution or
+    dependency path as "pre-existing", "unrelated to my changes", or "out of scope"
+    — if it blocks verification of your work, fix it.'
+  - '**Zero Residue**: Before finishing, delete all temporary scripts, debug logs,
+    and `.tmp`/`.bak` files you created, and confirm a clean working tree (`git status`).'
+  - '**Two-Tier Scope Boundary**: Fix all blocking failures in touched or dependent
+    modules; for demonstrably unrelated legacy warnings outside the execution graph,
+    record exact `file:line + error` notes without hijacking the task.'
+  - '**Strict Blocker Bar**: Leave an error unresolved ONLY if blocked by missing
+    external credentials, an unavailable third-party service, or an L4 user trade-off
+    — and cite the exact L2 error output.'
