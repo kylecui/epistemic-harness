@@ -291,6 +291,10 @@ export default function (pi: any) {
       return undefined;
     }
     const name = String(event.toolName || "");
+    if (name === "bash") {
+      const cmd = typeof event.input?.command === "string" ? event.input.command : "";
+      audit(`[bash] pid=${process.pid} cwd=${process.cwd()} cmd=${cmd.slice(0, 200)}`);
+    }
     if (name === "bash" && isMutatingBash(event.input)) {
       mutatedThisTurn = true; // bash-side writes count too: the exit gate must not depend on the tool name
       return undefined;
