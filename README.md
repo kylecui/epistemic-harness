@@ -124,3 +124,18 @@ uvicorn proxy_gateway.app:app --host 127.0.0.1 --port 8787
 ## License
 
 [MIT](LICENSE) © 2026 kylecui
+
+## 系统级进程取证（Sysmon）
+
+已安装 Sysmon64(v13.10，配置 `config/sysmon-harness.xml`)：只记录 shell/agent 类进程创建
+（Event ID 1，含完整命令行 + 父进程链）;VS Code / WorkBuddy 等已知噪音按路径排除；
+日志 300MB 滚动覆盖，当前用户可直接读取。
+
+```powershell
+# 查"谁在何时以何命令行跑了某条命令"（无需提权）
+.\scripts\sysmon_who.ps1 "mcp/orchestrator"
+.\scripts\sysmon_who.ps1 "grep" -SinceHours 24
+```
+
+注意：Event ID 5（进程终止）为 Sysmon 固定输出、不受过滤，查询时已自动排除。
+卸载：`Sysmon64.exe -u`。

@@ -1,0 +1,35 @@
+<Sysmon schemaversion="4.82">
+  <HashAlgorithms>sha256</HashAlgorithms>
+  <CheckRevocation>false</CheckRevocation>
+  <EventFiltering>
+    <RuleGroup name="include-shells" groupRelation="or">
+      <ProcessCreate onmatch="include">
+        <Image condition="end with">\grep.exe</Image>
+        <Image condition="end with">\head.exe</Image>
+        <Image condition="end with">\tail.exe</Image>
+        <Image condition="end with">\find.exe</Image>
+        <Image condition="end with">\findstr.exe</Image>
+        <Image condition="end with">\sed.exe</Image>
+        <Image condition="end with">\awk.exe</Image>
+        <Image condition="end with">\xargs.exe</Image>
+        <Image condition="end with">\bash.exe</Image>
+        <Image condition="end with">\sh.exe</Image>
+        <Image condition="end with">\cmd.exe</Image>
+        <Image condition="end with">\powershell.exe</Image>
+        <Image condition="end with">\pwsh.exe</Image>
+        <Image condition="end with">\pi.exe</Image>
+        <Image condition="end with">\pi-launcher.exe</Image>
+        <Image condition="end with">\node.exe</Image>
+      </ProcessCreate>
+    </RuleGroup>
+    <RuleGroup name="exclude-noisy" groupRelation="or">
+      <ProcessCreate onmatch="exclude">
+        <Image condition="contains">VS Code</Image>
+        <Image condition="contains">WorkBuddy</Image>
+        <Image condition="contains">OfficePLUS</Image>
+        <Image condition="contains">Adobe</Image>
+        <Image condition="contains">PulseSecure</Image>
+      </ProcessCreate>
+    </RuleGroup>
+  </EventFiltering>
+</Sysmon>
