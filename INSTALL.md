@@ -49,7 +49,7 @@ Without git: residue scan and the pre-commit eol hook are disabled (listed separ
 3. compiles the client contract (`AGENTS.md`, Gemini prompt, portable `SKILL.md`) from `harness.yaml`;
 4. builds the verify image (`epistemic-verify:local`) when Docker is present — skipped with a warning otherwise;
 5. builds the memory index (`knowledge/memory_index.db`);
-6. runs the smoke test (`scripts/verify.py`).
+6. runs the smoke test via the `hvx` wrapper (`scripts/verify.py`).
 
 ## 5. Backend (optional but recommended)
 
@@ -69,7 +69,12 @@ The backend exposes OpenAI-compatible `/v1`, Anthropic-compatible `/anthropic`, 
 ## 7. Verifying the installation
 
 ```bash
-python scripts/verify.py                 # 197 tests (docker by default, host fallback)
+./scripts/hvx                            # 205 tests (docker by default, host fallback)
+docker compose run --rm verify           # pure-container path: zero host Python needed
 python scripts/check_docs.py             # docs/code sync gate
 python scripts/analyze_dispatches.py     # dispatch observability
 ```
+
+`hvx` (or `scripts\hvx.ps1` on Windows) resolves the project interpreter for
+you — `.venv` first, then `python3`/`py`. With Docker available you can skip
+the host interpreter entirely via the compose command above.

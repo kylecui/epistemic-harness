@@ -1,0 +1,15 @@
+#!/bin/sh
+# hvx — harness verify, interpreter-independent.
+# Resolves the project interpreter without assuming anything about your PATH:
+#   1. .venv (created by scripts/install.py)
+#   2. python3 / python on PATH
+# Verification itself runs in Docker by default; this wrapper only needs to
+# BOOTSTRAP the runner. No Docker at all? It still works (host fallback, with
+# the limited-support warning from verify.py).
+set -e
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+if [ -x "$ROOT/.venv/Scripts/python.exe" ]; then PY="$ROOT/.venv/Scripts/python.exe"
+elif [ -x "$ROOT/.venv/bin/python" ]; then PY="$ROOT/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then PY=python3
+else PY=python; fi
+exec "$PY" "$ROOT/scripts/verify.py" "$@"

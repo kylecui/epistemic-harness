@@ -107,6 +107,13 @@ class InstallDetectTests(unittest.TestCase):
             self.assertIn(key, info)
         self.assertIn(info["support_tier"], ("full", "limited"))
 
+    def test_hvx_wrappers_exist(self):
+        self.assertTrue((PACK_ROOT / "scripts" / "hvx").exists())
+        self.assertTrue((PACK_ROOT / "scripts" / "hvx.ps1").exists())
+        sh = (PACK_ROOT / "scripts" / "hvx").read_text(encoding="utf-8")
+        self.assertIn(".venv/Scripts/python.exe", sh)   # venv-first resolution
+        self.assertIn("verify.py", sh)
+
     def test_limited_support_list_present(self):
         inst = self._load_install()
         text = inst.report({"platform": "x", "shell_family": "y", "python": "3.12.0",

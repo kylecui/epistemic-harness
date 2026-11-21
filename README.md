@@ -3,7 +3,7 @@
 **Governance for LLM coding agents: evidence-bound claims, tiered cognition, and loops that exhaust problems instead of ping-ponging them.**
 
 [![version](https://img.shields.io/badge/version-v0.4.0-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-197%20green-brightgreen)](scripts/verify.py)
+[![tests](https://img.shields.io/badge/tests-206%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *中文介绍见 [README_ZH.md](README_ZH.md)。 All normative content (rules, contracts, skills) is English-only; Chinese exists only as auxiliary translation.*
@@ -23,17 +23,30 @@ Agents also get: an L1–L5 epistemic memory with weakest-link confidence caps, 
 ## Quickstart
 
 ```bash
+git clone https://github.com/kylecui/epistemic-harness.git
+cd epistemic-harness
+
 python scripts/install.py        # detect platform, prerequisites, set up, smoke test
 docker compose up -d --build     # start the gateway backend (127.0.0.1:8787)
 pi                               # start Pi in the repo (loads AGENTS.md + MCP)
 ```
 
-Verify at any time:
+Two lighter paths if you do not want the full setup yet:
 
 ```bash
-python scripts/verify.py                     # full test suite (docker by default)
-python scripts/analyze_dispatches.py         # what was delegated, to which model, at what effort
-python scripts/capability_matrix.py          # the (model × effort) schedulable space
+# Fastest: verification only — no venv, no install; the container IS the runtime
+docker compose build verify && docker compose run --rm verify
+
+# Minimal on the host: bootstrap python only, then the installer does the rest
+python scripts/install.py
+```
+
+Verify at any time — the `hvx` wrapper resolves the project interpreter for you
+(`.venv` first, then `python3`/`py`; verification itself runs in Docker by default):
+
+```bash
+./scripts/hvx                      # or: scripts\hvx.ps1 on Windows
+./scripts/hvx -p "test_gate*"      # unittest discovery pattern
 ```
 
 ## How it fits together
@@ -58,10 +71,14 @@ python scripts/capability_matrix.py          # the (model × effort) schedulable
 ## Development
 
 ```bash
-python -m unittest discover -s tests     # 197 tests
-python evals/run_evals.py --mock         # golden-case regression (12/12)
-python scripts/check_eol.py              # line-ending policy
-python scripts/check_docs.py             # docs/code sync gate
+git clone https://github.com/kylecui/epistemic-harness.git
+cd epistemic-harness
+./scripts/hvx                                # 206 tests, docker by default
+python evals/run_evals.py --mock             # golden-case regression (12/12)
+python scripts/check_eol.py                  # line-ending policy
+python scripts/check_docs.py                 # docs/code sync gate
+python scripts/analyze_dispatches.py         # what was delegated, to which model, at what effort
+python scripts/capability_matrix.py          # the (model × effort) schedulable space
 ```
 
 MIT licensed. See [LICENSE](LICENSE).

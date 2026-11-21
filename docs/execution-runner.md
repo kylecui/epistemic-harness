@@ -48,10 +48,10 @@ Every evidence record carries a `runner` field; the ledger stores evidence names
 
 ```bash
 docker build -f Dockerfile.verify -t epistemic-verify:local .   # once
-python scripts/verify.py                                        # auto: container when usable
-python scripts/verify.py --runner docker                        # mandatory; exit 3 without Docker
-python scripts/verify.py --runner host                          # fallback
-docker compose build verify && docker compose run --rm verify   # compose form
+./scripts/hvx                                        # auto: container when usable
+./scripts/hvx --runner docker                        # mandatory; exit 3 without Docker
+./scripts/hvx --runner host                          # fallback
+docker compose run --rm verify                       # pure-container: no host python at all
 ```
 
 Containers run with `--network none`: the suite needs no network, and "a check secretly fetching the network" becomes impossible.
