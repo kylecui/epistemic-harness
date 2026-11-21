@@ -132,6 +132,7 @@ orchestration:
     dependency path as "pre-existing", "unrelated to my changes", or "out of scope"
     — if it blocks verification of your work, fix it.'
   - '**Verification Runner (docker-first)**: Run tests/builds/linters through the POSIX sandbox (`python scripts/verify.py`, `docker compose run --rm verify`). Host-shell execution is the fallback for machines without Docker; when it happens, say so and record the runner. A green verdict must name the runner that produced it (`evidence[].runner`); never downgrade silently.'
+  - '**Completion-critical work is never permission-asked**: if skipping an item makes everything already done undeliverable, do it without asking; only genuinely optional scope (extra workload with the product already shippable) goes to the user for a decision. Asking about the former is buck-passing, not delegation.'
   - '**Line endings and shell are repository properties**: all tracked text files are LF (`*.ps1/*.bat/*.cmd` excepted). Enforced by `scripts/check_eol.py` in the exit gate and in the versioned pre-commit hook — `.gitattributes` alone is not enough, because a CRLF script still sits in the working tree and dies in the Linux verification container with `bad interpreter`.'
   - '**Zero Residue**: Before finishing, delete all temporary scripts, debug logs,
     and `.tmp`/`.bak` files you created, and confirm a clean working tree (`git status`).'
