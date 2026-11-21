@@ -170,3 +170,36 @@ class SkillQueryTests(unittest.TestCase):
         # Chinese phrases without spaces must still match (bigram tokenization)
         self.assertEqual(self.registry.query("看看状态", limit=1)[0]["name"], "harness-status")
         self.assertEqual(self.registry.query("编译同步", limit=1)[0]["name"], "harness-maintain")
+
+
+class KeyPromptTests(unittest.TestCase):
+    def _load_install(self, name="install_k"):
+        spec = importlib.util.spec_from_file_location(name, PACK_ROOT / "scripts" / "install.py")
+        mod = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.modules[name] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_key_vars_derived_from_policy(self):
+        inst = self._load_install()
+        vars_ = inst.collect_key_vars()
+        self.assertIn("ZHIPU_API_KEY", vars_)
+        self.assertIn("KIMI_API_KEY", vars_)
+        self.assertEqual(vars_, sorted(vars_))
+
+    def test_dotenv_upsert_preserves_comments_and_order(self):
+        inst = self._load_install()
+        tmp = Path(tempfile.mkdtemp()) / ".env"
+        tmp.write_text('A=1\n# comment\nB="2"\n', encoding="utf-8")
+        inst._write_dotenv(tmp, {"B": "new", "C": "3"})
+        text = tmp.read_text(encoding="utf-8")
+        self.assertLess(text.index("A=1"), text.index("# comment"))
+        self.assertIn('B="new"', text)
+        self.assertIn('C="3"', text)
+        self.assertEqual(inst._read_dotenv(tmp)["B"], "new")
+
+    def test_prompt_skipped_when_not_tty(self):
+        inst = self._load_install()
+        # stdin in test runners is not a tty -> no prompt, no writes
+        self.assertEqual(inst.prompt_for_keys(), [])

@@ -26,10 +26,13 @@
 git clone https://github.com/kylecui/epistemic-harness.git
 cd epistemic-harness
 
-python scripts/install.py        # 平台检测、前置检查、安装、冒烟测试
+python scripts/install.py        # 平台检测、前置检查、逐项询问 API 密钥、冒烟测试
 docker compose up -d --build     # 启动网关后端 (127.0.0.1:8787)
 pi                               # 在仓库内启动 Pi（加载 AGENTS.md + MCP）
 ```
+
+安装器会读取模型注册表，逐项询问当前配置所需的密钥（回车保留已有值，全部可跳过）。
+想手写？直接编辑 `.env`，见 [docs/configuration.md](docs/configuration.md)。
 
 更轻的两条路：
 

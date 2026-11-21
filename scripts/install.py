@@ -45,6 +45,77 @@ def _sh(cmd: list[str], timeout: int = 30) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=timeout)
 
 
+def collect_key_vars() -> list[str]:
+    """Every api_key_env across the model registry — the installer asks for exactly
+    these, so key prompting stays in sync with the policy file by construction."""
+    import yaml
+
+    policy = yaml.safe_load((REPO_ROOT / "proxy_gateway" / "quota_policy.yaml").read_text(encoding="utf-8")) or {}
+    vars_ = sorted({
+        str(m.get("api_key_env"))
+        for m in (policy.get("models") or {}).values()
+        if m.get("api_key_env")
+    })
+    return vars_
+
+
+def _read_dotenv(path: Path) -> dict[str, str]:
+    out: dict[str, str] = {}
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.strip().startswith("#"):
+                k, _, v = line.partition("=")
+                out[k.strip()] = v.strip().strip('"')
+    return out
+
+
+def _write_dotenv(path: Path, values: dict[str, str]) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines() if path.exists() else []
+    seen: set[str] = set()
+    out: list[str] = []
+    for line in lines:
+        key = line.split("=", 1)[0].strip() if "=" in line and not line.strip().startswith("#") else None
+        if key and key in values:
+            out.append(f'{key}="{values[key]}"')
+            seen.add(key)
+        else:
+            out.append(line)
+    for key in sorted(values):
+        if key not in seen:
+            out.append(f'{key}="{values[key]}"')
+    path.write_text("\n".join(out).rstrip() + "\n", encoding="utf-8", newline="")
+
+
+def prompt_for_keys(assume_yes: bool = False) -> list[str]:
+    """Interactive key collection. Skipped when stdin is not a TTY unless
+    --keys/--with-keys forces it. Returns the variables written."""
+    interactive = sys.stdin.isatty() or assume_yes
+    if not interactive:
+        return []
+    dotenv = REPO_ROOT / ".env"
+    existing = _read_dotenv(dotenv)
+    written: list[str] = []
+    updates: dict[str, str] = {}
+    print("\nprovider API keys (Enter to keep existing / skip):")
+    for var in collect_key_vars():
+        current = os.environ.get(var) or existing.get(var)
+        label = "set" if current else "not set"
+        try:
+            value = input(f"  {var} [{label}]: ").strip()
+        except EOFError:
+            break
+        if value:
+            updates[var] = value
+            written.append(var)
+    if updates:
+        merged = {**existing, **updates}
+        _write_dotenv(dotenv, merged)
+        print(f"  -> {len(updates)} key(s) written to .env")
+    else:
+        print("  -> no changes")
+    return written
+
+
 def detect() -> dict:
     system = platform.system().lower()
     shell_family = "posix" if system in ("linux", "darwin") else (
@@ -185,10 +256,14 @@ def shell_report(apply: bool) -> str:
 def main() -> int:
     check_only = "--check" in sys.argv
     apply_shell = "--with-shell" in sys.argv
+    force_keys = "--with-keys" in sys.argv
     info = detect()
     print(report(info))
     if check_only:
         return 0 if info["python_ok"] else 2
+    written = prompt_for_keys(assume_yes=force_keys)
+    if written:
+        info["keys_written"] = written
     print("\nsetup:")
     for step in setup(info):
         print(f"  - {step}")

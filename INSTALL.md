@@ -44,6 +44,10 @@ Without git: residue scan and the pre-commit eol hook are disabled (listed separ
 
 ## 4. What the installer does
 
+0. prompts for provider API keys — the list is derived from the model registry
+   (`api_key_env` entries in `proxy_gateway/quota_policy.yaml`), so it always
+   matches your configured models; answers are written to `.env` (skippable,
+   `--with-keys` forces the prompt in non-interactive shells);
 1. creates `.venv` and installs `requirements.txt`;
 2. installs the versioned pre-commit hook (`core.hooksPath=scripts/git-hooks`, sets `core.autocrlf=false`);
 3. compiles the client contract (`AGENTS.md`, Gemini prompt, portable `SKILL.md`) from `harness.yaml`;

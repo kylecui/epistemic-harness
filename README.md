@@ -26,10 +26,15 @@ Agents also get: an L1–L5 epistemic memory with weakest-link confidence caps, 
 git clone https://github.com/kylecui/epistemic-harness.git
 cd epistemic-harness
 
-python scripts/install.py        # detect platform, prerequisites, set up, smoke test
+python scripts/install.py        # detect platform, prerequisites, ASKS FOR API KEYS, smoke test
 docker compose up -d --build     # start the gateway backend (127.0.0.1:8787)
 pi                               # start Pi in the repo (loads AGENTS.md + MCP)
 ```
+
+The installer reads the model registry and prompts for exactly the provider keys
+your configured models need (Enter keeps existing values; everything is skippable).
+Prefer editing by hand? Put keys in `.env` instead — see
+[docs/configuration.md](docs/configuration.md).
 
 Two lighter paths if you do not want the full setup yet:
 
