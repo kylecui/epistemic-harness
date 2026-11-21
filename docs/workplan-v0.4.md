@@ -104,3 +104,15 @@ pi mcp list                                                    # MCP 双服务�
 测试与样例基线：136 项单测全绿；`evals/run_evals.py --mock` 12/12；`evals/run_style_ab_eval.py --replay` 结论不变。
 
 测试隔离说明：`EpistemicEngine(repo_root, store_root=...)` 与 `HARNESS_MEMORY_STORE` 用于把评测/单测的写入重定向到临时目录，避免污染真实记忆库。
+
+## 八、v0.4.2 执行基底（2026-11-21）
+
+| 编号 | 内容 | 验证 |
+|---|---|---|
+| D9 | 验证默认跑容器：`Dockerfile.verify` + compose `verify` 服务 + `scripts/verify.py --runner docker\|host\|auto`，`--network none`，输出打印 `runner/image/rev` | `python scripts/verify.py --runner docker` → 144 项 OK |
+| D10 | 闸门记录执行基底：`gate_runner` / `verify_image` 配置，`evidence[].runner` 字段，docker 不可用时 `RUNNER_UNAVAILABLE` 而非静默回落 | `tests/test_runner_selection.py`（8 项） |
+| D11 | 换行符归一：`.gitattributes` 强制 LF（`.sh/.py/.yaml/.ts` 等），`.ps1/.bat` 保留 CRLF，消除容器内 `bad interpreter: /bin/bash^M` | `git ls-files --eol` 全 LF |
+| D12 | 契约补一条：验证走 POSIX 沙箱，宿主直跑为降级且必须声明 | `AGENTS.md` §Zero-Residue |
+
+实测（同一台 Windows 机器，144 项测试）：宿主 7.4 s，容器墙钟约 9 s（容器内 3.8 s，其余为启动开销）；镜像构建 27.8 s。
+证据与策略见 `docs/execution-runner.md`。

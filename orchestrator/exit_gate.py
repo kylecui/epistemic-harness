@@ -28,6 +28,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import shutil
 import subprocess
 from typing import Any
 
@@ -262,6 +263,7 @@ class CheckSpec:
     name: str
     command: str
     required: bool = True
+    runner: str | None = None  # None = inherit gate_runner (auto|docker|host)
 
 
 @dataclass
@@ -275,6 +277,7 @@ class Evidence:
     tail: str = ""
     counted: int | None = None
     stdout_lines: int = 0
+    runner: str = "host"  # "host" | "docker" — a green verdict must name its shell
 
 
 @dataclass
@@ -451,6 +454,8 @@ class ExitGateEngine:
         command_timeout_sec: int = 60,
         evidence_policy: str = "warn",
         ledger_path: Path | None = None,
+        gate_runner: str = "host",
+        verify_image: str = "epistemic-verify:local",
     ) -> None:
         self.repo_dir = Path(repo_dir)
         self.checks = checks if checks is not None else []
@@ -458,6 +463,9 @@ class ExitGateEngine:
         self.max_gate_retries = max_gate_retries
         self.command_timeout_sec = command_timeout_sec
         self.evidence_policy = evidence_policy
+        self.gate_runner = gate_runner
+        self.verify_image = verify_image
+        self._runner_cache: dict[str, tuple[bool, str]] = {}
         self.ledger_path = Path(ledger_path) if ledger_path else (self.repo_dir / ".pi" / "loop_ledger.jsonl")
         self.retry_count = 0
         self.last_fingerprint = ""
@@ -484,47 +492,109 @@ class ExitGateEngine:
             max_gate_retries=int(data.get("max_gate_retries", 3)),
             command_timeout_sec=max(5, int(data.get("command_timeout_ms", 60000)) // 1000),
             evidence_policy=str(data.get("evidence_policy", "warn")),
+            gate_runner=str(data.get("gate_runner", "host")),
+            verify_image=str(data.get("verify_image", "epistemic-verify:local")),
         )
 
     # -- evidence execution ------------------------------------------------
 
-    def _run_one(self, chk: CheckSpec) -> tuple[int, str, str]:
-        """Run one command; a launcher failure (OSError/timeout) is retried once.
+    def _runner_ready(self, name: str) -> tuple[bool, str]:
+        """Is this runner usable here? Cached per engine instance.
 
-        Windows AV scanners and transient file locks can make an executable fail
-        to start, which is an environment fault, not a code defect. Retrying once
-        keeps that noise out of the verdict while still reporting it honestly via
-        the `EXEC_ERROR:` tail when it persists.
+        `auto` must be decidable without side effects, so it checks the docker CLI
+        and whether the verify image already exists. A missing image is not
+        silently built: building inside a gate run would hide minutes of work.
         """
+        if name in self._runner_cache:
+            return self._runner_cache[name]
+        ok, reason = False, "unknown runner"
+        if name == "host":
+            ok, reason = True, "host shell"
+        elif name == "docker":
+            if not shutil.which("docker"):
+                ok, reason = False, "docker CLI not found on PATH"
+            else:
+                try:
+                    probe = subprocess.run(
+                        ["docker", "image", "inspect", self.verify_image],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=20,
+                    )
+                    ok = probe.returncode == 0
+                    reason = "ok" if ok else (
+                        f"image {self.verify_image} not built "
+                        f"(docker build -f Dockerfile.verify -t {self.verify_image} .)"
+                    )
+                except (OSError, subprocess.SubprocessError) as exc:
+                    ok, reason = False, f"docker unusable: {exc}"
+        self._runner_cache[name] = (ok, reason)
+        return ok, reason
+
+    def _resolve_runner(self, requested: str | None) -> tuple[str, str]:
+        """Return (resolved_runner, unavailable_reason)."""
+        want = (requested or self.gate_runner or "auto").lower()
+        if want == "host":
+            return "host", ""
+        ok, reason = self._runner_ready("docker")
+        if want == "docker":
+            return ("docker", "") if ok else ("docker", reason)
+        return ("docker", "") if ok else ("host", "")
+
+    def _run_one(self, chk: CheckSpec) -> tuple[int, str, str, str]:
+        """Run one command; returns (rc, stdout, combined, runner).
+
+        A launcher failure (OSError/timeout) is retried once: Windows AV scanners
+        and transient file locks make an executable fail to start, which is an
+        environment fault, not a code defect. A requested-but-unavailable runner
+        is reported, never silently downgraded.
+        """
+        runner, unavailable = self._resolve_runner(chk.runner)
+        if unavailable:
+            return 127, "", f"RUNNER_UNAVAILABLE: {unavailable}", runner
+
+        if runner == "docker":
+            target: list[str] | str = [
+                "docker", "run", "--rm", "--network", "none",
+                "-v", f"{Path(self.repo_dir).resolve()}:/work", "-w", "/work",
+                self.verify_image, "sh", "-lc", chk.command,
+            ]
+            use_shell = False
+        else:
+            # `shell=True` on Windows must receive a STRING: a one-element list is
+            # quoted as a single argv token and the shell then looks for a file
+            # literally named '<python.exe> -m unittest ...'.
+            target = chk.command
+            use_shell = True
+
         last_exc: Exception | None = None
         for _attempt in range(2):
             try:
                 proc = subprocess.run(
-                    chk.command,
+                    target,
                     cwd=str(self.repo_dir),
-                    shell=True,
+                    shell=use_shell,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                     timeout=self.command_timeout_sec,
                     text=True,
                 )
                 stdout = proc.stdout or ""
-                return proc.returncode, stdout, (stdout + "\n" + (proc.stderr or "")).strip()
+                return proc.returncode, stdout, (stdout + "\n" + (proc.stderr or "")).strip(), runner
             except (OSError, subprocess.SubprocessError) as exc:
                 last_exc = exc
-        return 127, "", f"EXEC_ERROR: {last_exc}"
+        return 127, "", f"EXEC_ERROR: {last_exc}", runner
 
     def _run_checks(self, specs: list[CheckSpec], source: str) -> tuple[list[CheckFailure], list[Evidence]]:
         """Execute checks and keep the machine-checked outcome for every one of them."""
         failures: list[CheckFailure] = []
         evidence: list[Evidence] = []
         for chk in specs:
-            rc, stdout, combined = self._run_one(chk)
+            rc, stdout, combined, runner = self._run_one(chk)
             tail = "\n".join(combined.splitlines()[-25:])
             counted = len([ln for ln in stdout.splitlines() if ln.strip()])
             evidence.append(
                 Evidence(name=chk.name, command=chk.command, exit_code=rc,
-                         source=source, tail=tail, counted=counted, stdout_lines=counted)
+                         source=source, tail=tail, counted=counted, stdout_lines=counted,
+                         runner=runner)
             )
             if rc != 0 and chk.required:
                 failures.append(CheckFailure(name=chk.name, exit_code=rc, tail=tail))

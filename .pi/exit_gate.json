@@ -22,5 +22,7 @@
     "跳过验收",
     "先不跑测试"
   ],
-  "evidence_policy": "enforce"
+  "evidence_policy": "enforce",
+  "gate_runner": "auto",
+  "verify_image": "epistemic-verify:local"
 }

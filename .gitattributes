@@ -1,0 +1,33 @@
+# Keep the repository byte-identical across Windows / macOS / Linux so the
+# containerized verifier and the host shell agree on what a script is.
+* text=auto eol=lf
+
+# Shell scripts must be LF: a CRLF shebang fails inside Linux containers with
+# "bad interpreter: /bin/bash^M".
+*.sh            text eol=lf
+*.bash          text eol=lf
+*.py            text eol=lf
+*.yaml          text eol=lf
+*.yml           text eol=lf
+*.json          text eol=lf
+*.md            text eol=lf
+*.ts            text eol=lf
+Dockerfile*     text eol=lf
+*.dockerfile    text eol=lf
+.gitattributes  text eol=lf
+.gitignore      text eol=lf
+
+# Windows-native entry points stay CRLF for PowerShell / cmd users.
+*.ps1           text eol=crlf
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+
+# Binary assets are never normalized.
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.gif           binary
+*.ico           binary
+*.zip           binary
+*.sqlite        binary
+*.db            binary

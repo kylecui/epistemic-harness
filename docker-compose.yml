@@ -40,3 +40,18 @@ services:
       - ./skill_queue:/app/skill_queue
       - ./.secrets:/app/.secrets:ro   # provider OAuth creds (GitHub Copilot), imported by start_harness.ps1
     restart: unless-stopped
+
+  # POSIX verification sandbox — the canonical runner for `.pi/exit_gate.json`.
+  #   docker compose build verify
+  #   docker compose run --rm verify                       # full suite
+  #   docker compose run --rm verify python scripts/verify.py -p "test_gate_*"
+  verify:
+    profiles: ["verify"]
+    build:
+      context: .
+      dockerfile: Dockerfile.verify
+    image: epistemic-verify:local
+    working_dir: /work
+    volumes:
+      - .:/work
+    network_mode: none
