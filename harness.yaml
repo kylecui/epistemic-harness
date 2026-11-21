@@ -132,6 +132,7 @@ orchestration:
     dependency path as "pre-existing", "unrelated to my changes", or "out of scope"
     — if it blocks verification of your work, fix it.'
   - '**Verification Runner (docker-first)**: Run tests/builds/linters through the POSIX sandbox (`python scripts/verify.py`, `docker compose run --rm verify`). Host-shell execution is the fallback for machines without Docker; when it happens, say so and record the runner. A green verdict must name the runner that produced it (`evidence[].runner`); never downgrade silently.'
+  - '**Line endings and shell are repository properties**: all tracked text files are LF (`*.ps1/*.bat/*.cmd` excepted). Enforced by `scripts/check_eol.py` in the exit gate and in the versioned pre-commit hook — `.gitattributes` alone is not enough, because a CRLF script still sits in the working tree and dies in the Linux verification container with `bad interpreter`.'
   - '**Zero Residue**: Before finishing, delete all temporary scripts, debug logs,
     and `.tmp`/`.bak` files you created, and confirm a clean working tree (`git status`).'
   - '**Two-Tier Scope Boundary**: Fix all blocking failures in touched or dependent
@@ -169,3 +170,26 @@ research_discipline:
     A reply containing an unanchored superlative claim (SOTA / 最佳方案 / 最流行 /
     业界标准) is a contract violation; declaring "未检索" satisfies the contract only
     if the confidence cap is lowered accordingly.
+
+environment_policy:
+  title: Execution Environment Policy (container-first, host as declared fallback)
+  eol_rule: >-
+    Every tracked text file is LF; only *.ps1, *.bat and *.cmd stay CRLF. Enforced in code by
+    scripts/check_eol.py (exit-gate check + versioned pre-commit hook installed with
+    scripts/install_git_hooks.py), because .gitattributes only acts when git rewrites a file.
+  verification_rule: >-
+    Run tests, builds and linters through scripts/verify.py (docker by default, POSIX shell, pinned
+    Python). Host execution is a declared fallback for machines without Docker; the verdict must record
+    which runner produced it (evidence[].runner) and must never downgrade silently.
+  browser_rule: >-
+    Decide browser/CDP placement by what has to be identical, not by taste. Container browser when the
+    target is a self-hosted or local app, when a visual/behavioural baseline must be stable across
+    machines, or when the page must not see the user's real profile and cookies. Host browser when the
+    task needs logged-in real sessions, the user's network position, GPU codecs, or sites that block
+    headless/datacenter IPs. Prefer attaching over CDP to the side that already owns the browser
+    (--remote-debugging-port=9222) instead of moving the whole agent; record browser_runner plus the
+    browser version next to any baseline.
+  browser_evidence:
+  - 'WebArena builds a dockerized, highly realistic and reproducible web environment (arXiv:2307.13854)'
+  - 'Playwright docker docs: image is for testing/dev, not recommended for untrusted sites; root disables the Chromium sandbox'
+  - 'Puppeteer docker docs: sandbox mode needs --init and SYS_ADMIN'

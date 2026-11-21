@@ -1,0 +1,18 @@
+#!/bin/sh
+# Repository hook (installed via: python scripts/install_git_hooks.py).
+# Blocks commits that would reintroduce CRLF into text files, which breaks
+# scripts inside the POSIX verification container.
+set -e
+ROOT="$(git rev-parse --show-toplevel)"
+PY=""
+for cand in python python3; do
+  if command -v "$cand" >/dev/null 2>&1 && "$cand" --version >/dev/null 2>&1; then
+    PY="$cand"
+    break
+  fi
+done
+if [ -z "$PY" ]; then
+  echo "pre-commit: no working python found, skipping eol check" >&2
+  exit 0
+fi
+exec "$PY" "$ROOT/scripts/check_eol.py" --staged

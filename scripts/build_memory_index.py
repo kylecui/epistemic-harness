@@ -8,7 +8,9 @@ the agent re-derives what it already proved. The index gives one line per item
 full record on demand.
 
 Usage:
-    python scripts/build_memory_index.py [--check]
+    python scripts/build_memory_index.py            # rewrite knowledge/INDEX.md
+    python scripts/build_memory_index.py --check    # exit 1 when stale (CI)
+    python scripts/build_memory_index.py --db       # (re)build knowledge/memory_index.db
 `--check` exits 1 when the committed index is stale (CI-friendly).
 """
 
@@ -128,6 +130,13 @@ def render() -> str:
 
 
 def main() -> int:
+    if "--db" in sys.argv:
+        sys.path.insert(0, str(REPO_ROOT))
+        from mcp_server.memory_index import DB_REL, build  # noqa: E402
+        summary = build(REPO_ROOT / DB_REL, KNOWLEDGE)
+        print(f"memory db: {summary['items']} item(s) {summary['by_tier']} -> {DB_REL.as_posix()}")
+        return 0
+
     content = render()
     check = "--check" in sys.argv
     if check:
@@ -139,8 +148,7 @@ def main() -> int:
             return 1
         print("knowledge/INDEX.md is up to date.")
         return 0
-    OUT.write_text(content, encoding="utf-8")
-    print(f"Wrote {OUT.relative_to(REPO_ROOT)}")
+    OUT.write_text(content, encoding="utf-8", newline="\n")
     return 0
 
 

@@ -116,3 +116,15 @@ pi mcp list                                                    # MCP 双服务�
 
 实测（同一台 Windows 机器，144 项测试）：宿主 7.4 s，容器墙钟约 9 s（容器内 3.8 s，其余为启动开销）；镜像构建 27.8 s。
 证据与策略见 `docs/execution-runner.md`。
+
+## 九、v0.4.3 回环与记忆缺口闭合（2026-11-21）
+
+| 编号 | 缺口 → 交付 | 测试 |
+|---|---|---|
+| G1 | 开工契约 `.pi/task_contract.json`：`goal + predicates[{id, statement, check}] + stopping_rule`，谓词未闭合即 `verdict=unclosed_predicate` 拦截；MCP `set_task_contract` | `TaskContractTests`（5 项） |
+| G2 | 失败归属 `failure_classes`：`code_defect / check_defect / env_missing / underdetermined`，每条带默认动作，写进 bounce 与 ledger | `FailureClassTests`（4 项） |
+| G4 | 校验器指纹：`.pi/exit_gate.json + scripts/ + tests/` 哈希进每条 ledger 记录；红判后校验器改动且变绿 → `verifier_changed` 告警 | `VerifierTamperTests`（3 项） |
+| G5 | 批量容器：同一 docker 内串行跑整组检查，sentinel 分段归因；host 路径不变 | `BatchDockerTests`（2 项） |
+| G3 | 混合检索：`mcp_server/memory_index.py`（SQLite FTS5，ASCII 词 + CJK 双字，无需外部分词器），L1/L2/L3/L5 分库返回绝不混合，L2 超 180 天标 `stale`，`recall_memory` MCP 工具，`--db` 构建 | `tests/test_memory_retrieval.py`（9 项） |
+| E1 | 换行符纪律进代码：`scripts/check_eol.py`（闸门检查 + `--staged`）+ 版本化 pre-commit（`scripts/install_git_hooks.py`）+ 编译器输出强制 LF | 本仓库 `eol policy: ok` |
+| B1 | 浏览器/CDP 放置策略：`docs/browser-runner.md`，按"什么必须一致"分容器/本机，CDP 挂载优先 | 文档级 |

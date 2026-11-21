@@ -87,6 +87,17 @@ def _render_core_protocol(spec: dict, include_mcp: bool) -> str:
             "Transport layer — the proxy gateway injects the thinking policy, clamps reasoning effort, enforces tier tags, and runs anti-thrashing auto-recovery on every request; "
             "Tool layer — epistemic-mcp + epistemic-orchestrator are always connected, and weakest-link confidence caps / converge gates are enforced in code."
         )
+    env = spec.get("environment_policy")
+    if env:
+        lines.extend([
+            "",
+            f"## 6. {env.get('title', 'Execution Environment Policy')}",
+            f"- **Line endings**: {env['eol_rule']}",
+            f"- **Verification runner**: {env['verification_rule']}",
+            f"- **Browser / CDP placement**: {env['browser_rule']}",
+        ])
+        for ev in env.get("browser_evidence") or []:
+            lines.append(f"  - evidence: {ev}")
     research = spec.get("research_discipline")
     if research:
         triggers = "; ".join(research.get("triggers") or [])
@@ -111,14 +122,10 @@ def main() -> None:
         f"# {spec['name']} (v{spec['version']}) — Agent Runtime Contract\n\n"
         "> Auto-compiled from `harness.yaml` by `scripts/compile_clients.py`. Do not edit manually.\n\n"
     )
-    (REPO_ROOT / "AGENTS.md").write_text(agents_header + _render_core_protocol(spec, include_mcp=True), encoding="utf-8")
-
-    # 2. Gemini Gem English prompt (soft-constraint Phase 0 adapter)
+    (REPO_ROOT / "AGENTS.md").write_text(agents_header + _render_core_protocol(spec, include_mcp=True), encoding="utf-8", newline="\n")
     gem_out = REPO_ROOT / "clients" / "gemini-gem-v0.3.md"
     gem_out.parent.mkdir(parents=True, exist_ok=True)
-    gem_out.write_text(_render_core_protocol(spec, include_mcp=False), encoding="utf-8")
-
-    # 3. Portable English SKILL.md
+    gem_out.write_text(_render_core_protocol(spec, include_mcp=False), encoding="utf-8", newline="\n")
     skill_out = REPO_ROOT / "clients" / "skills" / "epistemic-dual-process-harness" / "SKILL.md"
     skill_out.parent.mkdir(parents=True, exist_ok=True)
     frontmatter = (
@@ -129,9 +136,7 @@ def main() -> None:
         "anti-thrashing stop-loss, and English internal thinking with user-language output alignment.\n"
         "---\n"
     )
-    skill_out.write_text(frontmatter + _render_core_protocol(spec, include_mcp=False), encoding="utf-8")
-    print("Compiled English AGENTS.md, clients/gemini-gem-v0.3.md, and SKILL.md successfully.")
-
+    skill_out.write_text(frontmatter + _render_core_protocol(spec, include_mcp=False), encoding="utf-8", newline="\n")
 
 if __name__ == "__main__":
     main()

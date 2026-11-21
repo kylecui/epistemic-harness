@@ -16,7 +16,10 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+import os
+
 from mcp_server.dag_engine import EpistemicEngine
+from mcp_server.memory_index import DB_REL as MEMORY_DB_REL, ensure_db, recall as recall_memory
 
 PROTOCOL_VERSION = "2024-11-05"
 
@@ -97,6 +100,22 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "recall_memory",
+        "description": (
+            "Hybrid keyword retrieval (SQLite FTS5: ASCII words + CJK bigrams) over the memory banks. "
+            "Returns L1/L2/L3/L5 banks SEPARATELY with status flags (stale for expired L2) — tiers are "
+            "never blended into one score."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "default": ""},
+                "k": {"type": "integer", "default": 3},
+                "tiers": {"type": "array", "items": {"type": "string", "enum": ["L1", "L2", "L3", "L5"]}},
+            },
+        },
+    },
+    {
         "name": "propose_promotion",
         "description": "Queue a verified L3/L5 item for human PR review to promote to L1 or L2 (never writes directly).",
         "inputSchema": {
@@ -153,6 +172,11 @@ def handle_request(engine: EpistemicEngine, req: dict[str, Any]) -> dict[str, An
                 res = engine.submit_l5_claim(args)
             elif name == "audit_dag":
                 res = engine.audit_dag(include_persisted=bool(args.get("include_persisted", False)))
+            elif name == "recall_memory":
+                store = Path(os.environ.get("HARNESS_MEMORY_STORE") or REPO_ROOT)
+                db = store / MEMORY_DB_REL
+                ensure_db(db, REPO_ROOT / "knowledge")
+                res = recall_memory(db, args.get("query", ""), int(args.get("k", 3)), args.get("tiers"))
             elif name == "query_l5":
                 res = engine.query_l5(args.get("query", ""), int(args.get("limit", 5)))
             elif name == "propose_promotion":

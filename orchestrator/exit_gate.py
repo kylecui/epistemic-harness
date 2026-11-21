@@ -32,6 +32,22 @@ import shutil
 import subprocess
 from typing import Any
 
+try:  # normal package import
+    from orchestrator.task_contract import (
+        TaskContract,
+        load as load_task_contract,
+        unclosed as unclosed_predicates,
+    )
+except ImportError:  # loaded standalone via importlib (tests)
+    import sys as _sys
+
+    _sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from orchestrator.task_contract import (
+        TaskContract,
+        load as load_task_contract,
+        unclosed as unclosed_predicates,
+    )
+
 SHIRKING_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"\bpre[- ]?existing\b", re.IGNORECASE),
     re.compile(r"\bunrelated to (?:my|these|our) changes?\b", re.IGNORECASE),
@@ -295,10 +311,14 @@ class GateDecision:
     residue_files: list[str] = field(default_factory=list)
     shirking_hits: list[str] = field(default_factory=list)
     contract_violations: list[str] = field(default_factory=list)
-    verdict: str = "green"  # "green" | "red" | "no_evidence" | "unbound_claim"
+    verdict: str = "green"  # green|red|no_evidence|unbound_claim|unclosed_predicate
     evidence: list[Evidence] = field(default_factory=list)
     unbound_claims: list[str] = field(default_factory=list)
     claim_errors: list[str] = field(default_factory=list)
+    failure_classes: list[dict[str, Any]] = field(default_factory=list)
+    unclosed_predicates: list[dict[str, Any]] = field(default_factory=list)
+    verifier_hash: str = ""
+    verifier_changed: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     loop_repeat_count: int = 0
     escalate_root_cause: bool = False
@@ -354,6 +374,82 @@ def extract_unbound_claims(text: str, declared: list[str] | None = None) -> list
             continue
         snippets.append(line[:160])
     return snippets
+
+
+def classify_failures(
+    failures: list["CheckFailure"], claim_errors: list[str], evidence: list["Evidence"]
+) -> list[dict[str, Any]]:
+    """Give every failure an owner (G2): code / check / environment / root cause.
+
+    Without an owner, a loop can only retry blindly. Each class carries the default
+    next action, so the bounce prompt can say what to do instead of "fix it".
+    """
+    out: list[dict[str, Any]] = []
+    for f in failures:
+        tail = (f.tail or "")
+        if "RUNNER_UNAVAILABLE" in tail:
+            cls, action = "env_missing", "build/pull the runner image or switch gate_runner to host"
+        elif "EXEC_ERROR" in tail:
+            cls, action = "env_missing", "retry once; if it persists the command cannot start on this host"
+        elif f.name.startswith("claim-count:"):
+            cls, action = "check_defect", "the claim and the check disagree: fix the count, the claim, or the check"
+        elif any(k in tail for k in ("ModuleNotFoundError", "ImportError", "command not found",
+                                     "is not recognized")):
+            cls, action = "env_missing", "install the missing dependency or run through scripts/verify.py"
+        else:
+            cls, action = "code_defect", "fix the code path that the failing check exercises"
+        out.append({"name": f.name, "class": cls, "action": action})
+    for _err in claim_errors:
+        out.append({"name": "claim-binding", "class": "underdetermined",
+                    "action": "declare the check the claim binds to, or qualify the claim"})
+    if not out and not evidence:
+        out.append({"name": "evidence", "class": "underdetermined",
+                    "action": "add checks to .pi/exit_gate.json or pass verification_commands"})
+    return out
+
+
+VERIFIER_PATHS = (".pi/exit_gate.json", "scripts/verify.py", "scripts/check_eol.py")
+
+
+def verifier_fingerprint(repo_dir: Path) -> str:
+    """Hash the verifier itself (G4): config + gate scripts + the test tree.
+
+    A green run whose verifier changed since the last red run is the tamper
+    signal: it must be visible in the verdict instead of silently passing.
+    """
+    repo = Path(repo_dir)
+    digest = hashlib.sha256()
+    for rel in VERIFIER_PATHS:
+        path = repo / rel
+        if path.exists():
+            digest.update(rel.encode("utf-8"))
+            digest.update(path.read_bytes())
+    tests_dir = repo / "tests"
+    if tests_dir.is_dir():
+        for path in sorted(tests_dir.glob("*.py")):
+            digest.update(path.name.encode("utf-8"))
+            digest.update(path.read_bytes())
+    return digest.hexdigest()[:16]
+
+
+def verifier_change_warnings(ledger_path: Path, current: str, window: int = 20) -> list[str]:
+    """Warn when the verifier changed after a red run in the recent ledger."""
+    try:
+        if not ledger_path.exists() or not current:
+            return []
+        records = [json.loads(l) for l in ledger_path.read_text(encoding="utf-8").splitlines() if l.strip()]
+    except (OSError, json.JSONDecodeError):
+        return []
+    for rec in reversed(records[-window:]):
+        if rec.get("kind") != "gate" or rec.get("verdict") == "green":
+            continue
+        prev = rec.get("verifier")
+        if prev and prev != current:
+            return [
+                f"verifier_changed: 上一次红判定时校验器指纹为 {prev}, 现在是 {current}; "
+                f"确认改动是修检查而不是绕过检查"
+            ]
+    return []
 
 
 def _normalize_evidence_specs(specs: Any) -> list[CheckSpec]:
@@ -583,8 +679,78 @@ class ExitGateEngine:
                 last_exc = exc
         return 127, "", f"EXEC_ERROR: {last_exc}", runner
 
+    def _run_batch_docker(
+        self, specs: list[CheckSpec], source: str
+    ) -> tuple[list[CheckFailure], list[Evidence]]:
+        """Run several checks in ONE container (G5).
+
+        Each `docker run` costs ~1.5-2s of startup on this machine, so a gate with
+        three checks would pay it three times. Segments are delimited by sentinels
+        and each command's own rc is echoed, so per-check attribution is preserved.
+        """
+        parts: list[str] = []
+        for i, chk in enumerate(specs):
+            parts.append(
+                f'printf "\\n__HARNESS_SEG_{i}\\n"; {chk.command}; '
+                f'printf "\\n__HARNESS_RC_{i}=%s\\n" "$?"'
+            )
+        script = "\n".join(parts)
+        cmd = [
+            "docker", "run", "--rm", "--network", "none",
+            "-v", f"{Path(self.repo_dir).resolve()}:/work", "-w", "/work",
+            self.verify_image, "sh", "-lc", script,
+        ]
+        failures: list[CheckFailure] = []
+        evidence: list[Evidence] = []
+        try:
+            proc = subprocess.run(
+                cmd, cwd=str(self.repo_dir), shell=False,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                timeout=max(self.command_timeout_sec * max(1, len(specs)), 60),
+            )
+            raw = (proc.stdout or "") + "\n" + (proc.stderr or "")
+        except (OSError, subprocess.SubprocessError) as exc:
+            raw = f"EXEC_ERROR: {exc}"
+
+        segments: dict[int, list[str]] = {}
+        rcs: dict[int, int] = {}
+        current: int | None = None
+        for line in raw.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("__HARNESS_SEG_"):
+                try:
+                    current = int(stripped.rsplit("_", 1)[1])
+                except ValueError:
+                    current = None
+                segments.setdefault(current if current is not None else -1, [])
+                continue
+            if stripped.startswith("__HARNESS_RC_"):
+                idx, _, value = stripped[len("__HARNESS_RC_"):].partition("=")
+                try:
+                    rcs[int(idx)] = int(value.strip())
+                except ValueError:
+                    rcs[int(idx)] = 127
+                continue
+            segments.setdefault(current if current is not None else -1, []).append(line)
+
+        for i, chk in enumerate(specs):
+            body = "\n".join(segments.get(i, [])).strip()
+            rc = rcs.get(i, 127)
+            tail = "\n".join((body or raw).splitlines()[-25:])
+            counted = len([ln for ln in body.splitlines() if ln.strip()])
+            evidence.append(
+                Evidence(name=chk.name, command=chk.command, exit_code=rc, source=source,
+                         tail=tail, counted=counted, stdout_lines=counted, runner="docker")
+            )
+            if rc != 0 and chk.required:
+                failures.append(CheckFailure(name=chk.name, exit_code=rc, tail=tail))
+        return failures, evidence
+
     def _run_checks(self, specs: list[CheckSpec], source: str) -> tuple[list[CheckFailure], list[Evidence]]:
         """Execute checks and keep the machine-checked outcome for every one of them."""
+        if len(specs) > 1 and all(self._resolve_runner(c.runner)[0] == "docker"
+                                 and not self._resolve_runner(c.runner)[1] for c in specs):
+            return self._run_batch_docker(specs, source)
         failures: list[CheckFailure] = []
         evidence: list[Evidence] = []
         for chk in specs:
@@ -634,6 +800,7 @@ class ExitGateEngine:
         claims: list[dict[str, Any]] | None = None,
         verification_commands: Any = None,
         evidence_policy: str | None = None,
+        task_contract: TaskContract | None = None,
     ) -> GateDecision:
         policy = (evidence_policy or self.evidence_policy or "warn").lower()
         if not mutated_this_turn:
@@ -678,17 +845,28 @@ class ExitGateEngine:
         failures += claim_count_failures
 
         executed = [e for e in evidence if e.source == "caller"] or evidence
+        executed_names = [e.name for e in evidence]
+        failed_names = [f.name for f in failures]
+        contract = task_contract if task_contract is not None else load_task_contract(self.repo_dir)
+        unresolved = unclosed_predicates(contract, executed_names, failed_names) if contract else []
+        failure_classes = classify_failures(failures, claim_errors, evidence)
+        verifier = verifier_fingerprint(self.repo_dir)
+
         if failures or residue:
             verdict = "red"
         elif not executed:
             verdict = "no_evidence"
         elif unbound or claim_errors:
             verdict = "unbound_claim"
+        elif unresolved:
+            verdict = "unclosed_predicate"
         else:
             verdict = "green"
 
         blocking = verdict == "red" or (verdict != "green" and policy == "enforce")
         warnings: list[str] = []
+        verifier_changed = verifier_change_warnings(self.ledger_path, verifier)
+        warnings.extend(verifier_changed)
         if verdict != "green" and not blocking:
             warnings.append(
                 f"verdict={verdict}: 断言未绑定或本回合无可绑定证据 ({policy} 策略仅告警, "
@@ -700,6 +878,7 @@ class ExitGateEngine:
                 )
             warnings.extend(f"未绑定断言: {s}" for s in unbound[:3])
             warnings.extend(claim_errors[:3])
+            warnings.extend(f"未闭合谓词 {u['id']}/{u['check']}: {u['status']}" for u in unresolved[:3])
 
         if not blocking:
             self.review_retry_count = 0  # any accepted mutated turn clears the review counter
@@ -707,7 +886,11 @@ class ExitGateEngine:
                 self.retry_count = 0
                 self.last_fingerprint = ""
             self._append_ledger({"kind": "gate", "verdict": verdict, "fingerprint": "",
-                                 "evidence": [e.name for e in evidence], "policy": policy})
+                                 "evidence": [e.name for e in evidence], "policy": policy,
+                                 "verifier": verifier,
+                                 "classes": [c["class"] for c in failure_classes],
+                                 "contract": contract.task_id if contract else "",
+                                 "runners": [e.runner for e in evidence]})
             return GateDecision(
                 passed=True,
                 action="pass",
@@ -715,6 +898,10 @@ class ExitGateEngine:
                 evidence=evidence,
                 unbound_claims=unbound,
                 claim_errors=claim_errors,
+                failure_classes=failure_classes,
+                unclosed_predicates=unresolved,
+                verifier_hash=verifier,
+                verifier_changed=verifier_changed,
                 warnings=warnings,
             )
 
@@ -730,7 +917,11 @@ class ExitGateEngine:
         shirking_hits = detect_shirking(assistant_text)
 
         self._append_ledger({"kind": "gate", "verdict": verdict, "fingerprint": fp, "policy": policy,
-                             "residue": residue[:5], "failures": [f.name for f in failures]})
+                             "residue": residue[:5], "failures": [f.name for f in failures],
+                             "verifier": verifier,
+                             "classes": [c["class"] for c in failure_classes],
+                             "contract": contract.task_id if contract else "",
+                             "runners": [e.runner for e in evidence]})
 
         if self.retry_count >= self.max_gate_retries:
             return GateDecision(
@@ -743,6 +934,10 @@ class ExitGateEngine:
                 evidence=evidence,
                 unbound_claims=unbound,
                 claim_errors=claim_errors,
+                failure_classes=failure_classes,
+                unclosed_predicates=unresolved,
+                verifier_hash=verifier,
+                verifier_changed=verifier_changed,
                 warnings=warnings,
                 loop_repeat_count=prior + 1,
                 escalate_root_cause=True,
@@ -779,6 +974,14 @@ class ExitGateEngine:
             lines.append(f"Unbound quantified claim (no executed check backs it): {snippet}")
         for err in claim_errors[:5]:
             lines.append(f"Claim binding error: {err}")
+        for cls in failure_classes:
+            lines.append(f"Failure class [{cls['class']}] {cls['name']} -> {cls['action']}")
+        for pred in unresolved[:5]:
+            lines.append(
+                f"Unclosed predicate {pred['id']} (check={pred['check']}, {pred['status']}): {pred['statement']}"
+            )
+        for warn in verifier_changed:
+            lines.append(f"[VERIFIER_CHANGED] {warn}")
         for f in failures:
             lines.append(f"Failed check `{f.name}` (exit={f.exit_code}):\n{f.tail}")
         if residue:
@@ -799,6 +1002,10 @@ class ExitGateEngine:
             evidence=evidence,
             unbound_claims=unbound,
             claim_errors=claim_errors,
+            failure_classes=failure_classes,
+            unclosed_predicates=unresolved,
+            verifier_hash=verifier,
+            verifier_changed=verifier_changed,
             warnings=warnings,
             loop_repeat_count=prior + 1,
             escalate_root_cause=escalate_root_cause,

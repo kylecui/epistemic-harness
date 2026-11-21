@@ -7,6 +7,11 @@
       "name": "unit_tests",
       "command": "python scripts/verify.py",
       "required": true
+    },
+    {
+      "name": "eol_policy",
+      "command": "python scripts/check_eol.py",
+      "required": true
     }
   ],
   "residue_globs": [

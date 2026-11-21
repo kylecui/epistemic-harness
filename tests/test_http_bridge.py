@@ -31,7 +31,8 @@ class TestHttpBridge(unittest.TestCase):
         self.assertIn("query_l1", names)
         self.assertIn("audit_dag", names)
         self.assertIn("query_l5", names)
-        self.assertEqual(len(tools), 8)
+        self.assertIn("recall_memory", names)
+        self.assertEqual(len(tools), 9)
 
     def test_orchestrator_classify_over_http(self) -> None:
         resp = self.client.post(
