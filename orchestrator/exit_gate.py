@@ -133,12 +133,101 @@ def check_l3_scope(text: str) -> list[str]:
     return violations
 
 
+# ---------------------------------------------------------------------------
+# Underdetermination guard (issue #3)
+# ---------------------------------------------------------------------------
+
+_DECISION_ASK_RE = re.compile(
+    r"(需要你(?:来)?(?:决定|拍板|裁量|定夺|选)|请你(?:决定|拍板|裁量|确认)|需要(?:你)?确认|"
+    r"待你决策|由你决定|决策点|需要裁量|decision needed|need your (?:decision|call))",
+    re.I,
+)
+_L4_ANCHOR_RE = re.compile(
+    r"(\bL4\b|预算|工期|人力|团队|风险取舍|产品取舍|商业取舍|合规要求|"
+    r"budget|headcount|timeline|risk trade|product trade)",
+    re.I,
+)
+_L2_GAP_ANCHOR_RE = re.compile(
+    r"(缺(?:少|失)?(?:L2|证据|数据|日志|凭据|文档)|没有(?:可核查|可验证|一手)|"
+    r"L2\s*缺失|未检索|需外部检索|evidence gap)",
+    re.I,
+)
+
+# ---------------------------------------------------------------------------
+# External grounding for selection / SOTA claims (research discipline)
+# ---------------------------------------------------------------------------
+
+_SOTA_CLAIM_RE = re.compile(
+    r"(\bSOTA\b|state[- ]of[- ]the[- ]art|最佳方案|最优方案|最流行|主流方案|业界标准|"
+    r"公认做法|普遍做法|best[- ]in[- ]class|de[- ]facto standard)",
+    re.I,
+)
+_SOURCE_ANCHOR_RE = re.compile(
+    r"(https?://|arxiv[:\s]|doi[:\s]|github\.com/|huggingface\.co/|"
+    r"检索于|accessed\s+\d{4}|\b(?:19|20)\d{2}-\d{2}-\d{2}\b|RFC\s?\d+)",
+    re.I,
+)
+_NOT_SEARCHED_RE = re.compile(
+    r"(未检索|未做外部检索|凭记忆|from memory|without (?:an )?external search|no external search)",
+    re.I,
+)
+_FENCE_RE = re.compile(r"```.*?```", re.S)
+
+
+def _strip_noise(text: str) -> list[str]:
+    """Drop fenced code and blockquoted lines so quoted material cannot trip the checks."""
+    text = _FENCE_RE.sub("\n", text or "")
+    return [ln for ln in text.splitlines() if not ln.lstrip().startswith(">")]
+
+
+def check_underdetermination(text: str) -> list[str]:
+    """A raised decision point must be genuinely underdetermined (issue #3).
+
+    Every explicit ask anchor ("需要你拍板" / "请确认" / "决策点") needs, within
+    the next 3 lines, either an L4 trade-off anchor (budget/risk/team/product)
+    or a missing-L2 anchor. Otherwise the reply is asking the user to decide
+    something already closed by definition or by evidence.
+    """
+    lines = _strip_noise(text)
+    violations: list[str] = []
+    for idx, line in enumerate(lines):
+        for m in _DECISION_ASK_RE.finditer(line):
+            window = "\n".join(lines[idx:idx + 3])
+            if _L4_ANCHOR_RE.search(window) or _L2_GAP_ANCHOR_RE.search(window):
+                continue
+            violations.append(
+                f"伪决策点(第{idx + 1}行) '{m.group(0)}': 未标明触发层; "
+                f"若不问时答案唯一(定义/证据已闭合)直接给结论, 确需裁量请注明 L4 取舍或缺失的 L2 证据"
+            )
+    return violations
+
+
+def check_external_grounding(text: str) -> list[str]:
+    """SOTA/superlative claims need an external source anchor or an explicit
+
+    "no search done" declaration. Keeps recommendation-heavy answers from being
+    asserted purely from memory.
+    """
+    body = "\n".join(_strip_noise(text))
+    m = _SOTA_CLAIM_RE.search(body)
+    if not m:
+        return []
+    if _SOURCE_ANCHOR_RE.search(body) or _NOT_SEARCHED_RE.search(body):
+        return []
+    return [
+        f"选型/最优性断言 '{m.group(0)}' 缺少来源锚点(URL/arXiv/DOI/检索日期); "
+        f"若本回合未做外部检索, 请显式写明并据实下调置信上限"
+    ]
+
+
 def check_review_completeness(text: str) -> list[str]:
     """Union of review-turn contract checks. Empty means compliant."""
     return (
         check_remediation_completeness(text)
         + check_silent_promotion(text)
         + check_l3_scope(text)
+        + check_underdetermination(text)
+        + check_external_grounding(text)
     )
 
 
@@ -166,6 +255,19 @@ class CheckSpec:
 
 
 @dataclass
+class Evidence:
+    """One executed verification with its machine-checked outcome."""
+
+    name: str
+    command: str
+    exit_code: int
+    source: str = "config"  # "config" | "caller"
+    tail: str = ""
+    counted: int | None = None
+    stdout_lines: int = 0
+
+
+@dataclass
 class CheckFailure:
     name: str
     exit_code: int
@@ -180,6 +282,13 @@ class GateDecision:
     residue_files: list[str] = field(default_factory=list)
     shirking_hits: list[str] = field(default_factory=list)
     contract_violations: list[str] = field(default_factory=list)
+    verdict: str = "green"  # "green" | "red" | "no_evidence" | "unbound_claim"
+    evidence: list[Evidence] = field(default_factory=list)
+    unbound_claims: list[str] = field(default_factory=list)
+    claim_errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    loop_repeat_count: int = 0
+    escalate_root_cause: bool = False
     fingerprint: str = ""
     retry_count: int = 0
     bounce_prompt: str = ""
@@ -192,6 +301,96 @@ def detect_shirking(text: str) -> list[str]:
         if m:
             hits.append(m.group(0))
     return hits
+
+
+# ---------------------------------------------------------------------------
+# Issue #2 — quantified / completeness claims must bind to executed evidence
+# ---------------------------------------------------------------------------
+
+QUANT_CLAIM_RE = re.compile(
+    r"(\d{1,3}(?:\.\d+)?\s*%|\ball\b|\bzero\b|\bnone missing\b|\bfull coverage\b|"
+    r"全部|所有|无遗漏|无缺失|零残留|全覆盖|完整覆盖|均已完成|均已覆盖|不含遗漏)",
+    re.I,
+)
+CLAIM_QUALIFIER_RE = re.compile(
+    r"(未验证|未校验|未检查|仅抽样|抽样\s*\d+|其余未验证|部分验证|"
+    r"not verified|unverified|sampled only|partial(?:ly)? (?:checked|verified))",
+    re.I,
+)
+_ENUMERATION_RE = re.compile(r"(项|条|个|处|页|文件|接口|用例|用例)")
+
+
+def extract_unbound_claims(text: str, declared: list[str] | None = None) -> list[str]:
+    """Return quantified/completeness claim snippets with no bound check.
+
+    A snippet is exempt when it carries an explicit limitation qualifier
+    ("仅抽样 5 页，其余未验证"), sits inside fenced code, or its text is
+    declared in the caller's `claims` mapping.
+    """
+    declared_norm = [" ".join(d.lower().split()) for d in (declared or []) if d]
+    snippets: list[str] = []
+    body = _FENCE_RE.sub("\n", text or "")
+    for raw in re.split(r"(?<=[。！？；\n])|(?<=[.!?]\s)", body):
+        line = raw.strip()
+        if not line or not QUANT_CLAIM_RE.search(line):
+            continue
+        if CLAIM_QUALIFIER_RE.search(line):
+            continue
+        norm = " ".join(line.lower().split())
+        if any(d in norm or norm in d for d in declared_norm):
+            continue
+        snippets.append(line[:160])
+    return snippets
+
+
+def _normalize_evidence_specs(specs: Any) -> list[CheckSpec]:
+    if not specs:
+        return []
+    out: list[CheckSpec] = []
+    if isinstance(specs, (str, dict)):
+        specs = [specs]
+    for i, item in enumerate(specs):
+        if isinstance(item, str):
+            out.append(CheckSpec(name=f"verify-{i + 1}", command=item))
+        elif isinstance(item, dict) and item.get("command"):
+            out.append(CheckSpec(name=str(item.get("name") or f"verify-{i + 1}"),
+                                 command=str(item["command"])))
+    return out
+
+
+def _validate_claims(
+    claims: list[dict[str, Any]] | None, evidence: list[Evidence]
+) -> tuple[list[str], list[CheckFailure]]:
+    """Bind declared claims to actually executed checks; also verify count coverage."""
+    errors: list[str] = []
+    failures: list[CheckFailure] = []
+    by_name = {e.name: e for e in evidence}
+    for i, claim in enumerate(claims or []):
+        if not isinstance(claim, dict) or not claim.get("text"):
+            errors.append(f"claims[{i}]: 缺少 text")
+            continue
+        check = str(claim.get("check") or "")
+        if not check:
+            errors.append(f"claims[{i}] '{claim['text'][:40]}': 缺少 check (必须指名已执行的校验)")
+            continue
+        ev = by_name.get(check)
+        if ev is None:
+            errors.append(
+                f"claims[{i}] '{claim['text'][:40]}': check '{check}' 本回合未执行; "
+                f"已执行: {', '.join(by_name) or '(none)'}"
+            )
+            continue
+        expected = claim.get("expected_count")
+        if expected is not None and ev.counted is not None:
+            if int(expected) != int(ev.counted):
+                failures.append(
+                    CheckFailure(
+                        name=f"claim-count:{check}",
+                        exit_code=1,
+                        tail=f"断言 '{claim['text'][:40]}' 声称 {expected} 项, 校验输出实为 {ev.counted} 项",
+                    )
+                )
+    return errors, failures
 
 
 def scan_residue_files(repo_dir: Path, residue_globs: list[str] | None = None) -> list[str]:
@@ -222,7 +421,6 @@ def scan_residue_files(repo_dir: Path, residue_globs: list[str] | None = None) -
 
 
 _TIMING_RE = re.compile(r"\d+\.\d+s")
-
 def _fingerprint(failures: list[CheckFailure], residue: list[str]) -> str:
     parts = [
         f"{f.name}:{_TIMING_RE.sub('X.Xs', f.tail)[-400:]}"
@@ -241,12 +439,16 @@ class ExitGateEngine:
         residue_globs: list[str] | None = None,
         max_gate_retries: int = 3,
         command_timeout_sec: int = 60,
+        evidence_policy: str = "warn",
+        ledger_path: Path | None = None,
     ) -> None:
         self.repo_dir = Path(repo_dir)
         self.checks = checks if checks is not None else []
         self.residue_globs = residue_globs if residue_globs is not None else list(DEFAULT_RESIDUE_GLOBS)
         self.max_gate_retries = max_gate_retries
         self.command_timeout_sec = command_timeout_sec
+        self.evidence_policy = evidence_policy
+        self.ledger_path = Path(ledger_path) if ledger_path else (self.repo_dir / ".pi" / "loop_ledger.jsonl")
         self.retry_count = 0
         self.last_fingerprint = ""
         self.review_retry_count = 0
@@ -271,9 +473,77 @@ class ExitGateEngine:
             residue_globs=data.get("residue_globs", DEFAULT_RESIDUE_GLOBS),
             max_gate_retries=int(data.get("max_gate_retries", 3)),
             command_timeout_sec=max(5, int(data.get("command_timeout_ms", 60000)) // 1000),
+            evidence_policy=str(data.get("evidence_policy", "warn")),
         )
 
-    def evaluate(self, assistant_text: str, mutated_this_turn: bool = True) -> GateDecision:
+    # -- evidence execution ------------------------------------------------
+
+    def _run_checks(self, specs: list[CheckSpec], source: str) -> tuple[list[CheckFailure], list[Evidence]]:
+        """Execute checks and keep the machine-checked outcome for every one of them."""
+        failures: list[CheckFailure] = []
+        evidence: list[Evidence] = []
+        for chk in specs:
+            try:
+                proc = subprocess.run(
+                    chk.command,
+                    cwd=str(self.repo_dir),
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    timeout=self.command_timeout_sec,
+                    text=True,
+                )
+                rc = proc.returncode
+                stdout = proc.stdout or ""
+                combined = (stdout + "\n" + (proc.stderr or "")).strip()
+            except (OSError, subprocess.SubprocessError) as exc:
+                rc, stdout, combined = 127, "", f"EXEC_ERROR: {exc}"
+            tail = "\n".join(combined.splitlines()[-25:])
+            counted = len([ln for ln in stdout.splitlines() if ln.strip()])
+            evidence.append(
+                Evidence(name=chk.name, command=chk.command, exit_code=rc,
+                         source=source, tail=tail, counted=counted, stdout_lines=counted)
+            )
+            if rc != 0 and chk.required:
+                failures.append(CheckFailure(name=chk.name, exit_code=rc, tail=tail))
+        return failures, evidence
+
+    # -- cross-turn loop ledger -------------------------------------------
+
+    def _ledger_repeat_count(self, fp: str) -> int:
+        """How many previous turns already ended with this exact fingerprint."""
+        try:
+            if not self.ledger_path.exists():
+                return 0
+            n = 0
+            for raw in self.ledger_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    rec = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if rec.get("fingerprint") == fp and rec.get("verdict") != "green":
+                    n += 1
+            return n
+        except OSError:
+            return 0
+
+    def _append_ledger(self, record: dict[str, Any]) -> None:
+        try:
+            self.ledger_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.ledger_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            pass  # the ledger must never break the gate
+
+    def evaluate(
+        self,
+        assistant_text: str,
+        mutated_this_turn: bool = True,
+        claims: list[dict[str, Any]] | None = None,
+        verification_commands: Any = None,
+        evidence_policy: str | None = None,
+    ) -> GateDecision:
+        policy = (evidence_policy or self.evidence_policy or "warn").lower()
         if not mutated_this_turn:
             # Review turn (zero file changes): the file/residue gate stays off,
             # but a declared defect must still ship a complete remediation plan
@@ -300,35 +570,75 @@ class ExitGateEngine:
             )
 
         failures: list[CheckFailure] = []
-        for chk in self.checks:
-            proc = subprocess.run(
-                chk.command,
-                cwd=str(self.repo_dir),
-                shell=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=self.command_timeout_sec,
-                text=True,
-            )
-            if proc.returncode != 0 and chk.required:
-                combined = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
-                tail = "\n".join(combined.splitlines()[-25:])
-                failures.append(CheckFailure(name=chk.name, exit_code=proc.returncode, tail=tail))
+        evidence: list[Evidence] = []
+        caller_specs = _normalize_evidence_specs(verification_commands)
+        cfg_failures, cfg_evidence = self._run_checks(self.checks, "config")
+        caller_failures, caller_evidence = self._run_checks(caller_specs, "caller")
+        failures = cfg_failures + caller_failures
+        evidence = cfg_evidence + caller_evidence
 
         residue = scan_residue_files(self.repo_dir, self.residue_globs)
 
-        if not failures and not residue:
-            self.retry_count = 0
-            self.last_fingerprint = ""
-            self.review_retry_count = 0
-            return GateDecision(passed=True, action="pass")
+        # Issue #2: quantified/completeness claims must bind to executed checks.
+        declared = [str(c.get("text", "")) for c in (claims or []) if isinstance(c, dict)]
+        unbound = extract_unbound_claims(assistant_text, declared)
+        claim_errors, claim_count_failures = _validate_claims(claims, evidence)
+        failures += claim_count_failures
 
-        fp = _fingerprint(failures, residue)
+        executed = [e for e in evidence if e.source == "caller"] or evidence
+        if failures or residue:
+            verdict = "red"
+        elif not executed:
+            verdict = "no_evidence"
+        elif unbound or claim_errors:
+            verdict = "unbound_claim"
+        else:
+            verdict = "green"
+
+        blocking = verdict == "red" or (verdict != "green" and policy == "enforce")
+        warnings: list[str] = []
+        if verdict != "green" and not blocking:
+            warnings.append(
+                f"verdict={verdict}: 断言未绑定或本回合无可绑定证据 ({policy} 策略仅告警, "
+                f"设为 enforce 可硬拦)"
+            )
+            if not executed:
+                warnings.append(
+                    "未执行任何校验: 仓库无 .pi/exit_gate.json 或 checks 为空, 且未传 verification_commands"
+                )
+            warnings.extend(f"未绑定断言: {s}" for s in unbound[:3])
+            warnings.extend(claim_errors[:3])
+
+        if not blocking:
+            self.review_retry_count = 0  # any accepted mutated turn clears the review counter
+            if verdict == "green":
+                self.retry_count = 0
+                self.last_fingerprint = ""
+            self._append_ledger({"kind": "gate", "verdict": verdict, "fingerprint": "",
+                                 "evidence": [e.name for e in evidence], "policy": policy})
+            return GateDecision(
+                passed=True,
+                action="pass",
+                verdict=verdict,
+                evidence=evidence,
+                unbound_claims=unbound,
+                claim_errors=claim_errors,
+                warnings=warnings,
+            )
+
+        fp = _fingerprint(failures, residue) if (failures or residue) else (
+            f"{verdict}:" + ",".join((unbound[:1] + claim_errors[:1]))[:80]
+        )
         repeated = fp == self.last_fingerprint
         self.last_fingerprint = fp
+        prior = self._ledger_repeat_count(fp)
+        escalate_root_cause = prior >= 2
 
         # State-coupled: only flag shirking when the repo is actually red or dirty!
         shirking_hits = detect_shirking(assistant_text)
+
+        self._append_ledger({"kind": "gate", "verdict": verdict, "fingerprint": fp, "policy": policy,
+                             "residue": residue[:5], "failures": [f.name for f in failures]})
 
         if self.retry_count >= self.max_gate_retries:
             return GateDecision(
@@ -337,14 +647,22 @@ class ExitGateEngine:
                 failures=failures,
                 residue_files=residue,
                 shirking_hits=shirking_hits,
+                verdict=verdict,
+                evidence=evidence,
+                unbound_claims=unbound,
+                claim_errors=claim_errors,
+                warnings=warnings,
+                loop_repeat_count=prior + 1,
+                escalate_root_cause=True,
                 fingerprint=fp,
                 retry_count=self.retry_count,
             )
 
         self.retry_count += 1
-        action = "escalate_and_bounce" if repeated else "bounce"
+        action = "escalate_and_bounce" if (repeated or escalate_root_cause) else "bounce"
         lines = [
-            f"[HARNESS_EXIT_GATE_RETRY] Attempt {self.retry_count}/{self.max_gate_retries} (fingerprint={fp})."
+            f"[HARNESS_EXIT_GATE_RETRY] Attempt {self.retry_count}/{self.max_gate_retries} "
+            f"(fingerprint={fp}, verdict={verdict})."
         ]
         if shirking_hits:
             lines.append(
@@ -353,10 +671,31 @@ class ExitGateEngine:
             )
         if repeated:
             lines.append("[ESCALATE_REASONING: high] Identical error repeated; re-analyze root cause.")
+        if escalate_root_cause:
+            lines.append(
+                f"[LOOP_LEDGER] This fingerprint already appeared {prior} time(s) in earlier turns "
+                f"({self.ledger_path.name}). Do not repeat the same fix: state a root-cause hypothesis, "
+                f"keep at most 2 candidate directions, then run one discriminating check or report the "
+                f"blocking unknown to the user."
+            )
+        if verdict == "no_evidence":
+            lines.append(
+                "[NO_EVIDENCE] Nothing was executed, so no completion claim is justified. Add checks to "
+                ".pi/exit_gate.json, or pass verification_commands so the gate runs them itself."
+            )
+        for snippet in unbound[:5]:
+            lines.append(f"Unbound quantified claim (no executed check backs it): {snippet}")
+        for err in claim_errors[:5]:
+            lines.append(f"Claim binding error: {err}")
         for f in failures:
             lines.append(f"Failed check `{f.name}` (exit={f.exit_code}):\n{f.tail}")
         if residue:
             lines.append("Leftover residue files to remove: " + ", ".join(residue))
+        if unbound or claim_errors:
+            lines.append(
+                "Bind each quantified/completeness claim to an executed check via "
+                "run_gate(claims=[{text, check}]), or qualify it explicitly (e.g. '抽样 5/22 页，其余未验证')."
+            )
 
         return GateDecision(
             passed=False,
@@ -364,6 +703,13 @@ class ExitGateEngine:
             failures=failures,
             residue_files=residue,
             shirking_hits=shirking_hits,
+            verdict=verdict,
+            evidence=evidence,
+            unbound_claims=unbound,
+            claim_errors=claim_errors,
+            warnings=warnings,
+            loop_repeat_count=prior + 1,
+            escalate_root_cause=escalate_root_cause,
             fingerprint=fp,
             retry_count=self.retry_count,
             bounce_prompt="\n".join(lines),

@@ -24,9 +24,11 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, field
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 from typing import Any
 
 import yaml
@@ -192,6 +194,8 @@ def run_mock_case(case: dict[str, Any]) -> RunTrace:
 
     raw_cid = case["id"]
     cid = raw_cid.replace("-EN", "")
+    # Eval runs are not real sessions: never let them append to the repo's memory store.
+    os.environ.setdefault("HARNESS_MEMORY_STORE", tempfile.mkdtemp(prefix="harness-eval-store-"))
     engine = EpistemicEngine(REPO_ROOT)
     events: list[dict[str, Any]] = []
 

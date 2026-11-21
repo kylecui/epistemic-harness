@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -13,7 +14,12 @@ from mcp_server.dag_engine import EpistemicEngine
 
 class TestEpistemicHardConstraints(unittest.TestCase):
     def setUp(self) -> None:
-        self.engine = EpistemicEngine(REPO_ROOT)
+        # Persisted L4/L5 memory must not land in the repo's real store during tests.
+        self._store = tempfile.TemporaryDirectory()
+        self.engine = EpistemicEngine(REPO_ROOT, store_root=Path(self._store.name))
+
+    def tearDown(self) -> None:
+        self._store.cleanup()
 
     def test_f04_blocks_invented_l1_axiom(self) -> None:
         """F-04: Model cannot invent L1 axioms outside read-only l1_axioms/."""
@@ -85,12 +91,16 @@ class TestEpistemicHardConstraints(unittest.TestCase):
 
     def test_live_mcp_stdio_jsonrpc_roundtrip(self) -> None:
         """Spawn real mcp_server/server.py over stdio and verify MCP JSON-RPC 2.0."""
+        store = tempfile.TemporaryDirectory()
+        self.addCleanup(store.cleanup)
+        env = {**os.environ, "HARNESS_MEMORY_STORE": store.name}
         proc = subprocess.Popen(
             [sys.executable, str(REPO_ROOT / "mcp_server" / "server.py")],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            env=env,
         )
         assert proc.stdin and proc.stdout
         requests = [

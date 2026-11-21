@@ -16,6 +16,8 @@ Core hard constraints enforced in code (cannot be bypassed by LLM prompt drift):
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
+import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -56,16 +58,25 @@ class L5ClaimRecord(BaseModel):
 
 
 class EpistemicEngine:
-    def __init__(self, repo_root: Path) -> None:
+    def __init__(self, repo_root: Path, store_root: Path | None = None) -> None:
         self.repo_root = repo_root
         self.knowledge_dir = repo_root / "knowledge"
         self.promotions_dir = repo_root / "promotions"
+        # Persisted memory may live elsewhere (tests / CI must not write into the
+        # real store). HARNESS_MEMORY_STORE keeps that redirect scriptable.
+        self.store_root = Path(store_root or os.environ.get("HARNESS_MEMORY_STORE") or repo_root)
+        self.l5_store_dir = self.store_root / "knowledge" / "l5_store"
+        self.l4_store_path = self.store_root / ".pi" / "l4_inputs.jsonl"
         self.l1_axioms: dict[str, dict[str, Any]] = {}
         self.l2_evidence: dict[str, dict[str, Any]] = {}
         self.l3_heuristics: dict[str, dict[str, Any]] = {}
         self.l4_inputs: dict[str, dict[str, Any]] = {}
         self.l5_claims: dict[str, L5ClaimRecord] = {}
+        # Claims created in THIS process; audit_dag defaults to the session view so
+        # a long-lived store never silently changes a fresh session's converge gate.
+        self.session_claim_ids: set[str] = set()
         self._load_stores()
+        self._load_persisted_l4_l5()
 
     def _load_stores(self) -> None:
         l1_path = self.knowledge_dir / "l1_axioms" / "axioms.yaml"
@@ -92,6 +103,49 @@ class EpistemicEngine:
                         "scope_conditions and counter_examples are mandatory."
                     )
                 self.l3_heuristics[item["id"]] = {**item, "tier": "L3", "falsifiable": True}
+
+    def _persist_l4(self, record: dict[str, Any]) -> None:
+        """L4 user intent must survive a restart; it is the anchor every audit cites."""
+        try:
+            self.l4_store_path.parent.mkdir(parents=True, exist_ok=True)
+            with self.l4_store_path.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+        except OSError:
+            pass  # persistence is best-effort; never break the tool call
+
+    def _persist_l5(self, record: L5ClaimRecord) -> None:
+        """Append-only monthly L5 store: the derivation memory that used to die with the process."""
+        try:
+            self.l5_store_dir.mkdir(parents=True, exist_ok=True)
+            month = datetime.now(timezone.utc).strftime("%Y-%m")
+            payload = {
+                **record.model_dump(),
+                "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            }
+            with (self.l5_store_dir / f"{month}.jsonl").open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
+        except OSError:
+            pass
+
+    def _load_persisted_l4_l5(self) -> None:
+        """Hydrate L4 inputs + prior L5 derivations so reuse inherits the same cap."""
+        if self.l4_store_path.exists():
+            for raw in self.l4_store_path.read_text(encoding="utf-8").splitlines():
+                try:
+                    rec = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if rec.get("id"):
+                    self.l4_inputs[rec["id"]] = rec
+        if not self.l5_store_dir.exists():
+            return
+        for path in sorted(self.l5_store_dir.glob("*.jsonl")):
+            for raw in path.read_text(encoding="utf-8").splitlines():
+                try:
+                    rec = L5ClaimRecord(**json.loads(raw))
+                except Exception:  # malformed line must not take down the server
+                    continue
+                self.l5_claims.setdefault(rec.claim_id, rec)
 
     def _match(self, item: dict[str, Any], query: str) -> bool:
         if not query.strip():
@@ -131,8 +185,10 @@ class EpistemicEngine:
     def register_l4_input(self, input_id: str, statement: str, kind: str = "constraint") -> dict[str, Any]:
         if not input_id.startswith("L4-"):
             raise ValueError("L4 input_id must start with 'L4-'.")
-        record = {"id": input_id, "tier": "L4", "kind": kind, "statement": statement}
+        record = {"id": input_id, "tier": "L4", "kind": kind, "statement": statement,
+                  "registered_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
         self.l4_inputs[input_id] = record
+        self._persist_l4(record)
         return {"registered": record, "note": "L4 directs optimization goals but cannot override L1."}
 
     def _resolve_source_strength(self, source_id: str) -> tuple[str, int | None]:
@@ -204,24 +260,45 @@ class EpistemicEngine:
             status=status,
         )
         self.l5_claims[record.claim_id] = record
+        self.session_claim_ids.add(record.claim_id)
+        self._persist_l5(record)
         return record.model_dump() if hasattr(record, 'model_dump') else record.dict()
 
-    def audit_dag(self) -> dict[str, Any]:
-        blocked = [c.claim_id for c in self.l5_claims.values() if c.status == "blocked_l1_conflict"]
-        downgraded = [c.claim_id for c in self.l5_claims.values() if c.downgraded]
-        if not self.l5_claims:
+    def query_l5(self, query: str = "", limit: int = 5) -> dict[str, Any]:
+        """Recall prior derivations (persisted + session) so work is not re-derived."""
+        items = [c for c in self.l5_claims.values() if self._match(c.model_dump(), query)]
+        items.sort(key=lambda c: c.claim_id)
+        return {
+            "epistemic_tier": "L5",
+            "policy": (
+                "Reusing a prior claim inherits its effective_tier as a hard cap; "
+                "cite the claim_id instead of re-deriving it."
+            ),
+            "total": len(items),
+            "items": [c.model_dump() for c in items[:limit]],
+        }
+
+    def audit_dag(self, include_persisted: bool = False) -> dict[str, Any]:
+        claims = [
+            c for cid, c in self.l5_claims.items()
+            if include_persisted or cid in self.session_claim_ids
+        ]
+        blocked = [c.claim_id for c in claims if c.status == "blocked_l1_conflict"]
+        downgraded = [c.claim_id for c in claims if c.downgraded]
+        if not claims:
             overall_cap = "NONE"
         else:
-            min_score = min(TIER_STRENGTH[c.effective_tier] for c in self.l5_claims.values())
+            min_score = min(TIER_STRENGTH[c.effective_tier] for c in claims)
             overall_cap = STRENGTH_TO_TIER[min_score]
 
         return {
-            "total_l5_claims": len(self.l5_claims),
+            "total_l5_claims": len(claims),
+            "persisted_claims_available": len(self.l5_claims) - len(claims),
             "overall_confidence_cap": overall_cap,
             "converge_allowed": len(blocked) == 0,
             "blocked_l1_conflicts": blocked,
             "downgraded_claims": downgraded,
-            "claims": [c.model_dump() if hasattr(c, 'model_dump') else c.dict() for c in self.l5_claims.values()],
+            "claims": [c.model_dump() if hasattr(c, 'model_dump') else c.dict() for c in claims],
         }
 
     def propose_promotion(

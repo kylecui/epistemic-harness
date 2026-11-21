@@ -58,7 +58,9 @@ def _render_core_protocol(spec: dict, include_mcp: bool) -> str:
         "- **Explore Mode**: Allow broad L3 heuristic ideation, clearly tagged `[L3 | provisional]`.",
         "- **Converge Mode**: Filter unsupported assertions, attach scope & counter-examples to every L3 item, and surface the exact confidence cap.",
         "- **Tier 0 / Tier 1 Output**: Start with `[Tier: <name> | Mode: Explore/Converge]` followed directly by the concise result (no heavy boilerplate tables).",
-        "- **Tier 1.5 / Tier 2 / Tier 2+ / Converge Output**: Start with `[Tier: <name> | Mode: <Explore/Converge> | Confidence Cap: L1/L2/L3]`, followed by: (1) Core Conclusion, (2) Epistemic Breakdown (`[L1]`, `[L2]`, `[L3 + scope/counter-examples]`, `[L4]`), and (3) Evidence Gaps & Complete Remediation Plan (if any).",
+        "- **Tier 1.5 / Tier 2 / Tier 2+ / Converge Output**: Start with `[Tier: <name> | Mode: <Explore/Converge> | Confidence Cap: L1/L2/L3]`, followed by: (1) Core Conclusion, (2) Epistemic Breakdown (`[L1]`, `[L2]`, `[L3 + scope/counter-examples]`, `[L4]`), and (3) Evidence Gaps & Complete Remediation Plan — **only when something is genuinely open**; write `无` when nothing is.",
+        "- **No Fabricated Decision Points**: The gaps slot is conditional, not mandatory filler. Raise a decision point ONLY when it is underdetermined by L1 (invariants), L2 (evidence), and L4 (user goal/resources). If the answer is fixed by a definition, by evidence, or by an existing convention, state the conclusion and its basis — do not hand it back as an open question. Self-check before writing: (a) if I never asked, would the answer still be unique? then do not ask; (b) am I raising it because the template has a slot? then delete it. Few-shot — SHOULD raise: \"是否允许对历史数据做永久处置（L4 风险取舍）\"; SHOULD NOT raise: \"i18n 字典里 zh 值写中文算不算硬编码\" (closed by definition).",
+        "- **Claims Bind to Executed Evidence (hard rule, enforced by `run_gate`)**: Any quantified or completeness claim (\"100%\", \"全部\", \"无遗漏\", \"零残留\", \">= N 项\") MUST be bound to a check the gate executed in the same turn (`run_gate(claims=[{text, check}])` + `verification_commands`). A green verdict with zero executed checks is `no_evidence`, not a pass. When only part of the surface was verified, say so (\"抽样 5/22 页，其余未验证\").",
         "- **Remediation Completeness (hard rule, enforced in code)**: Any item you declare as a code or data defect MUST ship a complete fix plan in the same reply: concrete change points, data/migration impact, rollback path, and falsifiable acceptance criteria. Downgrading a declared defect to \"write a doc\", \"add to known issues\", or \"defer\" is a contract violation unless the reply explicitly cites the L4 operational trade-off (who accepts which risk, and why). The anti-thrashing \"1-3 minimal actions\" rule is stop-loss for missing evidence — it is NOT a vehicle for defect downgrade.",
     ])
     orch = spec.get("orchestration")
@@ -85,6 +87,19 @@ def _render_core_protocol(spec: dict, include_mcp: bool) -> str:
             "Transport layer — the proxy gateway injects the thinking policy, clamps reasoning effort, enforces tier tags, and runs anti-thrashing auto-recovery on every request; "
             "Tool layer — epistemic-mcp + epistemic-orchestrator are always connected, and weakest-link confidence caps / converge gates are enforced in code."
         )
+    research = spec.get("research_discipline")
+    if research:
+        triggers = "; ".join(research.get("triggers") or [])
+        lines.extend([
+            "",
+            f"## 5. {research.get('title', 'Research Discipline')}",
+            f"- **Triggers**: {triggers}",
+            f"- **Directive**: {research['directive']}",
+            f"- **Minimum bar**: 2 independent sources, at least 1 primary source, each with URL / arXiv ID + the date read.",
+            f"- **Tooling**: {research['tooling']}",
+            f"- **Verdict rule**: {research['verdict_rule']}",
+            "- **Allowed fallback**: reciting from memory is fine for stable facts, but for design/selection answers it must be labelled `未检索 / from memory` and the confidence cap must drop to L3.",
+        ])
     return "\n".join(lines) + "\n"
 
 

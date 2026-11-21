@@ -139,8 +139,10 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "run_gate",
         "description": (
-            "Deterministic exit gate: runs repo-configured checks (.pi/exit_gate.json), scans for residue files, "
-            "and flags shirking phrasing in the assistant text while verification is red. Use at task completion."
+            "Deterministic exit gate: runs repo-configured checks (.pi/exit_gate.json) plus any caller-supplied "
+            "verification commands, binds quantified/completeness claims to executed evidence, scans for residue "
+            "files, and flags shirking phrasing while verification is red. Returns verdict "
+            "(green|red|no_evidence|unbound_claim) and the executed evidence list."
         ),
         "inputSchema": {
             "type": "object",
@@ -148,6 +150,32 @@ TOOLS: list[dict[str, Any]] = [
                 "assistant_text": {"type": "string", "default": ""},
                 "repo_dir": {"type": "string", "description": "Repo containing .pi/exit_gate.json (default: repo root)"},
                 "mutated_this_turn": {"type": "boolean", "default": True},
+                "claims": {
+                    "type": "array",
+                    "description": (
+                        "Quantified/completeness claims bound to an executed check. The gate runs the check "
+                        "itself and rejects claims that name a check it did not execute."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "text": {"type": "string", "description": "Claim text as it appears in the reply"},
+                            "check": {"type": "string", "description": "Name of a configured check or verification command"},
+                            "expected_count": {"type": "integer", "description": "Optional enumerated item count the check output must match"},
+                        },
+                        "required": ["text", "check"],
+                    },
+                },
+                "verification_commands": {
+                    "type": "array",
+                    "description": "Commands the gate executes itself (rc + tail recorded as evidence). String or {name, command}.",
+                    "items": {"type": ["string", "object"]},
+                },
+                "evidence_policy": {
+                    "type": "string",
+                    "enum": ["off", "warn", "enforce"],
+                    "description": "off = legacy (red only); warn = flag but pass; enforce = block on missing/unbound evidence.",
+                },
             },
         },
     },
@@ -248,10 +276,16 @@ class Orchestrator:
     def run_gate(self, args: dict[str, Any]) -> dict[str, Any]:
         repo = Path(args.get("repo_dir") or REPO_ROOT)
         eng = ExitGateEngine.from_repo_config(repo)
-        decision = eng.evaluate(str(args.get("assistant_text", "")),
-                                mutated_this_turn=bool(args.get("mutated_this_turn", True)))
+        decision = eng.evaluate(
+            str(args.get("assistant_text", "")),
+            mutated_this_turn=bool(args.get("mutated_this_turn", True)),
+            claims=args.get("claims"),
+            verification_commands=args.get("verification_commands"),
+            evidence_policy=args.get("evidence_policy"),
+        )
         out = decision.__dict__.copy()
         out["failures"] = [f.__dict__ for f in decision.failures]
+        out["evidence"] = [e.__dict__ for e in decision.evidence]
         return out
 
     def query_skills(self, query: str, limit: int = 5) -> dict[str, Any]:

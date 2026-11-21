@@ -1,5 +1,5 @@
 # 单一规范源 — Epistemic & Dual-Process Governance Harness
-version: 0.3.3
+version: 0.4.0
 name: epistemic-dual-process-harness
 description: Canonical Single Source of Truth for the Epistemic & Dual-Process Governance
   Harness (Phase 1+2).
@@ -77,6 +77,7 @@ anti_thrashing:
   max_l3_directions_on_stoploss: 2
   min_l2_actions_on_stoploss: 1
   max_l2_actions_on_stoploss: 3
+  stop_loss_requires_executed_check: true
   directive: 'When blocked by an L1/L4 conflict or missing primary L2 evidence, stop
     immediately instead of spinning in self-doubt loops (''Wait, but wait...''). Output
     only: (1) confirmed L1/L2 facts, (2) the minimal branching unknown (at most 2
@@ -138,3 +139,32 @@ orchestration:
   - '**Strict Blocker Bar**: Leave an error unresolved ONLY if blocked by missing
     external credentials, an unavailable third-party service, or an L4 user trade-off
     — and cite the exact L2 error output.'
+research_discipline:
+  title: Research-Before-Design (mandatory for selection / best-practice / SOTA questions)
+  triggers:
+  - 如何设计 (how should we design)
+  - 技术选型 / 方案对比 / 该不该引入 (selection, comparison, adoption)
+  - 最佳实践 / 最优 / 最流行 / 业界标准 / SOTA / state of the art
+  - 与"记忆、检索、记忆库、loop、评测、调度"相关的架构决策
+  directive: >-
+    Before answering any design, selection, or "best practice" question, run external
+    retrieval FIRST, then synthesise. Read primary sources (papers, official docs,
+    repository activity), not just search snippets. Minimum bar: 2 independent sources,
+    at least 1 primary source, each cited with URL or arXiv ID plus the date you read
+    it. Never present recalled memory as current SOTA. If retrieval is unavailable or
+    you chose to skip it, say "未检索 / from memory" explicitly and cap the confidence
+    at L3 for every claim in that answer.
+  evidence_markers:
+  - 'https://'
+  - 'arXiv:'
+  - 'DOI:'
+  - 'github.com/'
+  - '检索于 <date> / accessed <date>'
+  tooling: >-
+    Use the bigmodel research MCP servers when available: webSearchPrime (web search),
+    webReader (fetch a page), zread (search_doc / get_repo_structure / read_file for
+    GitHub repositories). Fall back to curl + arXiv export API when MCP is offline.
+  verdict_rule: >-
+    A reply containing an unanchored superlative claim (SOTA / 最佳方案 / 最流行 /
+    业界标准) is a contract violation; declaring "未检索" satisfies the contract only
+    if the confidence cap is lowered accordingly.

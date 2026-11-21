@@ -12,6 +12,12 @@
  *   4. Anti-Infinite-Loop Circuit Breaker (`max_gate_retries = 3`):
  *      - Repeats of identical error fingerprint inject `[ESCALATE_REASONING: high]` once.
  *      - Exhausting retries stops auto-bouncing and surfaces a clean L2 blocker summary.
+ *   5. v0.4.1 (issue #2 / loop memory):
+ *      - `verdict` is explicit: green only when at least one check actually ran;
+ *        zero configured checks yields `no_evidence` (blocking only under
+ *        `evidence_policy: enforce`, otherwise a warning).
+ *      - `.pi/loop_ledger.jsonl` persists every gate outcome so the same failure
+ *        fingerprint escalating across turns is visible, not just within one turn.
  */
 
 import { execSync } from "node:child_process";
@@ -61,6 +67,7 @@ interface ExitGateConfig {
   command_timeout_ms: number;
   checks: ExitGateCheck[];
   residue_globs: string[];
+  evidence_policy?: "off" | "warn" | "enforce";
 }
 
 const DEFAULT_EXIT_GATE: ExitGateConfig = {
@@ -69,6 +76,7 @@ const DEFAULT_EXIT_GATE: ExitGateConfig = {
   command_timeout_ms: 60000,
   checks: [],
   residue_globs: ["*.tmp", "*.bak", "*.orig", "debug_*.py", "scratch_*", "tmp_*"],
+  evidence_policy: "warn",
 };
 
 function loadExitGateConfig(cwd: string): ExitGateConfig {
@@ -131,6 +139,44 @@ function computeErrorFingerprint(failures: Array<{ name: string; tail: string }>
     .concat(residue.map((r) => `residue:${r}`))
     .join("|");
   return createHash("sha1").update(normalized).digest("hex").slice(0, 12);
+}
+
+// Cross-turn loop memory: the per-turn retry counter resets on every new user
+// message, so the same failure could bounce forever without ever escalating.
+const LEDGER_REL = join(".pi", "loop_ledger.jsonl");
+
+function readLedger(cwd: string): Array<Record<string, any>> {
+  const path = join(cwd, LEDGER_REL);
+  if (!existsSync(path)) return [];
+  try {
+    return readFileSync(path, "utf-8")
+      .split(/\r?\n/)
+      .filter((l) => l.trim())
+      .map((l) => {
+        try {
+          return JSON.parse(l);
+        } catch {
+          return null;
+        }
+      })
+      .filter((r): r is Record<string, any> => r !== null);
+  } catch {
+    return [];
+  }
+}
+
+function appendLedger(cwd: string, record: Record<string, any>): void {
+  try {
+    const path = join(cwd, LEDGER_REL);
+    mkdirSync(dirname(path), { recursive: true });
+    appendFileSync(path, JSON.stringify({ ...record, ts: new Date().toISOString() }) + String.fromCharCode(10));
+  } catch {
+    /* the ledger must never break the gate */
+  }
+}
+
+function countLedgerRepeats(cwd: string, fingerprint: string): number {
+  return readLedger(cwd).filter((r) => r.fingerprint === fingerprint && r.verdict !== "green").length;
 }
 
 function estimateChangedLines(toolName: string, input: Record<string, any> | undefined): number {
@@ -346,15 +392,43 @@ export default function (pi: any) {
     }
     const residue = scanResidueFiles(cwd, cfg.residue_globs);
 
-    if (failures.length === 0 && residue.length === 0) {
+    const policy = cfg.evidence_policy || "warn";
+    const executedChecks = cfg.checks.length;
+    const verdict =
+      failures.length > 0 || residue.length > 0
+        ? "red"
+        : executedChecks === 0 ? "no_evidence" : "green";
+
+    if (verdict === "green") {
       gateRetriesThisTurn = 0;
       lastErrorFingerprint = "";
+      appendLedger(cwd, { kind: "gate", verdict, fingerprint: "", checks: executedChecks, policy });
+      return undefined;
+    }
+
+    // Issue #2: a green verdict must never come from "nothing was checked".
+    if (verdict === "no_evidence") {
+      appendLedger(cwd, { kind: "gate", verdict, fingerprint: "no_evidence", checks: 0, policy });
+      const notice =
+        "harness-guard: no checks configured (.pi/exit_gate.json missing or empty) — completion claims are unverified.";
+      if (policy === "enforce" && typeof pi.sendUserMessage === "function") {
+        const bounce =
+          `[HARNESS_EXIT_GATE_RETRY] verdict=no_evidence. ${notice}` + String.fromCharCode(10) +
+          "Add a check to .pi/exit_gate.json, or bind each quantified claim to an executed verification command, then re-verify.";
+        ctx.ui.notify(notice, "warn");
+        pi.sendUserMessage(bounce, { deliverAs: "followUp" });
+        return { continueWith: bounce };
+      }
+      ctx.ui.notify(`${notice} (policy=${policy})`, "warn");
       return undefined;
     }
 
     const fingerprint = computeErrorFingerprint(failures, residue);
     const repeatedSameError = fingerprint === lastErrorFingerprint;
     lastErrorFingerprint = fingerprint;
+    const priorRepeats = countLedgerRepeats(cwd, fingerprint);
+    appendLedger(cwd, { kind: "gate", verdict, fingerprint, checks: executedChecks, policy,
+      residue: residue.slice(0, 5), failures: failures.map((f) => f.name) });
 
     const lastText = extractLastAssistantText(event);
     const shirkingHits = detectShirkingPhrases(lastText);
@@ -368,7 +442,12 @@ export default function (pi: any) {
     }
 
     gateRetriesThisTurn += 1;
-    const escalationTag = repeatedSameError ? "\n[ESCALATE_REASONING: high] Identical failure repeated; re-analyze root cause from first principles." : "";
+    const escalationTag = repeatedSameError || priorRepeats >= 2
+      ? "\n[ESCALATE_REASONING: high] Identical failure repeated; re-analyze root cause from first principles."
+      : "";
+    const ledgerTag = priorRepeats >= 2
+      ? `\n[LOOP_LEDGER] This fingerprint already appeared ${priorRepeats} time(s) in earlier turns. Do not repeat the same fix: state a root-cause hypothesis, keep at most 2 candidate directions, then run one discriminating check or report the blocking unknown to the user.`
+      : "";
     const shirkingWarning =
       shirkingHits.length > 0
         ? `\n[ANTI_SHIRKING_INTERCEPT] Detected buck-passing phrasing (${shirkingHits.join(", ")}) while verification is still red. Do NOT dismiss blocking failures as "pre-existing" or "unrelated"; fix them now.`
@@ -377,8 +456,8 @@ export default function (pi: any) {
     const residueBlock = residue.length > 0 ? `\n### Leftover Residue Files (delete before finishing)\n- ${residue.join("\n- ")}` : "";
 
     const bouncePrompt =
-      `[HARNESS_EXIT_GATE_RETRY] Attempt ${gateRetriesThisTurn}/${cfg.max_gate_retries} (fingerprint=${fingerprint}).\n` +
-      `Your turn cannot finish because deterministic Exit Gate verification failed.${shirkingWarning}${escalationTag}\n\n` +
+      `[HARNESS_EXIT_GATE_RETRY] Attempt ${gateRetriesThisTurn}/${cfg.max_gate_retries} (fingerprint=${fingerprint}, verdict=${verdict}).\n` +
+      `Your turn cannot finish because deterministic Exit Gate verification failed.${shirkingWarning}${escalationTag}${ledgerTag}\n\n` +
       `${failureBlock}${residueBlock}\n\n` +
       `Fix every blocking failure and remove all residue files, then re-verify until green.`;
 

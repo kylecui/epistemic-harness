@@ -83,6 +83,20 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "query_l5",
+        "description": (
+            "Recall prior L5 derivations from the persisted append-only store (knowledge/l5_store/*.jsonl). "
+            "Reusing a claim inherits its effective_tier as a hard cap; cite claim_id instead of re-deriving."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "default": ""},
+                "limit": {"type": "integer", "default": 5},
+            },
+        },
+    },
+    {
         "name": "propose_promotion",
         "description": "Queue a verified L3/L5 item for human PR review to promote to L1 or L2 (never writes directly).",
         "inputSchema": {
@@ -138,7 +152,9 @@ def handle_request(engine: EpistemicEngine, req: dict[str, Any]) -> dict[str, An
             elif name == "submit_l5_claim":
                 res = engine.submit_l5_claim(args)
             elif name == "audit_dag":
-                res = engine.audit_dag()
+                res = engine.audit_dag(include_persisted=bool(args.get("include_persisted", False)))
+            elif name == "query_l5":
+                res = engine.query_l5(args.get("query", ""), int(args.get("limit", 5)))
             elif name == "propose_promotion":
                 res = engine.propose_promotion(
                     args["source_id"], args["target_tier"], args["rationale"]

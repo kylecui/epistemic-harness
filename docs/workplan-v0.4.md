@@ -87,3 +87,20 @@ pi mcp list                                                    # MCP 双服务�
 1. 子 agent 是否引入"带工具的隔离进程"（v0.5 里程碑）？
 2. critic 会话级兜底是否立刻做（不依赖客户端配合）？
 3. 是否把 A/B 评测接入真实模型定期跑（消耗配额，但能量化风格漂移）？
+
+## 七、v0.4.1 已落地（2026-11-21）
+
+| 编号 | 内容 | 测试 |
+|---|---|---|
+| D1 | 零检查绿灯修复：`verdict = green/red/no_evidence/unbound_claim`，无任何检查执行时不再是 pass；`evidence_policy` = off/warn/enforce | TC-16（`tests/test_gate_evidence_tc16_19.py`） |
+| D2 | 断言-证据绑定：`run_gate(claims=[{text, check, expected_count}], verification_commands=[...])`，闸门自己执行命令并记录 rc/输出，断言必须指名已执行的检查；限定量化断言豁免 | TC-17/18/19 |
+| D3 | 伪决策点拦截（issue #3）：`check_underdetermination`，决策请求必须在 3 行内带 L4 取舍或缺失 L2 证据锚点 | TC-20/21（`tests/test_underdetermination_tc20_22.py`） |
+| D4 | 检索纪律：`harness.yaml research_discipline` 编译进 AGENTS.md/SKILL.md；`check_external_grounding` 拦截无来源锚点的 SOTA/最优断言 | 同上 |
+| D5 | 回环记忆：`.pi/loop_ledger.jsonl` 记录每次闸门判定，同一指纹跨回合重复 ≥3 次触发根因升级（Python + TS 双端） | `LoopLedgerTests` |
+| D6 | 记忆落盘：L5 追加写 `knowledge/l5_store/YYYY-MM.jsonl`，L4 写 `.pi/l4_inputs.jsonl`，重启自动恢复；`audit_dag` 默认只看本会话，`query_l5` 跨会话检索；复用持久化 L5 继承其置信上限 | `tests/test_memory_persistence.py` |
+| D7 | 记忆索引：`scripts/build_memory_index.py` 生成 `knowledge/INDEX.md`（id｜一句话｜适用/反例），`--check` 供 CI | `--check` 通过 |
+| D8 | 检索工具接入：`scripts/install_research_mcp.py`（pi/claude/opencode 三端、幂等、密钥不进仓库）+ `docs/research-capability.md` | dry-run 校验 |
+
+测试与样例基线：136 项单测全绿；`evals/run_evals.py --mock` 12/12；`evals/run_style_ab_eval.py --replay` 结论不变。
+
+测试隔离说明：`EpistemicEngine(repo_root, store_root=...)` 与 `HARNESS_MEMORY_STORE` 用于把评测/单测的写入重定向到临时目录，避免污染真实记忆库。

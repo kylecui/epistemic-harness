@@ -338,6 +338,94 @@ def build_contract_intercept(violations: list[str], *, retry: bool) -> str:
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------------------
+# Underdetermination guard (issue #3): a raised decision point must be open
+# ---------------------------------------------------------------------------
+
+DECISION_ASK_RE = re.compile(
+    r"(需要你(?:来)?(?:决定|拍板|裁量|定夺|选)|请你(?:决定|拍板|裁量|确认)|需要(?:你)?确认|"
+    r"待你决策|由你决定|决策点|需要裁量|decision needed|need your (?:decision|call))",
+    re.I,
+)
+L4_ANCHOR_RE = re.compile(
+    r"(\bL4\b|预算|工期|人力|团队|风险取舍|产品取舍|商业取舍|合规要求|"
+    r"budget|headcount|timeline|risk trade|product trade)",
+    re.I,
+)
+L2_GAP_ANCHOR_RE = re.compile(
+    r"(缺(?:少|失)?(?:L2|证据|数据|日志|凭据|文档)|没有(?:可核查|可验证|一手)|"
+    r"L2\s*缺失|未检索|需外部检索|evidence gap)",
+    re.I,
+)
+
+# ---------------------------------------------------------------------------
+# Research discipline: SOTA/superlative claims need an external source anchor
+# ---------------------------------------------------------------------------
+
+SOTA_CLAIM_RE = re.compile(
+    r"(\bSOTA\b|state[- ]of[- ]the[- ]art|最佳方案|最优方案|最流行|主流方案|业界标准|"
+    r"公认做法|普遍做法|best[- ]in[- ]class|de[- ]facto standard)",
+    re.I,
+)
+SOURCE_ANCHOR_RE = re.compile(
+    r"(https?://|arxiv[:\s]|doi[:\s]|github\.com/|huggingface\.co/|"
+    r"检索于|accessed\s+\d{4}|\b(?:19|20)\d{2}-\d{2}-\d{2}\b|RFC\s?\d+)",
+    re.I,
+)
+NOT_SEARCHED_RE = re.compile(
+    r"(未检索|未做外部检索|凭记忆|from memory|without (?:an )?external search|no external search)",
+    re.I,
+)
+FENCE_RE = re.compile(r"```.*?```", re.S)
+
+
+def strip_noise(text: str) -> list[str]:
+    """Drop fenced code and blockquoted lines so quoted material cannot trip checks."""
+    body = FENCE_RE.sub("\n", text or "")
+    return [ln for ln in body.splitlines() if not ln.lstrip().startswith(">")]
+
+
+def check_underdetermination(text: str) -> list[str]:
+    """A raised decision point must be genuinely underdetermined (issue #3).
+
+    Every ask anchor ("需要你拍板" / "请确认" / "决策点") needs, within the next
+    3 lines, an L4 trade-off anchor (budget/risk/team/product) or a missing-L2
+    anchor. Otherwise the model is asking about something already closed by
+    definition or by evidence.
+    """
+    lines = strip_noise(text)
+    violations: list[str] = []
+    for idx, line in enumerate(lines):
+        for m in DECISION_ASK_RE.finditer(line):
+            window = "\n".join(lines[idx:idx + 3])
+            if L4_ANCHOR_RE.search(window) or L2_GAP_ANCHOR_RE.search(window):
+                continue
+            violations.append(
+                f"伪决策点(第{idx + 1}行) '{m.group(0)}': 未标明触发层; "
+                f"若不问时答案唯一则直接给结论, 确需裁量请注明 L4 取舍或缺失的 L2 证据"
+            )
+    return violations
+
+
+def check_external_grounding(text: str) -> list[str]:
+    """SOTA/superlative claims need a source anchor or a no-search declaration."""
+    body = "\n".join(strip_noise(text))
+    m = SOTA_CLAIM_RE.search(body)
+    if not m:
+        return []
+    if SOURCE_ANCHOR_RE.search(body) or NOT_SEARCHED_RE.search(body):
+        return []
+    return [
+        f"选型/最优性断言 '{m.group(0)}' 缺少来源锚点(URL/arXiv/DOI/检索日期); "
+        f"若本回合未做外部检索, 请显式写明并据实下调置信上限"
+    ]
+
+
 def check_response_contract(text: str, tier: str, mode: str) -> list[str]:
     """Run structure + remediation checks; returns the union of violations."""
-    return check_output_structure(text, tier, mode) + check_remediation_completeness(text)
+    return (
+        check_output_structure(text, tier, mode)
+        + check_remediation_completeness(text)
+        + check_underdetermination(text)
+        + check_external_grounding(text)
+    )

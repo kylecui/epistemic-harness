@@ -11,3 +11,5 @@ traces/
 promotions/
 .venv/
 __pycache__/
+.pi/loop_ledger.jsonl
+.pi/l4_inputs.jsonl
