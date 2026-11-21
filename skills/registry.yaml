@@ -24,3 +24,60 @@ skills:
       2. Bisect: last-known-good vs first-known-bad; identify the minimal change set.
       3. Classify the root cause: L1 invariant violated / L2 fact misread / L3 heuristic misfired (state scope).
       4. If evidence is missing after 2 attempts: stop-loss — list confirmed facts, the minimal unknown, 1-3 verification actions.
+
+  - id: SKILL-HARNESS-VERIFY
+    name: harness-verify
+    description: "Run the harness verification suite without remembering commands: hvx wrapper, docker-first with host fallback."
+    tags: [harness, verify, test]
+    triggers: [verify, 验证, 测试, test suite, run tests, 跑测试, hvx]
+    tier_hint: system_0
+    content: |
+      [Skill: harness-verify]
+      Run: ./scripts/hvx            (Windows: scripts\hvx.ps1)
+      Pattern subset: ./scripts/hvx -p "test_gate*"
+      Pure-container (no host python): docker compose run --rm verify
+      The wrapper resolves the project interpreter (.venv first). Do not call bare `python scripts/verify.py`.
+
+  - id: SKILL-HARNESS-STATUS
+    name: harness-status
+    description: "Operational status at a glance: dispatch observability, model capability matrix, memory reuse stats."
+    tags: [harness, observability, status]
+    triggers: [status, 状态, dispatch, 派发, quota, 配额, 观测, 模型矩阵]
+    tier_hint: system_1
+    content: |
+      [Skill: harness-status]
+      1. python scripts/analyze_dispatches.py      # what was delegated, to which model/tier/effort; default_share routing feedback
+      2. python scripts/capability_matrix.py       # per-model credentials / max_effort / peak-avoid
+      3. python scripts/memory_stats.py            # memory hit ratio + archive candidates
+      Read the JSON variants with --json when composing reports.
+
+  - id: SKILL-HARNESS-MAINTAIN
+    name: harness-maintain
+    description: "After editing harness.yaml, docs, or the routing table: recompile clients, revalidate, rebuild indexes."
+    tags: [harness, maintenance, sync]
+    triggers: [compile, 编译, 同步, sync, docs drift, 文档同步, release check, 发版检查, 路由表]
+    tier_hint: system_1
+    content: |
+      [Skill: harness-maintain]
+      After ANY edit to harness.yaml / config/task_routing.yaml / knowledge/*.yaml:
+      1. python scripts/compile_clients.py                       # recompile AGENTS.md / SKILL.md / gemini
+      2. python scripts/capability_matrix.py --validate-routing config/task_routing.yaml
+      3. python scripts/build_memory_index.py --db && python scripts/build_memory_index.py --check
+      4. python scripts/check_docs.py                            # must print "docs fresh"
+      5. python scripts/check_eol.py                             # must print "eol policy: ok"
+      All five must pass before delivery; the exit gate runs the same checks.
+
+  - id: SKILL-HARNESS-CONFIG
+    name: harness-config
+    description: "Configure LLM providers and model selection: keys, routing chains, per-category pins, adding a provider."
+    tags: [harness, config, providers, models]
+    triggers: [configure model, 配置模型, add provider, 新增模型, api key, 密钥, 配额池, routing chain, 默认模型, default model]
+    tier_hint: system_1
+    content: |
+      [Skill: harness-config]
+      Authoritative doc: docs/configuration.md. Short version:
+      1. Keys live in .env (api_key_env per model) or .secrets via scripts/import_pi_credentials.py (OAuth).
+      2. Default model per tier = first usable entry of routing_chains in proxy_gateway/quota_policy.yaml; reorder to change defaults.
+      3. Per-category pin: model: in config/task_routing.yaml; validate with capability_matrix.py --validate-routing.
+      4. Per-request pin: the client-sent model id ( honored by select_candidates ).
+      5. After edits: restart backend, then python scripts/capability_matrix.py to confirm credentials_present.

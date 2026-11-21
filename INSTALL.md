@@ -49,7 +49,10 @@ Without git: residue scan and the pre-commit eol hook are disabled (listed separ
 3. compiles the client contract (`AGENTS.md`, Gemini prompt, portable `SKILL.md`) from `harness.yaml`;
 4. builds the verify image (`epistemic-verify:local`) when Docker is present — skipped with a warning otherwise;
 5. builds the memory index (`knowledge/memory_index.db`);
-6. runs the smoke test via the `hvx` wrapper (`scripts/verify.py`).
+6. offers shell integration — `harness` launcher + `hvx` alias into your PowerShell
+   profile / `.bashrc` / `.zshrc` (idempotent, marked blocks; `install.py --with-shell`
+   applies, default prints where it would go). cmd.exe gets instructions, not magic.
+7. runs the smoke test via the `hvx` wrapper (`scripts/verify.py`).
 
 ## 5. Backend (optional but recommended)
 

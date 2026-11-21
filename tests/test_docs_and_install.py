@@ -125,3 +125,48 @@ class InstallDetectTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShellIntegrationTests(unittest.TestCase):
+    def _load_install(self):
+        spec = importlib.util.spec_from_file_location("install_s", PACK_ROOT / "scripts" / "install.py")
+        mod = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.modules["install_s"] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_snippet_idempotent(self):
+        inst = self._load_install()
+        tmp = Path(tempfile.mkdtemp()) / "rc"
+        self.assertIn("appended", inst._append_idempotent(tmp, inst._shell_snippet(False)))
+        self.assertIn("already present", inst._append_idempotent(tmp, inst._shell_snippet(False)))
+        self.assertEqual(tmp.read_text(encoding="utf-8").count(inst.SHELL_MARKER_BEGIN), 1)
+
+    def test_snippet_contents(self):
+        inst = self._load_install()
+        sh = inst._shell_snippet(False)
+        self.assertIn("harness()", sh)
+        self.assertIn("alias hvx=", sh)
+        ps = inst._shell_snippet(True)
+        self.assertIn("function harness", ps)
+        self.assertIn("hvx.ps1", ps)
+
+
+class SkillQueryTests(unittest.TestCase):
+    def setUp(self) -> None:
+        from orchestrator.skills import SkillRegistry
+        self.registry = SkillRegistry(PACK_ROOT / "skills" / "registry.yaml",
+                                      PACK_ROOT / "skill_queue" / "pending.yaml")
+
+    def test_harness_skills_registered(self):
+        names = {s["name"] for s in self.registry.query("harness", limit=10)}
+        self.assertIn("harness-verify", names)
+        self.assertIn("harness-status", names)
+        self.assertIn("harness-maintain", names)
+        self.assertIn("harness-config", names)
+
+    def test_cjk_phrase_query_matches(self):
+        # Chinese phrases without spaces must still match (bigram tokenization)
+        self.assertEqual(self.registry.query("看看状态", limit=1)[0]["name"], "harness-status")
+        self.assertEqual(self.registry.query("编译同步", limit=1)[0]["name"], "harness-maintain")

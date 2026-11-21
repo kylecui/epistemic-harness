@@ -59,9 +59,17 @@ python scripts/install.py
 | 编排 | `orchestrator/`（派发、路由、计划、只读 explorer） | MCP 工具 + 网关联动 |
 | 文档 | `docs/`（索引：[docs/README.md](docs/README.md)） | 退出闸门里的 `scripts/check_docs.py` |
 
+## 技能：不用记的命令
+
+`harness-verify`（./scripts/hvx）、`harness-status`（派发观测 / 能力矩阵 / 记忆统计）、
+`harness-maintain`（改配置后重编译+重校验）、`harness-config`（密钥、默认模型、钉选）
+已注册进 `skills/registry.yaml` —— 派发时由代码自动匹配挂载，中英文触发词均可。
+随时通过 orchestrator MCP 的 `query_skills` 查询。
+
 ## 文档
 
 - [INSTALL.md](INSTALL.md) — 平台检测、前置条件、FULL/LIMITED 支持矩阵（英文）
+- [docs/configuration.md](docs/configuration.md) — 密钥配置、默认模型选择、钉选（英文）
 - [docs/README.md](docs/README.md) — 文档索引（英文）
 - [docs/execution-runner.md](docs/execution-runner.md) — 为什么验证默认跑在容器里（英文）
 - [docs/browser-runner.md](docs/browser-runner.md) — CDP/浏览器放置策略（英文）

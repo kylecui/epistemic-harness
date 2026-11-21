@@ -7,6 +7,7 @@ Normative content (rules, contracts, skills) is English-only; a Chinese auxiliar
 | Doc | What it covers |
 |---|---|
 | [../INSTALL.md](../INSTALL.md) | Platform detection, prerequisites, FULL/LIMITED support matrix, installer walkthrough |
+| [configuration.md](configuration.md) | LLM provider keys, default model selection (routing chains), per-category/request pins, adding a provider |
 | [execution-runner.md](execution-runner.md) | Docker-first verification: why, measured numbers, the POSIX-alignment preconditions |
 | [browser-runner.md](browser-runner.md) | Browser/CDP placement policy: container vs host, evidence, Windows constraints |
 | [research-capability.md](research-capability.md) | External retrieval before design answers: research MCP servers, fallbacks, grounding check |

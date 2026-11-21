@@ -60,9 +60,18 @@ Verify at any time — the `hvx` wrapper resolves the project interpreter for yo
 | Orchestration | `orchestrator/` (dispatch, routing, plans, read-only explorer) | MCP tools + gateway routing |
 | Docs | `docs/` (index: [docs/README.md](docs/README.md)) | `scripts/check_docs.py` in the exit gate |
 
+## Skills: commands you don't have to remember
+
+`harness-verify` (./scripts/hvx), `harness-status` (dispatches / capability matrix /
+memory stats), `harness-maintain` (recompile + revalidate after config edits), and
+`harness-config` (provider keys, default model, pins) are registered in
+`skills/registry.yaml` — matched and auto-attached by code at dispatch time, in
+English and Chinese. Query them any time via the orchestrator MCP (`query_skills`).
+
 ## Documentation
 
 - [INSTALL.md](INSTALL.md) — platform detection, prerequisites, full/limited support matrix
+- [docs/configuration.md](docs/configuration.md) — LLM provider keys, default model selection, pins
 - [docs/README.md](docs/README.md) — documentation index
 - [docs/execution-runner.md](docs/execution-runner.md) — why verification runs in Docker first
 - [docs/browser-runner.md](docs/browser-runner.md) — where the browser goes for CDP work

@@ -38,8 +38,16 @@ class SkillRegistry:
                 raise ValueError(f"Skill entry missing mandatory field '{field}': {item!r}")
 
     def query(self, query: str = "", limit: int = 5) -> list[dict[str, Any]]:
-        """Keyword search over id/name/description/tags/triggers."""
+        """Keyword search over id/name/description/tags/triggers.
+
+        CJK runs are additionally split into bigrams — Chinese queries rarely
+        contain spaces, so without this the whole phrase becomes one token and
+        never matches ('看看状态' vs trigger '状态'). Same tokenization idea as
+        the memory index, kept dependency-free.
+        """
         tokens = [t.lower() for t in query.split() if t.strip()]
+        for raw in list(tokens):
+            tokens.extend(self._cjk_bigrams(raw))
         scored: list[tuple[int, dict[str, Any]]] = []
         for skill in self.skills.values():
             if not tokens:
@@ -53,6 +61,18 @@ class SkillRegistry:
                 scored.append((score, skill))
         scored.sort(key=lambda x: -x[0])
         return [s for _, s in scored[:limit]]
+
+    @staticmethod
+    def _cjk_bigrams(text: str) -> list[str]:
+        import re
+
+        out: list[str] = []
+        for run in re.findall(r"[\u3400-\u9fff]+", text):
+            if len(run) == 1:
+                out.append(run)
+            else:
+                out.extend(run[i:i + 2] for i in range(len(run) - 1))
+        return out
 
     def match_for_task(self, task_text: str, limit: int = 2) -> list[dict[str, Any]]:
         """Auto-attach candidates for a task: full task text as query, filter by score >= 1."""
