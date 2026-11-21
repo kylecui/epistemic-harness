@@ -81,3 +81,25 @@ skills:
       3. Per-category pin: model: in config/task_routing.yaml; validate with capability_matrix.py --validate-routing.
       4. Per-request pin: the client-sent model id ( honored by select_candidates ).
       5. After edits: restart backend, then python scripts/capability_matrix.py to confirm credentials_present.
+
+  - id: SKILL-HARNESS-DOCTOR
+    name: harness-doctor
+    description: "Full dispatch diagnosis: history vs design (mapping consistency, cross-family critic, anomalies, over-max-effort, controller ratio) plus the model x effort capability matrix."
+    tags: [harness, observability, diagnosis, review]
+    triggers: [dispatch review, 派发回顾, 诊断, doctor, 调用分析, routing review, 路由分析, 是否合理]
+    tier_hint: system_1_5
+    content: |
+      [Skill: harness-doctor]
+      Run both, then interpret:
+      1. python scripts/dispatch_doctor.py        # C1-C6 checks + trigger-based recommendations (--json available)
+      2. python scripts/capability_matrix.py      # all models x allowed/clamped efforts x credentials
+      Reading guide:
+      - C1 must be zero violations; any hit means agent_profiles drifted.
+      - C2 same_pool_violations must be zero (critic independence).
+      - C4 counts are judged against CURRENT chains; persistent same-model patterns
+        (e.g. always kimi over the deepseek head) warrant a quota-manager inspection.
+      - C5 must be zero after the max_effort clamp date; historical hits are the
+        evidence that motivated the clamp, not regressions.
+      - C6 compares commits vs dispatches per day: many commits with few dispatches
+        means the controller contract is not being exercised.
+      - Recommendations are numeric-trigger based; when nothing fires, report OK and stop.

@@ -240,3 +240,54 @@ class InstallFailurePathsTests(unittest.TestCase):
         if os.name != "nt":
             self.assertNotIn("powershell", names)
         self.assertIn("bashrc", names)
+
+
+class DispatchDoctorTests(unittest.TestCase):
+    def _load_doctor(self):
+        spec = importlib.util.spec_from_file_location("doctor_t", PACK_ROOT / "scripts" / "dispatch_doctor.py")
+        mod = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.modules["doctor_t"] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_fixture_split_by_timestamp_multiplicity(self):
+        doc = self._load_doctor()
+        rows = ([{"ts": "2026-11-19T12:00:00+00:00", "agent_id": "coder"}] * 7
+                + [{"ts": f"2026-11-21T0{i}:00:00+00:00", "agent_id": "coder"} for i in range(3)])
+        real, fixtures = doc.split_fixtures(rows)
+        self.assertEqual(len(real), 3)
+        self.assertEqual(fixtures, 7)
+
+    def test_consistency_catches_drift(self):
+        doc = self._load_doctor()
+        ok = [{"ts": "2026-11-21T00:00:00", "agent_id": "explorer", "tier": "system_1", "effort": "low"}]
+        bad = [{"ts": "2026-11-21T00:00:01", "agent_id": "explorer", "tier": "system_2", "effort": "high"}]
+        self.assertEqual(doc.check_consistency(ok), [])
+        self.assertEqual(len(doc.check_consistency(bad)), 2)
+
+    def test_cross_family_detects_same_pool(self):
+        doc = self._load_doctor()
+        rows = [
+            {"ts": "2026-11-21T00:00:00", "agent_id": "coder", "tier": "system_1_5", "effort": "medium",
+             "selected_model": "kimi-for-coding", "skipped": {}},
+            {"ts": "2026-11-21T00:00:05", "agent_id": "critic", "tier": "system_2_plus", "effort": "high",
+             "selected_model": "kimi-k3.1-pro", "skipped": {}},
+        ]
+        events = doc.check_cross_family(rows)
+        self.assertEqual(len(events), 1)
+        self.assertTrue(events[0]["same_pool"], "kimi pool drafting + kimi pool reviewing must be flagged")
+
+    def test_recommendations_fire_on_low_critic_share(self):
+        doc = self._load_doctor()
+        recs = doc.recommendations([{"agent_id": "coder", "effort": "medium"}] * 12, [], 0.02)
+        self.assertTrue(any(r["status"] == "FIRED" and "critic" in r["trigger"] for r in recs))
+
+    def test_skill_registered_and_real_doctor_runs(self):
+        from orchestrator.skills import SkillRegistry
+        reg = SkillRegistry(PACK_ROOT / "skills" / "registry.yaml", PACK_ROOT / "skill_queue" / "pending.yaml")
+        self.assertEqual(reg.query("派发回顾 诊断", limit=1)[0]["name"], "harness-doctor")
+        doc = self._load_doctor()
+        result = doc.doctor()
+        self.assertIn("recommendations", result)
+        self.assertEqual(result["checks"]["C1_mapping_consistency"]["violations"], 0)
