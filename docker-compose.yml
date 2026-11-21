@@ -22,7 +22,7 @@
 services:
   harness-backend:
     build: .
-    image: epistemic-harness-backend:0.3.0
+    image: epistemic-harness-backend:0.4.0
     container_name: harness-backend
     ports:
       - "127.0.0.1:8787:8787"

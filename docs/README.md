@@ -1,0 +1,33 @@
+# Documentation Index
+
+Normative content (rules, contracts, skills) is English-only; a Chinese auxiliary translation may accompany operational docs. Anything listed here is current at v0.4.0 — `scripts/check_docs.py` fails the exit gate on orphan or stale entries.
+
+## Operational (current behavior)
+
+| Doc | What it covers |
+|---|---|
+| [../INSTALL.md](../INSTALL.md) | Platform detection, prerequisites, FULL/LIMITED support matrix, installer walkthrough |
+| [execution-runner.md](execution-runner.md) | Docker-first verification: why, measured numbers, the POSIX-alignment preconditions |
+| [browser-runner.md](browser-runner.md) | Browser/CDP placement policy: container vs host, evidence, Windows constraints |
+| [research-capability.md](research-capability.md) | External retrieval before design answers: research MCP servers, fallbacks, grounding check |
+| [skills-inventory.md](skills-inventory.md) | Skill registry inventory and disposition |
+| [language-gravity-anti-jargon-report.md](language-gravity-anti-jargon-report.md) | Style A/B evaluation report (buzzword leakage) |
+
+## Design records (v0.4 cycle)
+
+| Doc | What it covers |
+|---|---|
+| [workplan-v0.4.md](workplan-v0.4.md) | v0.4 delivery log §7–§13: every change with its test and measured evidence; final acceptance table |
+| [exit-gate-anti-shirking-design.md](exit-gate-anti-shirking-design.md) | Exit gate and anti-shirking design (v0.4.0) |
+| [review-remediation-plan.md](review-remediation-plan.md) | Review findings → fixes mapping (P0/P1/P2 cycle) |
+| [cognitive-bias-correction-design.md](cognitive-bias-correction-design.md) | Bias catalog → harness mechanisms mapping |
+
+## Historical (Phase 0–3, kept for provenance — not updated)
+
+| Doc | What it covers |
+|---|---|
+| [phase0-gem-poc-spec-and-tests.md](phase0-gem-poc-spec-and-tests.md) | Phase 0 Gem PoC spec |
+| [phase1-pi-scaffold-guide.md](phase1-pi-scaffold-guide.md) | Phase 1 Pi scaffold guide |
+| [phase2-proxy-quota-routing-guide.md](phase2-proxy-quota-routing-guide.md) | Phase 2 proxy + quota routing |
+| [phase3-orchestrator-guide.md](phase3-orchestrator-guide.md) | Phase 3 orchestration |
+| [epistemic-reasoning-harness-blueprint.html](epistemic-reasoning-harness-blueprint.html) | Original blueprint (HTML) |

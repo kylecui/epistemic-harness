@@ -1,3 +1,12 @@
+> English abstract (authoritative orientation; the body below is the bilingual working log):
+> v0.4 delivery log. §7-§13 record every change with its tests and measured
+> evidence: evidence-bound exit gate (issue #2), no fabricated decision points +
+> research discipline (issue #3), cross-turn loop ledger, persistent L4/L5 memory
+> with FTS5 retrieval, docker-first verification with declared host fallback,
+> data-driven task routing (oh-my-openagent-inspired, hardcode removed), three
+> dispatch tiers with authoritative observability, and the final acceptance
+> table (§13). Normative content is English-only per the repo contract.
+
 # 工作计划与下一步研发方案（v0.4 路线图）
 
 > 生成时间：2026-11-20（合并 `epistemic-harness-complete-update-pack` 之后）

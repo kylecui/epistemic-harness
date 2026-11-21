@@ -1,49 +1,49 @@
 # Browser / CDP Placement Policy
 
-> 问题不是"容器还是本机"，而是"这件事里什么必须保持一致"。CDP 只是一个协议接口：客户端在哪儿、浏览器在哪儿可以分开，
-> 所以先把要固定的东西列出来，再决定浏览器放哪边。
+> The question is not "container or host" — it is "what must stay identical in this task". CDP is a protocol interface: client and browser can live on different sides, so first decide what to pin, then decide where the browser goes.
+> 中文辅助版见 git 历史；规范以本文为准。
 
-## 1. 结论（决策规则）
+## 1. Decision rule
 
-| 场景 | 放哪儿 | 理由 |
+| Scenario | Browser side | Why |
 |---|---|---|
-| 验证自建/本地应用（compose 起的站点） | 容器浏览器 | 目标就在容器网络里，`localhost` 语义一致；不碰用户真实 profile |
-| 视觉/行为基线要跨机器字节稳定 | 容器浏览器 | 字体、缩放、Chrome 版本一起固定；换机器不漂移 |
-| 不能把用户 cookie/登录态暴露给页面 | 容器浏览器 | 干净 profile，事后可丢弃 |
-| 需要真实登录态、真实出口 IP、扩展、GPU 硬解码 | 本机浏览器 | 容器里没有这些；headless/机房 IP 还可能被站点拦 |
-| 站点有反自动化（指纹、风控） | 本机浏览器（headful） | 容器指纹与 headless 特征更容易被识别 |
-| 只是想隔离"读页面"这一件事 | 二者皆可，**用 CDP 挂载** | `--remote-debugging-port=9222`，agent 留在原处只换连接端点 |
+| Verifying self-hosted / local apps (compose-raised sites) | container | the target is inside the container network; `localhost` semantics agree; the user's real profile is untouched |
+| Visual/behavioral baselines that must be byte-stable across machines | container | fonts, scale, and Chrome version are pinned together; no drift when machines change |
+| The page must not see the user's cookies/login state | container | clean profile, disposable afterwards |
+| Needs real login state, real egress IP, extensions, GPU codecs | host | containers lack these; headless/datacenter IPs may be blocked |
+| Sites with anti-automation (fingerprinting, risk control) | host (headful) | container and headless fingerprints are easier to flag |
+| Only want to isolate the "read a page" step | either — **attach over CDP** | `--remote-debugging-port=9222` on the side that already owns the browser; the agent stays put and only the endpoint changes |
 
-一句话：**容器化成败取决于"被对齐的是浏览器还是被访问的站点"**。要复现的是我们的页面和基线 → 容器；要复现的是外部站点的真实反应 → 本机。
+One sentence: containerization wins when what must be reproduced is **our page and our baseline**; the host wins when what must be reproduced is the **real web's reaction**.
 
-## 2. 证据
+## 2. Evidence
 
-- **可复现的 web 环境是容器化的**：WebArena 明确把"高度真实且可复现"作为设计目标，用自托管的完整站点（docker 化栈）搭建环境，而不是连真实互联网。arXiv:2307.13854 — https://arxiv.org/abs/2307.13854（读于 2026-11-21）
-- **容器浏览器不是为不可信页面准备的**：Playwright 官方 Docker 文档写明该镜像用于测试与开发，**不建议**用它访问不可信站点；并指出以 root 运行会禁用 Chromium 沙箱，抓取场景应另建用户并使用 seccomp profile。https://github.com/microsoft/playwright/blob/main/docs/src/docker.md（读于 2026-11-21）
-- **沙箱模式需要额外权限**：Puppeteer 官方 Docker 文档要求 `--init` 管理子进程，并在沙箱模式下需要 `SYS_ADMIN`。https://github.com/puppeteer/puppeteer/blob/main/docs/guides/docker.md（读于 2026-11-21）
+- **Reproducible web environments are containerized**: WebArena's design goal is explicitly "highly realistic and reproducible", built on self-hosted functional sites (a dockerized stack) rather than the live internet. arXiv:2307.13854 — https://arxiv.org/abs/2307.13854 (read 2026-11-21)
+- **The container browser is not for untrusted pages**: Playwright's own Docker doc states the image is for testing/development, **recommends against visiting untrusted websites** with it, and notes root disables the Chromium sandbox (scraping should use a separate user + seccomp). https://github.com/microsoft/playwright/blob/main/docs/src/docker.md (read 2026-11-21)
+- **Sandbox mode needs extra privileges**: Puppeteer's Docker doc requires `--init` for child processes and `SYS_ADMIN` for sandbox mode. https://github.com/puppeteer/puppeteer/blob/main/docs/guides/docker.md (read 2026-11-21)
 
-这三条合起来给出一个反对"容器化一切"的边界：把不可信页面塞进容器浏览器，会得到"沙箱被关掉 + 权限被放大"的组合，比本机跑更糟。
+Together these draw the anti-"containerize everything" boundary: putting untrusted pages into a container browser yields "sandbox disabled + amplified privileges" — worse than the host.
 
-## 3. 本机（Windows + Docker Desktop）的具体约束
+## 3. Constraints on this machine (Windows + Docker Desktop)
 
-- 容器在 WSL2 虚拟机里跑：容器内的 `localhost` **不是**宿主机；要用 `host.docker.internal`。
-- `/dev/shm` 默认 64 MB，Chrome 多标签会崩：加 `--shm-size=2g`。
-- 容器里 WebGL 走 SwiftShader 软渲染，像素结果与本机 GPU 不同 → **基线必须和产生它的 runner 绑定**。
-- 端口发布 `-p 127.0.0.1:9222:9222` 后，宿主机进程可以直接用 CDP 连容器里的浏览器。
+- Containers live in the WSL2 VM: container `localhost` **is not** the host; use `host.docker.internal`.
+- `/dev/shm` defaults to 64 MB and crashes Chrome under load: add `--shm-size=2g`.
+- WebGL falls back to SwiftShader in containers → pixel results differ from host GPU → **baselines bind to the runner that produced them**.
+- Publish the port (`-p 127.0.0.1:9222:9222`) and host processes can drive the container browser over CDP directly.
 
-## 4. 落地约定（写进产物，不靠记性）
+## 4. Standing conventions (written into artifacts, not memory)
 
-1. 任何视觉/行为基线旁边记录 `browser_runner`（host|docker）、浏览器版本、视口与缩放。
-2. 一次比较只能在**同一 runner 内**做；跨 runner 比较要先重录基线。
-3. CDP 连接串写进任务契约（`predicates[].check` 指向相应校验命令），不写在自由文本里。
-4. 不可信页面不进容器浏览器：先在容器里做静态抓取（不执行 JS），或在隔离网络里用只读 profile。
-5. 容器浏览器默认 `--no-sandbox` + 独立用户 + 只读挂载；需要真实沙箱时改用带 `SYS_ADMIN` 的专用镜像，并明确记录这是权限提升。
+1. Every visual/behavioral baseline records `browser_runner` (host|docker), browser version, viewport, and scale next to it.
+2. Comparisons happen **within one runner**; cross-runner comparisons require re-baselining first.
+3. CDP connection strings live in task contracts (`predicates[].check` pointing at the verification command), not in free text.
+4. Untrusted pages do not enter the container browser: static fetch without JS execution, or an isolated-network read-only profile.
+5. Container browsers run as non-root with `--no-sandbox` documented, or with `SYS_ADMIN` in a dedicated image when real sandboxing is required — the privilege escalation is recorded.
 
-## 5. 与整体执行基底的关系
+## 5. Relation to the overall execution substrate
 
-验证命令仍走 `scripts/verify.py`（容器优先）。浏览器测试只是其中一类检查：它带 `runner` 语义，但**额外的 `browser_runner` 维度**必须单独记录，因为"检查在容器里跑"不代表"被访问的页面来自容器"。
+Verification commands still go through `scripts/verify.py` (container-first). Browser tests are one class of check: they carry `runner` semantics, but the extra `browser_runner` dimension is recorded separately, because "the check ran in a container" does not imply "the page came from a container".
 
-## 6. 验收
+## 6. Acceptance
 
-- 同一页面在同一 runner 内两次截图，差异为 0；跨 runner 比较时若差异 >0，应被判为"基线不匹配"而不是"页面回归"。
-- 断掉容器网络后，容器浏览器访问自建站点仍成功（说明目标在容器网络内），访问外部站点失败（说明没有隐式走宿主网络）。
+- Two screenshots of the same page within one runner differ by 0; a cross-runner diff > 0 is classified "baseline mismatch", not "page regression".
+- With the container network cut, a container browser still reaches a self-hosted site (target inside the container network) and cannot reach external sites (no implicit host network).
