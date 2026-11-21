@@ -11,6 +11,7 @@ Normative content (rules, contracts, skills) is English-only; a Chinese auxiliar
 | [execution-runner.md](execution-runner.md) | Docker-first verification: why, measured numbers, the POSIX-alignment preconditions |
 | [browser-runner.md](browser-runner.md) | Browser/CDP placement policy: container vs host, evidence, Windows constraints |
 | [research-capability.md](research-capability.md) | External retrieval before design answers: research MCP servers, fallbacks, grounding check |
+| [install-evidence.md](install-evidence.md) | Real install tests (WSL + remote) with transcripts and the 7 defects they exposed |
 | [skills-inventory.md](skills-inventory.md) | Skill registry inventory and disposition |
 | [language-gravity-anti-jargon-report.md](language-gravity-anti-jargon-report.md) | Style A/B evaluation report (buzzword leakage) |
 

@@ -42,6 +42,19 @@ def _load_env() -> dict[str, str]:
     return env
 
 
+def _auth_credentials_present(auth: str | None, env: dict[str, str]) -> bool:
+    """OAuth-backed models need their token file, not just the `auth:` label —
+    a fresh clone showed 'ok' for Copilot with no .secrets at all (install test,
+    2026-11-21). Check what each auth type actually needs."""
+    if not auth:
+        return False
+    if auth == "copilot":
+        if env.get("GITHUB_COPILOT_TOKEN") or env.get("COPILOT_TOKEN"):
+            return True
+        return (REPO_ROOT / ".secrets" / "github-copilot.json").exists()
+    return True  # unknown auth types: keep the label-level answer, flagged in docs
+
+
 def build_matrix(policy_path: Path = POLICY, env: dict[str, str] | None = None) -> dict:
     env = env if env is not None else _load_env()
     spec = yaml.safe_load(policy_path.read_text(encoding="utf-8")) or {}
@@ -53,7 +66,7 @@ def build_matrix(policy_path: Path = POLICY, env: dict[str, str] | None = None) 
         max_idx = ORDER.get(max_effort, len(EFFORTS) - 1)
         key_env = m.get("api_key_env")
         auth = m.get("auth")
-        has_key = bool(auth) or bool(key_env and env.get(key_env))
+        has_key = _auth_credentials_present(auth, env) or bool(key_env and env.get(key_env))
         pool = pools.get(m.get("pool") or "", {})
         rows.append({
             "model": name,

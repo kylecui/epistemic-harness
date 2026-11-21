@@ -1,0 +1,14 @@
+platform   : Linux-5.15.0-203-generic-x86_64-with-glibc2.35
+shell      : posix
+python     : 3.10.12 (>=3.10: True)
+git        : True
+docker     : False
+venv       : False
+support    : LIMITED
+WARNING: limited-support mode. The following limitations apply:
+  - verification runs on the HOST shell (cmd.exe/PowerShell vs POSIX sh): shell-dependent checks may behave differently
+  - no container isolation: checks share the host filesystem and process space
+  - batch-docker execution disabled (one process per check instead of one container per batch)
+  - image-pinned determinism unavailable: verdicts record runner=host only
+  - CRLF risk is higher: the eol pre-commit hook still applies, but .gitattributes is your only git-side guard
+CHECK_EXIT=0

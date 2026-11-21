@@ -1,0 +1,13 @@
+=== WSL TEST: fresh clone ===
++ rm -rf /home/kylecui/harness-install-test
++ git clone --depth 1 https://github.com/kylecui/epistemic-harness.git /home/kylecui/harness-install-test
+Cloning into '/home/kylecui/harness-install-test'...
++ echo CLONE_EXIT=0
+CLONE_EXIT=0
++ cd /home/kylecui/harness-install-test
++ git log --oneline -1
+a8943c7 feat(install): quickstart funnels into API key configuration
++ ls README.md INSTALL.md scripts/install.py
+INSTALL.md
+README.md
+scripts/install.py

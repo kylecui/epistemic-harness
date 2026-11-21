@@ -30,15 +30,31 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 PY_MINOR_MIN = 10
 
 LIMITED_SUPPORT_NO_DOCKER = [
-    "verification runs on the HOST shell (cmd.exe/PowerShell vs POSIX sh): shell-dependent checks may behave differently",
     "no container isolation: checks share the host filesystem and process space",
     "batch-docker execution disabled (one process per check instead of one container per batch)",
     "image-pinned determinism unavailable: verdicts record runner=host only",
+]
+LIMITED_SUPPORT_NO_DOCKER_WINDOWS = [
+    "verification runs on the HOST shell (cmd.exe/PowerShell): shell-dependent checks may behave differently from POSIX",
     "CRLF risk is higher: the eol pre-commit hook still applies, but .gitattributes is your only git-side guard",
+]
+LIMITED_SUPPORT_NO_DOCKER_POSIX = [
+    "verification runs on the host POSIX shell: shell-dependent checks follow POSIX sh semantics",
 ]
 LIMITED_SUPPORT_NO_GIT = [
     "no version-control integration: residue scan and pre-commit eol hook disabled",
 ]
+
+
+def venv_hint() -> str:
+    """Exact next step when `python -m venv` fails, per package family."""
+    if shutil.which("apt-get"):
+        py = f"python{sys.version_info.major}.{sys.version_info.minor}"
+        return (f"Ubuntu/Debian: sudo apt-get install -y {py}-venv\n"
+                "Then re-run: python scripts/install.py")
+    if shutil.which("dnf"):
+        return "Fedora/RHEL: sudo dnf install -y python3-virtualenv\nThen re-run: python scripts/install.py"
+    return "Install your distribution's venv/ensurepip package, then re-run: python scripts/install.py"
 
 
 def _sh(cmd: list[str], timeout: int = 30) -> subprocess.CompletedProcess:
@@ -91,6 +107,8 @@ def prompt_for_keys(assume_yes: bool = False) -> list[str]:
     --keys/--with-keys forces it. Returns the variables written."""
     interactive = sys.stdin.isatty() or assume_yes
     if not interactive:
+        print("provider keys: skipped (non-interactive shell) — set them in .env, "
+              "or re-run in a terminal / with --with-keys")
         return []
     dotenv = REPO_ROOT / ".env"
     existing = _read_dotenv(dotenv)
@@ -153,6 +171,9 @@ def report(info: dict) -> str:
         if not info["docker"]:
             for item in LIMITED_SUPPORT_NO_DOCKER:
                 lines.append(f"  - {item}")
+            windows_shell = "windows" in info.get("shell_family", "")
+            for item in (LIMITED_SUPPORT_NO_DOCKER_WINDOWS if windows_shell else LIMITED_SUPPORT_NO_DOCKER_POSIX):
+                lines.append(f"  - {item}")
         if not info["git"]:
             for item in LIMITED_SUPPORT_NO_GIT:
                 lines.append(f"  - {item}")
@@ -168,7 +189,14 @@ def setup(info: dict) -> list[str]:
     venv_dir = REPO_ROOT / ".venv"
     venv_py = venv_dir / ("Scripts" if os.name == "nt" else "bin") / ("python.exe" if os.name == "nt" else "python")
     if not venv_py.exists():
-        subprocess.check_call([sys.executable, "-m", "venv", str(venv_dir)])
+        try:
+            subprocess.check_call([sys.executable, "-m", "venv", str(venv_dir)])
+        except subprocess.CalledProcessError:
+            # Fresh Debian/Ubuntu lacks ensurepip — a raw traceback here failed a
+            # real install test (ubuntu-vm-2204, 2026-11-21). Say exactly what to do.
+            print("FATAL: could not create the virtual environment (ensurepip unavailable).\n"
+                  + venv_hint(), file=sys.stderr)
+            sys.exit(2)
         steps.append("venv created")
     subprocess.check_call([str(venv_py), "-m", "pip", "install", "-q", "-r", "requirements.txt"], cwd=str(REPO_ROOT))
     steps.append("requirements installed")
@@ -228,9 +256,10 @@ def _append_idempotent(target: Path, block: str) -> str:
 def shell_targets() -> list[tuple[str, Path, bool]]:
     home = Path.home()
     targets: list[tuple[str, Path, bool]] = []
-    profile = os.environ.get("PROFILE")
-    ps_profile = Path(profile) if profile else home / "Documents" / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1"
-    targets.append(("powershell", ps_profile, True))
+    if os.name == "nt":  # offering a Windows profile path inside WSL failed a real test
+        profile = os.environ.get("PROFILE")
+        ps_profile = Path(profile) if profile else home / "Documents" / "WindowsPowerShell" / "Microsoft.PowerShell_profile.ps1"
+        targets.append(("powershell", ps_profile, True))
     for rc in (".bashrc", ".zshrc"):
         targets.append((rc[1:], home / rc, False))
     return targets

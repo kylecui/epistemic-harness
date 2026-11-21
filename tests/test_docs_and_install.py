@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 PACK_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PACK_ROOT))
@@ -120,7 +122,7 @@ class InstallDetectTests(unittest.TestCase):
                             "python_ok": True, "git": True, "docker": False,
                             "venv_present": False, "os": "Z", "support_tier": "limited"})
         self.assertIn("LIMITED", text)
-        self.assertIn("host shell", text.lower())
+        self.assertIn("posix sh semantics", text.lower())
 
 
 if __name__ == "__main__":
@@ -201,5 +203,40 @@ class KeyPromptTests(unittest.TestCase):
 
     def test_prompt_skipped_when_not_tty(self):
         inst = self._load_install()
-        # stdin in test runners is not a tty -> no prompt, no writes
-        self.assertEqual(inst.prompt_for_keys(), [])
+        # Force the non-tty path regardless of the invoking shell
+        class FakeStdin:
+            def isatty(self): return False
+        with mock.patch.object(sys, "stdin", FakeStdin()):
+            self.assertEqual(inst.prompt_for_keys(), [])
+
+
+class InstallFailurePathsTests(unittest.TestCase):
+    def _load_install(self):
+        spec = importlib.util.spec_from_file_location("install_f", PACK_ROOT / "scripts" / "install.py")
+        mod = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        sys.modules["install_f"] = mod
+        spec.loader.exec_module(mod)
+        return mod
+
+    def test_venv_hint_is_actionable(self):
+        inst = self._load_install()
+        hint = inst.venv_hint()
+        self.assertIn("install", hint.lower())
+        self.assertIn("re-run", hint)
+
+    def test_limited_warning_posix_shell(self):
+        inst = self._load_install()
+        text = inst.report({"platform": "Linux", "shell_family": "posix", "python": "3.10.12",
+                            "python_ok": True, "git": True, "docker": False,
+                            "venv_present": False, "os": "Linux", "support_tier": "limited"})
+        low = text.lower()
+        self.assertIn("posix sh semantics", low)
+        self.assertNotIn("cmd.exe", low)
+
+    def test_shell_targets_skip_powershell_on_posix(self):
+        inst = self._load_install()
+        names = [n for n, _, _ in inst.shell_targets()]
+        if os.name != "nt":
+            self.assertNotIn("powershell", names)
+        self.assertIn("bashrc", names)

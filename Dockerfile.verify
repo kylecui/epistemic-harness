@@ -12,6 +12,11 @@ ENV PYTHONUNBUFFERED=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# The repo is bind-mounted and owned by the host user; git refuses to operate on
+# it as root inside the container ('dubious ownership') and rev-parse fails,
+# which turned rev=unknown in a real install test (2026-11-21).
+RUN git config --system --add safe.directory '*'
+
 WORKDIR /work
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir -r /tmp/requirements.txt

@@ -1,0 +1,37 @@
+The virtual environment was not created successfully because ensurepip is not
+available.  On Debian/Ubuntu systems, you need to install the python3-venv
+package using the following command.
+
+    apt install python3.10-venv
+
+You may need to use sudo with that command.  After installing the python3-venv
+package, recreate your virtual environment.
+
+Failing command: /home/kylecui/harness-install-test/.venv/bin/python3
+
+platform   : Linux-5.15.0-203-generic-x86_64-with-glibc2.35
+shell      : posix
+python     : 3.10.12 (>=3.10: True)
+git        : True
+docker     : False
+venv       : False
+support    : LIMITED
+WARNING: limited-support mode. The following limitations apply:
+  - verification runs on the HOST shell (cmd.exe/PowerShell vs POSIX sh): shell-dependent checks may behave differently
+  - no container isolation: checks share the host filesystem and process space
+  - batch-docker execution disabled (one process per check instead of one container per batch)
+  - image-pinned determinism unavailable: verdicts record runner=host only
+  - CRLF risk is higher: the eol pre-commit hook still applies, but .gitattributes is your only git-side guard
+
+setup:
+Traceback (most recent call last):
+  File "/home/kylecui/harness-install-test/scripts/install.py", line 283, in <module>
+    raise SystemExit(main())
+  File "/home/kylecui/harness-install-test/scripts/install.py", line 268, in main
+    for step in setup(info):
+  File "/home/kylecui/harness-install-test/scripts/install.py", line 171, in setup
+    subprocess.check_call([sys.executable, "-m", "venv", str(venv_dir)])
+  File "/usr/lib/python3.10/subprocess.py", line 369, in check_call
+    raise CalledProcessError(retcode, cmd)
+subprocess.CalledProcessError: Command '['/usr/bin/python3', '-m', 'venv', '/home/kylecui/harness-install-test/.venv']' returned non-zero exit status 1.
+INSTALL_EXIT=1

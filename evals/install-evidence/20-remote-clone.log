@@ -1,0 +1,7 @@
+Cloning into '/home/kylecui/harness-install-test'...
+CLONE_EXIT=0
+a8943c7 feat(install): quickstart funnels into API key configuration
+INSTALL.md
+README.md
+scripts/hvx
+scripts/install.py

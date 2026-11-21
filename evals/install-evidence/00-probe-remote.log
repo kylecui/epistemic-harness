@@ -1,0 +1,8 @@
+=== probe remote ===
+SSH-OK
+Linux ubuntu-vm-2204 5.15.0-203-generic #213-Ubuntu SMP Fri Oct 23 13:21:06 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux
+kylecui
+/usr/bin/python3
+/usr/bin/git
+Python 3.10.12
+SUDO-OK

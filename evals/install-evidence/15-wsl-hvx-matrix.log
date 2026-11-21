@@ -1,0 +1,15 @@
+===HVX===
+bash: line 1: ./scripts/hvx: Permission denied
+===MATRIX===
+model                              pool                   cred max_effort efforts allowed
+zhipu-glm-5.3                      zhipu_v2_max           MISS -          m,l,m,h
+zhipu-glm-5.3-flash                zhipu_v2_max           MISS -          m,l,m,h
+kimi-k3.1-pro                      kimi_allegretto        MISS -          m,l,m,h
+kimi-for-coding                    kimi_allegretto        MISS -          m,l,m,h
+opencode-deepseek-v4.1-flash       opencode_go_basic      MISS low        m,l  clamped:medium,high
+copilot-claude-fable-5.2           github_copilot_pro_plus ok   -          m,l,m,h
+copilot-claude-sonnet-5.5          github_copilot_pro_plus ok   -          m,l,m,h
+runner=docker image=epistemic-verify:local rev=a8943c7
+runner=host python=/usr/local/bin/python rev=unknown
+Ran 213 tests in 2.898s
+OK

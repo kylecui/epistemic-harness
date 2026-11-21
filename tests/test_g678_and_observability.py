@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 PACK_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PACK_ROOT))
@@ -115,7 +116,17 @@ class CapabilityMatrixTests(unittest.TestCase):
         matrix = cap_matrix.build_matrix(self._policy(), env={})
         rows = {r["model"]: r for r in matrix["models"]}
         self.assertFalse(rows["m-full"]["credentials_present"])
-        self.assertTrue(rows["m-copilot"]["credentials_present"])
+
+    def test_copilot_auth_needs_token_file_or_env(self):
+        import tempfile
+        empty_root = Path(tempfile.mkdtemp())   # no .secrets here
+        with mock.patch.object(cap_matrix, "REPO_ROOT", empty_root):
+            matrix = cap_matrix.build_matrix(self._policy(), env={"GITHUB_COPILOT_TOKEN": "t"})
+            rows = {r["model"]: r for r in matrix["models"]}
+            self.assertTrue(rows["m-copilot"]["credentials_present"])
+            matrix2 = cap_matrix.build_matrix(self._policy(), env={})
+            rows2 = {r["model"]: r for r in matrix2["models"]}
+            self.assertFalse(rows2["m-copilot"]["credentials_present"])
 
 
 class AnalyzeDispatchesTests(unittest.TestCase):

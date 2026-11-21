@@ -1,0 +1,7 @@
+---
+STILL-RUNNING
+wc: /tmp/wsl-install.log: No such file or directory
+STILL-RUNNING
+root           8  0.0  0.1   3836  2436 ?        Sl   12:58   0:00 plan9 --control-socket 7 --log-level 4 --server-fd 8 --pipe-fd 10 --log-truncate
+ls: cannot access '/tmp/wsl-install.log': No such file or directory
+-rwxr-xr-x 1 kylecui kylecui 163 Nov 21 12:58 /tmp/run-install.sh

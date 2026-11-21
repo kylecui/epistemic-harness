@@ -1,0 +1,24 @@
++ cd /home/kylecui/harness-install-test
++ python3 scripts/install.py
++ echo INSTALL_EXIT=0
+RC=0
+support    : FULL
+
+setup:
+  - venv created
+  - requirements installed
+  - git hooks installed (core.hooksPath=scripts/git-hooks)
+  - clients compiled (AGENTS.md / gemini / SKILL)
+  - verify image ready (epistemic-verify:local)
+  - memory index built
+
+shell integration:
+  [powershell] would be added to /home/kylecui/Documents/WindowsPowerShell/Microsoft.PowerShell_profile.ps1  (run with --with-shell to apply)
+  [bashrc] would be added to /home/kylecui/.bashrc  (run with --with-shell to apply)
+  [zshrc] would be added to /home/kylecui/.zshrc  (run with --with-shell to apply)
+  [cmd.exe] no automatic integration: run start_harness.ps1 from PowerShell,
+            or add the repo to PATH and use scripts\hvx.ps1 directly.
+
+smoke test:
+smoke test ok — harness ready.
+INSTALL_EXIT=0
