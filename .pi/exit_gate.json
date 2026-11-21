@@ -12,6 +12,11 @@
       "name": "eol_policy",
       "command": "python scripts/check_eol.py",
       "required": true
+    },
+    {
+      "name": "routing_validate",
+      "command": "python scripts/capability_matrix.py --validate-routing config/task_routing.yaml",
+      "required": true
     }
   ],
   "residue_globs": [

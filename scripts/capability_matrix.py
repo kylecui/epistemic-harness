@@ -83,9 +83,33 @@ def build_matrix(policy_path: Path = POLICY, env: dict[str, str] | None = None) 
     }
 
 
+def validate_routing(routing_path: Path, matrix: dict) -> list[str]:
+    """Check a task routing table against the capability matrix (R2 hardening)."""
+    sys.path.insert(0, str(REPO_ROOT))
+    from orchestrator.task_router import validate_against_capability  # local import: scripts-only dep
+    spec = yaml.safe_load(Path(routing_path).read_text(encoding="utf-8")) or {}
+    return validate_against_capability(spec, matrix)
+
+
 def main() -> int:
+    routing = None
+    argv = [a for a in sys.argv[1:]]
+    if "--validate-routing" in argv:
+        idx = argv.index("--validate-routing")
+        routing = Path(argv[idx + 1]) if idx + 1 < len(argv) else REPO_ROOT / "config" / "task_routing.yaml"
+        argv = argv[:idx] + argv[idx + 2:]
     matrix = build_matrix()
-    if "--json" in sys.argv:
+    if routing is not None:
+        violations = validate_routing(routing, matrix)
+        hard = [v for v in violations if not v.startswith("warning:")]
+        for v in violations:
+            print(f"  - {v}", file=sys.stderr)
+        if hard:
+            print(f"routing table {routing}: {len(hard)} violation(s)", file=sys.stderr)
+            return 1
+        print(f"routing table {routing}: ok ({len(violations)} overlap warning(s))")
+        return 0
+    if "--json" in argv:
         print(json.dumps(matrix, ensure_ascii=False, indent=2))
         return 0
     print(f"{'model':34s} {'pool':22s} {'cred':4s} {'max_effort':10s} efforts allowed")

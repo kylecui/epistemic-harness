@@ -33,10 +33,28 @@ from orchestrator.tooled import dispatch_tooled
 from orchestrator.exit_gate import ExitGateEngine
 from orchestrator.planner import classify_task
 from orchestrator.skills import SkillRegistry
+from orchestrator.task_router import as_dict as route_as_dict, load_config as load_routing_config, route_task
 
 PROTOCOL_VERSION = "2024-11-05"
 
 TOOLS: list[dict[str, Any]] = [
+    {
+        "name": "route_task",
+        "description": (
+            "Advisory routing decision from config/task_routing.yaml (data-driven, validated against "
+            "the capability matrix): category, profile, effort, budget, optional model pin. Explicit "
+            "caller choices always win; the gateway owns the final (model, effort) decision."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_text": {"type": "string"},
+                "profile": {"type": "string", "enum": ["explorer", "coder", "deep", "critic"]},
+                "effort": {"type": "string", "enum": ["minimal", "low", "medium", "high"]},
+            },
+            "required": ["task_text"],
+        },
+    },
     {
         "name": "classify_task",
         "description": "Classify a subtask into a cognitive tier + sub-agent profile (advisory; gateway re-enforces the same tier).",
@@ -328,7 +346,14 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
         name = params.get("name")
         args = params.get("arguments") or {}
         try:
-            if name == "classify_task":
+            if name == "route_task":
+                res = route_as_dict(route_task(
+                    str(args.get("task_text", "")),
+                    load_routing_config(),
+                    explicit_profile=args.get("profile"),
+                    explicit_effort=args.get("effort"),
+                ))
+            elif name == "classify_task":
                 res = orch.classify_task(args["task_text"])
             elif name == "dispatch_subagent":
                 res = orch.dispatch_subagent(args)

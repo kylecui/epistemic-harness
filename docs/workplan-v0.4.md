@@ -141,3 +141,13 @@ pi mcp list                                                    # MCP 双服务�
 | R1 | 控制器硬约束：`.pi/task_contract.json` 增 `dispatch_required`，harness-guard 在 `agent_end` 检查"改文件但没派发"即回弹；`dispatch_required=false` 需引用 L4 理由 | TS 端 + 文档 |
 
 实测观测结论（诚实版）：本会话派发次数 = 0（控制器亲自实现，契约未被严格执行）；历史 8 次派发里 6 次拿不到模型元数据（旧解析路径），现已以 dispatches.jsonl 为权威源。
+
+## 十一、v0.4.5 数据驱动路由 + G9 实跑（2026-11-21）
+
+| 编号 | 交付 | 验证 |
+|---|---|---|
+| R2 | `config/task_routing.yaml` + `orchestrator/task_router.py`：借鉴 oh-my-openagent 的"按任务类别选模型/强度"，但把 OmO 硬编码在 TS 常量里的部分全部搬进可评审的 YAML；显式 `priority`（高者优先，与文件顺序无关）+ 关键词重叠 lint；MCP `route_task` 工具；`dispatch_subagent` 新增 `model`/`effort` 参数（body.model 钉模型、X-Harness-Effort 强度提示） | `tests/test_task_router.py` 11 项；`--validate-routing` 通过 |
+| G9 | 真实派发闭环：`.pi/task_contract.json` 开 `dispatch_required=true`；经网关实派 2 个子 agent（explorer→kimi-for-coding/low，critic→zhipu-glm-5.3/high）；`analyze_dispatches.py` 确认 4 条记录含 model+effort+用量；子 agent 评审发现"first-hit 即隐式硬编码"（FAIL）→ 已改为显式 priority | dispatches.jsonl 权威记录 |
+| R1 | harness-guard 识别 CLI 派发（bash 命令含 dispatch_subtask/run_plan/dispatch_tooled/orchestrator.server 即记为已派发），修掉"python CLI 派发不可见"的观测洞 | TS + 实测本轮零误报 |
+
+OmO 参考（读于 2026-11-21）：github.com/code-yeongyu/oh-my-openagent，71k★。可借：类别→决策 + fallback chain + `omo doctor` 式能力校验 + CI 刷新模型能力。不借：决策硬编码在 `category-model-requirements.ts`/`builtin-profiles.ts`，改一行要发版。

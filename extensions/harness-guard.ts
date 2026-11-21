@@ -345,6 +345,11 @@ export default function (pi: any) {
       mutatedThisTurn = true; // bash-side writes count too: the exit gate must not depend on the tool name
       return undefined;
     }
+    // CLI-driven dispatches (python -m orchestrator..., pi subprocesses) leave no MCP tool call
+    // for the hook to see; the command line is the signal then.
+    if (name === "bash" && /(dispatch_subtask\(|run_plan\(|dispatch_tooled\(|orchestrator\.server)/.test(cmd)) {
+      dispatchedThisTurn = true;
+    }
     if (name !== "edit" && name !== "write") return undefined;
 
     mutatedThisTurn = true;

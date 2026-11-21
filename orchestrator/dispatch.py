@@ -128,6 +128,8 @@ def dispatch_subtask(
     escalate_on_bias: bool = False,
     exclude_model: str | None = None,
     max_tokens: int | None = None,
+    model: str | None = None,
+    effort: str | None = None,
 ) -> dict[str, Any]:
     """Dispatch a single subtask to the gateway under the given agent profile."""
     base = (gateway_url or os.getenv("HARNESS_GATEWAY_URL", DEFAULT_GATEWAY_URL)).rstrip("/")
@@ -145,11 +147,15 @@ def dispatch_subtask(
             {"role": "user", "content": user_content},
         ],
     }
+    if model:
+        payload["model"] = model  # pin: gateway prioritizes it in select_candidates
     headers = {
         "X-Harness-Agent-Id": agent_profile,
         "X-Harness-Session-Id": task_id,
         "Content-Type": "application/json",
     }
+    if effort:
+        headers["X-Harness-Effort"] = effort  # hint; gateway clamps to the model's max_effort
     if exclude_model:
         headers["X-Harness-Exclude-Model"] = exclude_model
 

@@ -1,0 +1,56 @@
+# Task routing table: (task category) -> dispatch decision.
+#
+# Borrowed structure from oh-my-openagent (github.com/code-yeongyu/oh-my-openagent,
+# read 2026-11-21): per-category decisions with effort variants. The hardcoded
+# part is removed — this file IS the routing policy, reviewable and editable
+# without touching code. Validate after every edit:
+#
+#   python scripts/capability_matrix.py --validate-routing config/task_routing.yaml
+#
+# Semantics:
+#   match    : case-insensitive keywords; first category with any hit wins.
+#   profile  : sub-agent profile (explorer|coder|deep|critic).
+#   effort   : reasoning effort hint (minimal|low|medium|high); clamped to the
+#              chosen model's max_effort by the gateway, so over-declaring here
+#              degrades gracefully instead of failing.
+#   model    : optional pin; must exist in proxy_gateway/quota_policy.yaml.
+#              Omitted = the gateway picks dynamically (quota/peak/failover).
+#   budget   : max output tokens for the sub-agent.
+#   note     : why this decision exists (evidence or L4 trade-off).
+version: "1.0"
+# priority: 高者优先, 与文件顺序无关。评审/推导类给最高优先级, 避免被
+# "定位/调查/验证" 等通用词抢占 —— 这是 explorer 子 agent 实测发现的冲突。
+categories:
+  review-critic:
+    priority: 10
+    match: ["review", "评审", "审计", "critic", "复核", "独立审查"]
+    decision: {profile: critic, effort: high, budget: 8192, exclude_drafter: true}
+    note: "独立复核; 起草家族被物理排除 (X-Harness-Exclude-Model)"
+  deep-analysis:
+    priority: 5
+    match: ["分析", "设计", "trade-off", "tradeoff", "architecture", "架构", "重构方案", "推导", "证明"]
+    decision: {profile: deep, effort: high, budget: 8192}
+    note: "跨源权衡/形式化推导, 只有 deep 档有配额意义"
+  verification:
+    priority: 3
+    match: ["test", "验证", "复现", "reproduce", "验收"]
+    decision: {profile: coder, effort: low, budget: 4096}
+    note: "验证类输出短, 但可能触发修复循环, 预算留余量"
+  implementation:
+    priority: 2
+    match: ["implement", "实现", "add feature", "新增", "支持", "落地"]
+    decision: {profile: coder, effort: medium, budget: 4096}
+    note: "实现型子任务, 需要结构化输出"
+  quick-fix:
+    priority: 1
+    match: ["rename", "typo", "camelcase", "格式化", "改名", "重命名"]
+    decision: {profile: coder, effort: low, budget: 2048}
+    note: "机械编辑, 低强度足够; 额度友好"
+  exploration:
+    priority: 1
+    match: ["explore", "调查", "梳理", "定位", "find where", "where is", "检索"]
+    decision: {profile: explorer, effort: low, budget: 2048}
+    note: "初筛/只读检索, system_1 默认"
+default:
+  decision: {profile: coder, effort: medium, budget: 4096}
+  note: "未命中任何类别时的保守默认"

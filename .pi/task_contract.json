@@ -1,0 +1,23 @@
+{
+  "task_id": "g9-routing-dispatch",
+  "goal": "data-driven task routing (config/task_routing.yaml) + live dispatch validation (G9)",
+  "dispatch_required": true,
+  "stopping_rule": "routing validated against capability matrix; dispatches recorded with model+effort; tests green",
+  "predicates": [
+    {
+      "id": "P1",
+      "statement": "unit tests pass",
+      "check": "unit_tests"
+    },
+    {
+      "id": "P2",
+      "statement": "eol policy holds",
+      "check": "eol_policy"
+    },
+    {
+      "id": "P3",
+      "statement": "routing table validates",
+      "check": "routing_validate"
+    }
+  ]
+}
