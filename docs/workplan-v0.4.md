@@ -151,3 +151,15 @@ pi mcp list                                                    # MCP 双服务�
 | R1 | harness-guard 识别 CLI 派发（bash 命令含 dispatch_subtask/run_plan/dispatch_tooled/orchestrator.server 即记为已派发），修掉"python CLI 派发不可见"的观测洞 | TS + 实测本轮零误报 |
 
 OmO 参考（读于 2026-11-21）：github.com/code-yeongyu/oh-my-openagent，71k★。可借：类别→决策 + fallback chain + `omo doctor` 式能力校验 + CI 刷新模型能力。不借：决策硬编码在 `category-model-requirements.ts`/`builtin-profiles.ts`，改一行要发版。
+
+## 十二、v0.4.6 G11/G12/G13 闭环（2026-11-21）
+
+| 编号 | 交付 | 验证 |
+|---|---|---|
+| G11 | 路由反馈回路：`dispatch_subagent` 经 `route_task` 打上 `category` 落 dispatches.jsonl；`analyze_dispatches.py` 输出 by_category + default_share（>0.4 时打印 default 任务样本供补关键词） | 实测 default_share=0.0 |
+| G12 | 首个模型钉：`deep-analysis → zhipu-glm-5.3`（依据：2026-11-21 dispatches.jsonl 实测 3/3 deep 派发落在它；钉住消除配额摇号方差，池不可用时网关仍 failover） | `--validate-routing` 绿 |
+| G13 | 只读 explorer 层：`orchestrator/readonly_tools.py`（read_file/list_dir/grep，workdir 沙箱，符号链接逃逸在 Linux 容器实测被拒）+ `orchestrator/readonly_agent.py`（工具循环，round 上限，结果回灌）+ MCP `dispatch_readonly` | 11 项测试 + 真实派发 |
+
+G13 实测修正：早前写的"耗时 < 宿主直查 2 倍"不可达（宿主 grep 49ms vs LLM 工具循环 11.8s，245 倍）——任何经模型中介的工具调用都是秒级。验收标准修正为：答案正确 + 成本有界（单工具任务 ≤2 轮、≤2 次工具调用、廉价模型）。实跑 2 轮 / 1 次 grep / glm-5.3-flash / 11.8s，答案正确且额外发现 app.py:350 与 541 重复设置同一头的代码异味。
+
+197 项测试（容器内 4.0s），evals 12/12。

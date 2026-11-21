@@ -45,7 +45,8 @@ _BIAS_GUARD = None
 
 
 def _record_dispatch(
-    agent_profile: str, task_id: str, task_text: str, result: dict[str, Any], attempts: int
+    agent_profile: str, task_id: str, task_text: str, result: dict[str, Any], attempts: int,
+    category: str | None = None,
 ) -> None:
     """Append one authoritative dispatch record to traces/dispatches.jsonl.
 
@@ -62,6 +63,7 @@ def _record_dispatch(
             "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "task_id": task_id,
             "profile": agent_profile,
+            "category": category or result.get("category") or "",
             "task_text": (task_text or "")[:200],
             "routed_tier": result.get("routed_tier", ""),
             "selected_model": result.get("selected_model", ""),
@@ -73,6 +75,9 @@ def _record_dispatch(
             "bias_matches": [m.get("bias_id") for m in (result.get("bias_scan") or {}).get("matches") or []],
             "critic_model": result.get("critic_model", ""),
         }
+        for extra_key in ("tools_used", "rounds", "elapsed_sec"):
+            if extra_key in result:
+                record[extra_key] = result[extra_key]
         with path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(record, ensure_ascii=False) + "\n")
     except OSError:
@@ -130,6 +135,7 @@ def dispatch_subtask(
     max_tokens: int | None = None,
     model: str | None = None,
     effort: str | None = None,
+    category: str | None = None,
 ) -> dict[str, Any]:
     """Dispatch a single subtask to the gateway under the given agent profile."""
     base = (gateway_url or os.getenv("HARNESS_GATEWAY_URL", DEFAULT_GATEWAY_URL)).rstrip("/")
@@ -194,7 +200,7 @@ def dispatch_subtask(
         "usage": usage or {},
         "bias_scan": _get_bias_guard().scan(content),
     }
-    _record_dispatch(agent_profile, task_id, task_text, result, attempts)
+    _record_dispatch(agent_profile, task_id, task_text, result, attempts, category=category)
     # L3 first-pass escalation: bias hits are re-dispatched to a cross-family critic pass.
     if escalate_on_bias and result["bias_scan"]["matches"]:
         verdict = dispatch_subtask(

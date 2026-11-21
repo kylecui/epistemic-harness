@@ -30,6 +30,7 @@ from orchestrator.bias_guard import BiasGuard
 from orchestrator.dispatch import dispatch_subtask
 from orchestrator.plan import plan_task, run_plan
 from orchestrator.tooled import dispatch_tooled
+from orchestrator.readonly_agent import dispatch_readonly
 from orchestrator.exit_gate import ExitGateEngine
 from orchestrator.planner import classify_task
 from orchestrator.skills import SkillRegistry
@@ -133,6 +134,27 @@ TOOLS: list[dict[str, Any]] = [
                 "synthesize": {"type": "boolean", "default": False},
                 "timeout": {"type": "number", "default": 300},
             },
+        },
+    },
+    {
+        "name": "dispatch_readonly",
+        "description": (
+            "Run a read-only explorer sub-agent with sandboxed tools (read_file / list_dir / grep). "
+            "Middle tier between text-only dispatch_subagent and full dispatch_tooled: the sub-agent "
+            "can inspect the workspace but cannot write or execute. Capped rounds; recorded in "
+            "traces/dispatches.jsonl like every dispatch."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "task_text": {"type": "string"},
+                "workdir": {"type": "string", "description": "Sandbox root; all tool paths are relative to it"},
+                "task_id": {"type": "string", "default": "ro-1"},
+                "effort": {"type": "string", "default": "low"},
+                "model": {"type": "string"},
+                "max_rounds": {"type": "integer", "default": 6},
+            },
+            "required": ["task_text", "workdir"],
         },
     },
     {
@@ -275,13 +297,22 @@ class Orchestrator:
 
     def dispatch_subagent(self, args: dict[str, Any]) -> dict[str, Any]:
         attached = self.skills.match_for_task(args["task_text"])
+        decision = route_task(
+            str(args["task_text"]),
+            load_routing_config(),
+            explicit_profile=args.get("agent_profile"),
+        )
         return dispatch_subtask(
-            agent_profile=args["agent_profile"],
+            agent_profile=decision.profile,
             task_text=args["task_text"],
             context=args.get("context", ""),
             task_id=args.get("task_id", "default"),
             attached_skills=attached,
             escalate_on_bias=bool(args.get("escalate_on_bias", False)),
+            model=decision.model,
+            effort=decision.effort,
+            max_tokens=decision.budget,
+            category=decision.category,
         )
 
     def dispatch_tooled(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -373,6 +404,15 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
                 res = orch.run_plan(args)
             elif name == "dispatch_tooled":
                 res = orch.dispatch_tooled(args)
+            elif name == "dispatch_readonly":
+                res = dispatch_readonly(
+                    task_text=str(args["task_text"]),
+                    workdir=str(args["workdir"]),
+                    task_id=str(args.get("task_id", "ro-1")),
+                    effort=str(args.get("effort", "low")),
+                    model=args.get("model"),
+                    max_rounds=int(args.get("max_rounds", 6)),
+                )
             elif name == "run_gate":
                 res = orch.run_gate(args)
             else:

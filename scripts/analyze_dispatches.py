@@ -10,6 +10,7 @@ Sources, in order of authority:
 Usage:
     python scripts/analyze_dispatches.py
     python scripts/analyze_dispatches.py --json
+# by_category + default_share are always included; default_share > 0.4 prints samples
 """
 
 from __future__ import annotations
@@ -64,6 +65,8 @@ def summarize(dispatches: list[dict], guard: dict) -> dict:
     by_model = Counter(d.get("selected_model") or "?" for d in dispatches)
     by_tier = Counter(d.get("routed_tier") or "?" for d in dispatches)
     by_effort = Counter(d.get("effort") or "?" for d in dispatches)
+    by_category = Counter(d.get("category") or "unset" for d in dispatches)
+    default_hits = [d for d in dispatches if d.get("category") == "default"]
     first = dispatches[0]["ts"] if dispatches else None
     last = dispatches[-1]["ts"] if dispatches else None
     return {
@@ -73,6 +76,9 @@ def summarize(dispatches: list[dict], guard: dict) -> dict:
         "by_model": dict(by_model),
         "by_tier": dict(by_tier),
         "by_effort": dict(by_effort),
+        "by_category": dict(by_category),
+        "default_share": round(len(default_hits) / len(dispatches), 3) if dispatches else 0.0,
+        "default_samples": [d.get("task_text", "")[:80] for d in default_hits[-10:]],
         "with_critic_pass": sum(1 for d in dispatches if d.get("critic_model")),
         "guard_log": {
             "starts": len(guard["starts"]),
@@ -96,9 +102,14 @@ def main() -> int:
     print(f"by model            : {summary['by_model']}")
     print(f"by tier             : {summary['by_tier']}")
     print(f"by effort           : {summary['by_effort']}")
+    print(f"by category         : {summary['by_category']}  (default_share={summary['default_share']})")
     print(f"critic passes       : {summary['with_critic_pass']}")
     g = summary["guard_log"]
     print(f"guard log           : starts={g['starts']} done(with metadata)={g['dones_with_metadata']} done(no metadata)={g['dones_without_metadata']}")
+    if summary["default_share"] > 0.4 and summary["default_samples"]:
+        print("routing feedback    : default_share > 0.4 — consider adding keywords for these recent default tasks:")
+        for s in summary["default_samples"][-5:]:
+            print(f"    - {s}")
     if summary["dispatches_recorded"] == 0:
         print("note: no dispatches recorded — the controller contract is not being exercised.")
     return 0
