@@ -43,9 +43,24 @@ README. Raw transcripts live in `evals/install-evidence/*.log` (committed).
    `Dockerfile.verify` sets `safe.directory '*'`; verified — container banner
    now prints the real rev.
 
+## Final confirmation (post-fix code, `208105a`)
+
+- Remote fresh clone: `INSTALL_EXIT=0`, 217 tests in 2.1 s (host runner),
+  `rev=208105a`, key-skip note visible (`31-remote-final-v2.log`).
+- WSL fresh clone: `./scripts/hvx` (now executable after clone) → 217 tests in
+  container, 2.9 s, `rev=208105a` (`32-wsl-final.log`).
+- The remote re-run also caught an 8th defect, in our own tests this time:
+  **8. an environment-dependent test** — the capability-matrix unit test passed
+  locally only because this machine carries `.secrets/github-copilot.json`;
+  on a credential-free clone it failed. Fixed by supplying the token explicitly
+  (`208105a`).
+
 ## Environment notes (not product defects)
 
 - `wsl.exe` piped invocations are flaky past ~60–120 s (WSAETIMEOUT); long
   installs should run detached inside WSL. This is a WSL/Windows behavior.
+- Root-owned artifacts: the verify container (root) writes `traces/` into the
+  bind mount, so a WSL re-clone needs `sudo rm -rf` first. Cosmetic for fresh
+  installs (nothing to clean), only affects repeated test runs on one machine.
 - Docker Desktop state can flip WSL between LIMITED and FULL across VM resets;
   detection handled both correctly.

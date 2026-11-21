@@ -1,0 +1,6 @@
+208105a test(matrix): copilot auth assertion now supplies the token explicitly
+runner=docker image=epistemic-verify:local rev=208105a
+runner=host python=/usr/local/bin/python rev=208105a
+Ran 217 tests in 2.943s
+OK
+HVX_EXIT=

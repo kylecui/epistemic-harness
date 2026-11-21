@@ -1,0 +1,10 @@
+208105a test(matrix): copilot auth assertion now supplies the token explicitly
+INSTALL_EXIT=0
+runner=host (auto fallback: docker CLI not found on PATH)
+runner=host python=/home/kylecui/harness-install-test/.venv/bin/python rev=208105a
+Ran 217 tests in 2.055s
+OK
+provider keys: skipped (non-interactive shell) — set them in .env, or re-run in a terminal / with --with-keys
+support    : LIMITED
+  - image-pinned determinism unavailable: verdicts record runner=host only
+provider keys: skipped (non-interactive shell) — set them in .env, or re-run in a terminal / with --with-keys
