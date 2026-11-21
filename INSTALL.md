@@ -67,11 +67,45 @@ curl 127.0.0.1:8787/health       # {"status":"ok", ...}
 
 The backend exposes OpenAI-compatible `/v1`, Anthropic-compatible `/anthropic`, and MCP endpoints (`/mcp/epistemic`, `/mcp/orchestrator`). Any MCP-capable client can connect without local Python.
 
-## 6. Client wiring
+## 6. Client wiring (compatibility matrix)
 
-- **Pi**: project-level `.pi/mcp.json` (repo) and `~/.pi/agent/mcp.json` (user) already point at `127.0.0.1:8787`. Start Pi inside the repo to load `AGENTS.md` and the guard extension.
-- **Claude Code / OpenCode**: `scripts/install_research_mcp.py --target claude|opencode` (research MCP servers, no secrets in the repo).
-- Verify with `pi mcp list`.
+The backend speaks standard MCP-over-HTTP plus OpenAI/Anthropic-compatible
+transports, so most agents can use it. What differs per client is which
+enforcement layers apply:
+
+| Layer | Pi | OpenCode | Claude Code | Codex / Cursor / any MCP client |
+|---|---|---|---|---|
+| MCP tools (`query_l1` … `run_gate`, dispatch, routing) | ✓ | ✓ (verified 2026-11-21) | ✓ | ✓ (spec-standard HTTP MCP) |
+| Gateway transport (tier routing, quota, effort clamps, response contract) | ✓ | ✓ | ✓ | ✓ (point the client at `/v1` or `/anthropic`) |
+| Contract prompt (`AGENTS.md`) | ✓ auto-loaded | ✓ auto-loaded | ✓ auto-loaded | paste `clients/skills/.../SKILL.md` if the client has no AGENTS.md support |
+| Exit-gate auto-enforcement (turn bounce, residue scan, anti-shirking intercept) | ✓ (harness-guard extension) | — | — | — (call the `run_gate` MCP tool explicitly at task completion) |
+
+Per-client wiring:
+
+```bash
+# Pi: already wired — repo .pi/mcp.json + user ~/.pi/agent/mcp.json; verify with `pi mcp list`
+
+# OpenCode (verified live, both servers connect):
+opencode mcp add epistemic-harness   --url http://127.0.0.1:8787/mcp/epistemic
+opencode mcp add epistemic-orchestrator --url http://127.0.0.1:8787/mcp/orchestrator
+opencode mcp list
+
+# Claude Code:
+claude mcp add -s user -t http epistemic-harness http://127.0.0.1:8787/mcp/epistemic
+claude mcp add -s user -t http epistemic-orchestrator http://127.0.0.1:8787/mcp/orchestrator
+
+# Codex (~/.codex/config.toml):            # Cursor (~/.cursor/mcp.json):
+# [mcp_servers.epistemic-harness]          # { "mcpServers": {
+# url = "http://127.0.0.1:8787/mcp/epistemic"   #   "epistemic-harness": { "url": "http://127.0.0.1:8787/mcp/epistemic" },
+# [mcp_servers.epistemic-orchestrator]     #   "epistemic-orchestrator": { "url": "http://127.0.0.1:8787/mcp/orchestrator" } } }
+# url = "http://127.0.0.1:8787/mcp/orchestrator"
+
+# Research MCP servers (web search/reader/repo docs) for any of them:
+python scripts/install_research_mcp.py --target claude|opencode   # no secrets in the repo
+```
+
+Clients other than Pi: keep the exit gate meaningful by calling `run_gate` (with
+`claims` bound to checks) at task completion — see `docs/execution-runner.md`.
 
 ## 7. Verifying the installation
 
