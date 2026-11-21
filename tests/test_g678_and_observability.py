@@ -104,13 +104,17 @@ class CapabilityMatrixTests(unittest.TestCase):
         return path
 
     def test_free_combination_matrix(self):
-        matrix = cap_matrix.build_matrix(self._policy(), env={"KEY_A": "x", "KEY_B": "y"})
+        # GITHUB_COPILOT_TOKEN is supplied explicitly: auth-backed models now
+        # require a token FILE or env var (finding 6 of the install tests), so
+        # 'auth present' alone is not enough on a fresh clone.
+        matrix = cap_matrix.build_matrix(
+            self._policy(), env={"KEY_A": "x", "KEY_B": "y", "GITHUB_COPILOT_TOKEN": "t"})
         rows = {r["model"]: r for r in matrix["models"]}
         self.assertEqual(rows["m-full"]["efforts_allowed"], ["minimal", "low", "medium", "high"])
         self.assertEqual(rows["m-full"]["efforts_clamped"], [])
         self.assertEqual(rows["m-clamped"]["efforts_allowed"], ["minimal", "low"])
         self.assertEqual(rows["m-clamped"]["efforts_clamped"], ["medium", "high"])
-        self.assertTrue(rows["m-copilot"]["credentials_present"], "auth-backed model needs no api key")
+        self.assertTrue(rows["m-copilot"]["credentials_present"])
 
     def test_missing_credentials_are_flagged_not_hidden(self):
         matrix = cap_matrix.build_matrix(self._policy(), env={})
