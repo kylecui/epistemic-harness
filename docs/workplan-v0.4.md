@@ -109,7 +109,7 @@ pi mcp list                                                    # MCP 双服务�
 
 | 编号 | 内容 | 验证 |
 |---|---|---|
-| D9 | 验证默认跑容器：`Dockerfile.verify` + compose `verify` 服务 + `scripts/verify.py --runner docker\|host\|auto`，`--network none`，输出打印 `runner/image/rev` | `python scripts/verify.py --runner docker` → 144 项 OK |
+| D9 | 验证默认跑容器：`Dockerfile.verify` + compose `verify` 服务 + `scripts/verify.py --runner docker|host|auto`，`--network none`，输出打印 `runner/image/rev` | `python scripts/verify.py --runner docker` → 144 项 OK |
 | D10 | 闸门记录执行基底：`gate_runner` / `verify_image` 配置，`evidence[].runner` 字段，docker 不可用时 `RUNNER_UNAVAILABLE` 而非静默回落 | `tests/test_runner_selection.py`（8 项） |
 | D11 | 换行符归一：`.gitattributes` 强制 LF（`.sh/.py/.yaml/.ts` 等），`.ps1/.bat` 保留 CRLF，消除容器内 `bad interpreter: /bin/bash^M` | `git ls-files --eol` 全 LF |
 | D12 | 契约补一条：验证走 POSIX 沙箱，宿主直跑为降级且必须声明 | `AGENTS.md` §Zero-Residue |
