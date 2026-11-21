@@ -380,6 +380,35 @@ export default function (pi: any) {
     if (!mutatedThisTurn || bypassExitGateThisTurn) return undefined;
 
     const cwd = String(ctx?.cwd || process.cwd());
+
+    // Controller-contract hardening: a task contract may declare that this task
+    // must be decomposed and dispatched. Implementation turns without a dispatch
+    // are bounced — 'the controller only accepts/analyzes/decomposes/dispatches'
+    // is then enforced, not merely written in AGENTS.md.
+    if (!dispatchedThisTurn && !overrideThisTurn) {
+      try {
+        const contractPath = join(cwd, ".pi", "task_contract.json");
+        if (existsSync(contractPath)) {
+          const contract = JSON.parse(readFileSync(contractPath, "utf-8"));
+          if (contract.dispatch_required) {
+            const bounce =
+              `[CONTROLLER_CONTRACT_VIOLATION] .pi/task_contract.json declares dispatch_required=true ` +
+              String.fromCharCode(10) +
+              `but this turn edited files without dispatching any sub-agent. Decompose the work ` +
+              `(plan_task / run_plan / dispatch_subagent), apply side effects via the sub-agent results, ` +
+              `or set dispatch_required=false when you take implementation back on yourself (cite the L4 reason).`;
+            ctx.ui.notify("harness-guard: dispatch_required contract violation — bouncing", "warn");
+            audit(`[controller] dispatch_required violation cwd=${cwd}`);
+            if (typeof pi.sendUserMessage === "function") {
+              pi.sendUserMessage(bounce, { deliverAs: "followUp" });
+            }
+            return { continueWith: bounce };
+          }
+        }
+      } catch {
+        /* a broken contract file must not break the gate */
+      }
+    }
     const cfg = loadExitGateConfig(cwd);
     if (!cfg.enabled) return undefined;
 

@@ -16,6 +16,7 @@ sys.path.insert(0, str(REPO_ROOT))
 # run_plan registers L5 claims; those must never land in the repo's real memory
 # store. The env var is read when EpistemicEngine is constructed.
 os.environ.setdefault("HARNESS_MEMORY_STORE", tempfile.mkdtemp(prefix="harness-test-store-"))
+os.environ.setdefault("HARNESS_TRACES_DIR", tempfile.mkdtemp(prefix="harness-test-traces-"))
 
 from orchestrator.bias_guard import BiasGuard
 from orchestrator.dispatch import dispatch_subtask

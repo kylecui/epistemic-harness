@@ -162,6 +162,8 @@ TOOLS: list[dict[str, Any]] = [
                             "text": {"type": "string", "description": "Claim text as it appears in the reply"},
                             "check": {"type": "string", "description": "Name of a configured check or verification command"},
                             "expected_count": {"type": "integer", "description": "Optional enumerated item count the check output must match"},
+                            "memory_refs": {"type": "array", "items": {"type": "string"},
+                                            "description": "Persisted memory ids (L1/L2/L3/L5) the claim reuses; feeds the reuse stats"},
                         },
                         "required": ["text", "check"],
                     },

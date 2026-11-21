@@ -105,6 +105,14 @@ def _run_host(args: list[str]) -> int:
         env = {**os.environ, "HARNESS_VERIFY_REEXEC": "1"}
         return subprocess.call([str(local), str(Path(__file__).resolve()), "--runner", "host", *args],
                                cwd=str(ROOT), env=env)
+    rc = subprocess.run([python, "-c", "import yaml, pydantic, fastapi, httpx"],
+                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
+                        cwd=str(ROOT)).returncode
+    if rc != 0:
+        print("RUNNER_UNAVAILABLE: this interpreter cannot import the project deps "
+              "(yaml/pydantic/fastapi/httpx). Create .venv or use --runner docker.",
+              file=sys.stderr, flush=True)
+        return 3
     return _run([python, "-m", "unittest", "discover", "-s", "tests", "-p", pattern])
 
 def main() -> int:

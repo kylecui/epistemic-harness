@@ -46,6 +46,7 @@ class TaskContract:
     goal: str
     predicates: list[Predicate] = field(default_factory=list)
     stopping_rule: str = "all predicates green and no unbound claim"
+    dispatch_required: bool = False  # controller-only enforcement (extension-side)
     created_at: str = ""
 
     @classmethod
@@ -64,6 +65,7 @@ class TaskContract:
             goal=str(data.get("goal") or ""),
             predicates=preds,
             stopping_rule=str(data.get("stopping_rule") or "all predicates green and no unbound claim"),
+            dispatch_required=bool(data.get("dispatch_required", False)),
             created_at=str(data.get("created_at") or ""),
         )
 

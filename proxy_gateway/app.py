@@ -347,6 +347,7 @@ def create_app(
                 headers={
                     "X-Harness-Routed-Tier": decision.tier,
                     "X-Harness-Selected-Model": chosen_key,
+                    "X-Harness-Effort": decision.openai_effort,
                     "X-Harness-Peak-Avoided": str(selection.peak_avoided).lower(),
                     "X-Harness-Last-Option-Used": str(last_opt).lower(),
                     "X-Harness-Tier-Tag": tier_tag,

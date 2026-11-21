@@ -3,7 +3,11 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import os
+import tempfile
 import unittest
+
+os.environ.setdefault("HARNESS_TRACES_DIR", tempfile.mkdtemp(prefix="harness-test-traces-"))
 
 from fastapi.testclient import TestClient
 import httpx

@@ -128,3 +128,16 @@ pi mcp list                                                    # MCP 双服务�
 | G3 | 混合检索：`mcp_server/memory_index.py`（SQLite FTS5，ASCII 词 + CJK 双字，无需外部分词器），L1/L2/L3/L5 分库返回绝不混合，L2 超 180 天标 `stale`，`recall_memory` MCP 工具，`--db` 构建 | `tests/test_memory_retrieval.py`（9 项） |
 | E1 | 换行符纪律进代码：`scripts/check_eol.py`（闸门检查 + `--staged`）+ 版本化 pre-commit（`scripts/install_git_hooks.py`）+ 编译器输出强制 LF | 本仓库 `eol policy: ok` |
 | B1 | 浏览器/CDP 放置策略：`docs/browser-runner.md`，按"什么必须一致"分容器/本机，CDP 挂载优先 | 文档级 |
+
+## 十、v0.4.4 观测与调度（2026-11-21）
+
+| 编号 | 交付 | 验证 |
+|---|---|---|
+| G6 | 记忆复用统计：`claims[].memory_refs` 进 ledger；`scripts/memory_stats.py` 输出命中率 + 归档候选，`--archive` 移入 `l5_store/archive/`（移档不删档） | `MemoryStatsTests` 4 项 |
+| G7 | `evidence[].elapsed` 逐条耗时（host 单次 / docker 批量总计）写入 ledger | 175 项测试含 ledger 断言 |
+| G8 | `verify.py` host 路径先冒烟 `import yaml/pydantic/fastapi/httpx`，失败退出码 3 + `RUNNER_UNAVAILABLE` | 手动：无 venv 的 interpreter |
+| R3 | 调度观测：`dispatch_subtask` 把网关回包头（routed_tier/selected_model/effort/attempts/用量/偏见命中）追加写 `traces/dispatches.jsonl`（测试经 `HARNESS_TRACES_DIR` 隔离）；`scripts/analyze_dispatches.py` 汇总；非流式响应补发 `X-Harness-Effort` 头 | `AnalyzeDispatchesTests` 2 项 |
+| R4 | 能力矩阵：`scripts/capability_matrix.py` 读 quota_policy，输出每模型 (effort 允许/被钳/凭证在位/峰值避让)；9 模型全凭证在位，deepseek 钳在 low | `CapabilityMatrixTests` 2 项 |
+| R1 | 控制器硬约束：`.pi/task_contract.json` 增 `dispatch_required`，harness-guard 在 `agent_end` 检查"改文件但没派发"即回弹；`dispatch_required=false` 需引用 L4 理由 | TS 端 + 文档 |
+
+实测观测结论（诚实版）：本会话派发次数 = 0（控制器亲自实现，契约未被严格执行）；历史 8 次派发里 6 次拿不到模型元数据（旧解析路径），现已以 dispatches.jsonl 为权威源。

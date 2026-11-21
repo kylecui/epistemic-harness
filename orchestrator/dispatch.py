@@ -12,6 +12,7 @@ Design notes:
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -41,6 +42,41 @@ BUDGET_BY_PROFILE: dict[str, int] = {
 }
 
 _BIAS_GUARD = None
+
+
+def _record_dispatch(
+    agent_profile: str, task_id: str, task_text: str, result: dict[str, Any], attempts: int
+) -> None:
+    """Append one authoritative dispatch record to traces/dispatches.jsonl.
+
+    The extension log sees tool-call text and often cannot extract routing
+    metadata from wrapped results; here the gateway's own response headers are
+    the source of truth, so every dispatch is traceable end to end.
+    """
+    try:
+        repo_root = Path(__file__).resolve().parent.parent
+        traces_dir = Path(os.environ.get("HARNESS_TRACES_DIR") or (repo_root / "traces"))
+        path = traces_dir / "dispatches.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "task_id": task_id,
+            "profile": agent_profile,
+            "task_text": (task_text or "")[:200],
+            "routed_tier": result.get("routed_tier", ""),
+            "selected_model": result.get("selected_model", ""),
+            "tier_tag": result.get("tier_tag", ""),
+            "effort": result.get("effort", ""),
+            "attempts": attempts,
+            "prompt_tokens": (result.get("usage") or {}).get("prompt_tokens"),
+            "completion_tokens": (result.get("usage") or {}).get("completion_tokens"),
+            "bias_matches": [m.get("bias_id") for m in (result.get("bias_scan") or {}).get("matches") or []],
+            "critic_model": result.get("critic_model", ""),
+        }
+        with path.open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass  # tracing must never break the dispatch
 
 
 def _get_bias_guard():
@@ -152,6 +188,7 @@ def dispatch_subtask(
         "usage": usage or {},
         "bias_scan": _get_bias_guard().scan(content),
     }
+    _record_dispatch(agent_profile, task_id, task_text, result, attempts)
     # L3 first-pass escalation: bias hits are re-dispatched to a cross-family critic pass.
     if escalate_on_bias and result["bias_scan"]["matches"]:
         verdict = dispatch_subtask(

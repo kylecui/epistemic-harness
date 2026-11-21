@@ -294,6 +294,7 @@ class Evidence:
     counted: int | None = None
     stdout_lines: int = 0
     runner: str = "host"  # "host" | "docker" — a green verdict must name its shell
+    elapsed: float = 0.0  # wall-clock seconds this verification actually took (G7)
 
 
 @dataclass
@@ -319,6 +320,7 @@ class GateDecision:
     unclosed_predicates: list[dict[str, Any]] = field(default_factory=list)
     verifier_hash: str = ""
     verifier_changed: list[str] = field(default_factory=list)
+    memory_refs: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     loop_repeat_count: int = 0
     escalate_root_cause: bool = False
@@ -473,11 +475,14 @@ def _validate_claims(
     """Bind declared claims to actually executed checks; also verify count coverage."""
     errors: list[str] = []
     failures: list[CheckFailure] = []
+    memory_refs: list[str] = []
     by_name = {e.name: e for e in evidence}
     for i, claim in enumerate(claims or []):
         if not isinstance(claim, dict) or not claim.get("text"):
             errors.append(f"claims[{i}]: 缺少 text")
             continue
+        if claim.get("memory_refs"):
+            memory_refs.extend(str(m) for m in claim["memory_refs"])
         check = str(claim.get("check") or "")
         if not check:
             errors.append(f"claims[{i}] '{claim['text'][:40]}': 缺少 check (必须指名已执行的校验)")
@@ -499,7 +504,7 @@ def _validate_claims(
                         tail=f"断言 '{claim['text'][:40]}' 声称 {expected} 项, 校验输出实为 {ev.counted} 项",
                     )
                 )
-    return errors, failures
+    return errors, failures, memory_refs
 
 
 def scan_residue_files(repo_dir: Path, residue_globs: list[str] | None = None) -> list[str]:
@@ -662,7 +667,10 @@ class ExitGateEngine:
             use_shell = True
 
         last_exc: Exception | None = None
+        import time as _time
+        started = 0.0
         for _attempt in range(2):
+            started = _time.perf_counter()
             try:
                 proc = subprocess.run(
                     target,
@@ -674,9 +682,11 @@ class ExitGateEngine:
                     text=True,
                 )
                 stdout = proc.stdout or ""
+                self._last_elapsed = _time.perf_counter() - started
                 return proc.returncode, stdout, (stdout + "\n" + (proc.stderr or "")).strip(), runner
             except (OSError, subprocess.SubprocessError) as exc:
                 last_exc = exc
+        self._last_elapsed = _time.perf_counter() - started
         return 127, "", f"EXEC_ERROR: {last_exc}", runner
 
     def _run_batch_docker(
@@ -702,6 +712,8 @@ class ExitGateEngine:
         ]
         failures: list[CheckFailure] = []
         evidence: list[Evidence] = []
+        import time as _time
+        started = _time.perf_counter()
         try:
             proc = subprocess.run(
                 cmd, cwd=str(self.repo_dir), shell=False,
@@ -733,6 +745,7 @@ class ExitGateEngine:
                 continue
             segments.setdefault(current if current is not None else -1, []).append(line)
 
+        batch_elapsed = round(_time.perf_counter() - started, 3)
         for i, chk in enumerate(specs):
             body = "\n".join(segments.get(i, [])).strip()
             rc = rcs.get(i, 127)
@@ -740,7 +753,8 @@ class ExitGateEngine:
             counted = len([ln for ln in body.splitlines() if ln.strip()])
             evidence.append(
                 Evidence(name=chk.name, command=chk.command, exit_code=rc, source=source,
-                         tail=tail, counted=counted, stdout_lines=counted, runner="docker")
+                         tail=tail, counted=counted, stdout_lines=counted, runner="docker",
+                         elapsed=batch_elapsed)  # segment-level timing is a follow-up; total first
             )
             if rc != 0 and chk.required:
                 failures.append(CheckFailure(name=chk.name, exit_code=rc, tail=tail))
@@ -760,7 +774,7 @@ class ExitGateEngine:
             evidence.append(
                 Evidence(name=chk.name, command=chk.command, exit_code=rc,
                          source=source, tail=tail, counted=counted, stdout_lines=counted,
-                         runner=runner)
+                         runner=runner, elapsed=round(getattr(self, "_last_elapsed", 0.0), 3))
             )
             if rc != 0 and chk.required:
                 failures.append(CheckFailure(name=chk.name, exit_code=rc, tail=tail))
@@ -841,7 +855,7 @@ class ExitGateEngine:
         # Issue #2: quantified/completeness claims must bind to executed checks.
         declared = [str(c.get("text", "")) for c in (claims or []) if isinstance(c, dict)]
         unbound = extract_unbound_claims(assistant_text, declared)
-        claim_errors, claim_count_failures = _validate_claims(claims, evidence)
+        claim_errors, claim_count_failures, memory_refs = _validate_claims(claims, evidence)
         failures += claim_count_failures
 
         executed = [e for e in evidence if e.source == "caller"] or evidence
@@ -890,7 +904,9 @@ class ExitGateEngine:
                                  "verifier": verifier,
                                  "classes": [c["class"] for c in failure_classes],
                                  "contract": contract.task_id if contract else "",
-                                 "runners": [e.runner for e in evidence]})
+                                 "runners": [e.runner for e in evidence],
+                                 "memory_refs": memory_refs,
+                                 "elapsed": [e.elapsed for e in evidence]})
             return GateDecision(
                 passed=True,
                 action="pass",
@@ -902,6 +918,7 @@ class ExitGateEngine:
                 unclosed_predicates=unresolved,
                 verifier_hash=verifier,
                 verifier_changed=verifier_changed,
+                memory_refs=memory_refs,
                 warnings=warnings,
             )
 
@@ -921,7 +938,9 @@ class ExitGateEngine:
                              "verifier": verifier,
                              "classes": [c["class"] for c in failure_classes],
                              "contract": contract.task_id if contract else "",
-                             "runners": [e.runner for e in evidence]})
+                             "runners": [e.runner for e in evidence],
+                             "memory_refs": memory_refs,
+                             "elapsed": [e.elapsed for e in evidence]})
 
         if self.retry_count >= self.max_gate_retries:
             return GateDecision(
@@ -938,6 +957,7 @@ class ExitGateEngine:
                 unclosed_predicates=unresolved,
                 verifier_hash=verifier,
                 verifier_changed=verifier_changed,
+                memory_refs=memory_refs,
                 warnings=warnings,
                 loop_repeat_count=prior + 1,
                 escalate_root_cause=True,
@@ -1006,6 +1026,7 @@ class ExitGateEngine:
             unclosed_predicates=unresolved,
             verifier_hash=verifier,
             verifier_changed=verifier_changed,
+            memory_refs=memory_refs,
             warnings=warnings,
             loop_repeat_count=prior + 1,
             escalate_root_cause=escalate_root_cause,

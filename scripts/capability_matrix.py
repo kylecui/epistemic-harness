@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Capability matrix (R4): which (model, effort, tier) combinations the gateway will actually serve.
+
+The main agent can only schedule combinations that are legal and that have
+credentials. This tool prints the matrix and validates it against the rules the
+gateway enforces:
+
+  * effort above a model's `max_effort` is clamped (evidence-based, e.g. the
+    opencode-deepseek empty-content bug) — such a combo is reported, not hidden;
+  * `avoid_in_peak_for_tiers` lists tiers the model yields during its pool's
+    peak windows — those combos exist but cost more in peak;
+  * an API key (env or .env) decides whether the combo is usable right now.
+
+Usage:
+    python scripts/capability_matrix.py
+    python scripts/capability_matrix.py --json
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import sys
+
+import yaml
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+POLICY = REPO_ROOT / "proxy_gateway" / "quota_policy.yaml"
+EFFORTS = ["minimal", "low", "medium", "high"]
+ORDER = {e: i for i, e in enumerate(EFFORTS)}
+
+
+def _load_env() -> dict[str, str]:
+    env: dict[str, str] = dict(os.environ)
+    dotenv = REPO_ROOT / ".env"
+    if dotenv.exists():
+        for line in dotenv.read_text(encoding="utf-8").splitlines():
+            if "=" in line and not line.strip().startswith("#"):
+                k, _, v = line.partition("=")
+                env.setdefault(k.strip(), v.strip().strip('"'))
+    return env
+
+
+def build_matrix(policy_path: Path = POLICY, env: dict[str, str] | None = None) -> dict:
+    env = env if env is not None else _load_env()
+    spec = yaml.safe_load(policy_path.read_text(encoding="utf-8")) or {}
+    models = spec.get("models") or {}
+    pools = spec.get("pools") or {}
+    rows: list[dict] = []
+    for name, m in models.items():
+        max_effort = m.get("max_effort")
+        max_idx = ORDER.get(max_effort, len(EFFORTS) - 1)
+        key_env = m.get("api_key_env")
+        auth = m.get("auth")
+        has_key = bool(auth) or bool(key_env and env.get(key_env))
+        pool = pools.get(m.get("pool") or "", {})
+        rows.append({
+            "model": name,
+            "pool": m.get("pool"),
+            "protocol": m.get("protocol"),
+            "auth": auth or "api_key",
+            "key_env": key_env,
+            "credentials_present": has_key,
+            "upstream_model": m.get("upstream_model"),
+            "cost_out_per_1m": (m.get("cost_per_1m") or {}).get("output"),
+            "max_effort": max_effort,
+            "efforts_allowed": EFFORTS[: max_idx + 1],
+            "efforts_clamped": EFFORTS[max_idx + 1:],
+            "avoid_in_peak_for_tiers": m.get("avoid_in_peak_for_tiers") or [],
+            "last_option_pool": bool(pool.get("last_option")),
+        })
+    return {
+        "policy": str(policy_path),
+        "models": rows,
+        "rules": {
+            "free_combination": "any (model, effort <= max_effort) is schedulable; efforts above "
+                                "max_effort are clamped by the gateway (X-Harness-Effort override "
+                                "cannot raise effort past max_effort)",
+            "tier_availability": "avoid_in_peak_for_tiers lists tiers yielded during the pool's "
+                                 "peak windows (active_peak_avoidance)",
+        },
+    }
+
+
+def main() -> int:
+    matrix = build_matrix()
+    if "--json" in sys.argv:
+        print(json.dumps(matrix, ensure_ascii=False, indent=2))
+        return 0
+    print(f"{'model':34s} {'pool':22s} {'cred':4s} {'max_effort':10s} efforts allowed")
+    for row in matrix["models"]:
+        allowed = ",".join(e[0] for e in row["efforts_allowed"])
+        clamped = f"  clamped:{','.join(row['efforts_clamped'])}" if row["efforts_clamped"] else ""
+        print(f"{row['model']:34s} {row['pool'] or '?':22s} "
+              f"{'ok' if row['credentials_present'] else 'MISS':4s} "
+              f"{row['max_effort'] or '-':10s} {allowed}{clamped}")
+    missing = [r["model"] for r in matrix["models"] if not r["credentials_present"]]
+    if missing:
+        print(f"note: no credentials for {missing} — combos exist but are not usable right now.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
