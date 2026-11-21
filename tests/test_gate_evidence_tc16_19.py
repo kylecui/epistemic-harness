@@ -35,12 +35,11 @@ eg = _load_exit_gate()
 
 CLAIM_TEXT = "扫描完成：22 个页面全部完成，无遗漏。"
 
-# Portable check commands: `cmd.exe` has no `;` separator and no `printf`.
-PY = f'"{sys.executable}"'
-PASS_2_LINES = f'{PY} -c "print(1);print(2)"'
-PASS_3_LINES = f'{PY} -c "print(1);print(2);print(3)"'
-PASS_1_LINE = f'{PY} -c "print(1)"'
-FAIL_CMD = f'{PY} -c "import sys; print(1); sys.exit(1)"'
+# Portable check commands: no interpreter launch, no `printf` — the shell's own
+# `echo` / `exit` work in both cmd.exe and sh, so these fixtures cannot flake on
+# a transient process-launch failure.
+PASS_CMD = "echo ok"
+FAIL_CMD = "exit 1"
 
 
 
@@ -54,6 +53,16 @@ class GateEvidenceTestCase(unittest.TestCase):
 
     def tearDown(self) -> None:
         self._tmp.cleanup()
+
+    @staticmethod
+    def _why(decision) -> str:
+        """Failure diagnostic: keeps a flake self-explaining instead of silent."""
+        return (
+            f"verdict={decision.verdict} passed={decision.passed} "
+            f"failures={[(f.name, f.exit_code, f.tail[-120:]) for f in decision.failures]} "
+            f"evidence={[(e.name, e.exit_code, e.tail[-120:]) for e in decision.evidence]} "
+            f"residue={decision.residue_files} errors={decision.claim_errors}"
+        )
 
     def _engine(self, checks=None, policy="enforce"):
         return eg.ExitGateEngine(repo_dir=self.repo, checks=checks or [], evidence_policy=policy)
@@ -82,30 +91,30 @@ class ClaimBindingTests(GateEvidenceTestCase):
     """TC-17/18/19: claims bind to executed checks, counts, or explicit qualifiers."""
 
     def _passing_engine(self):
-        checks = [eg.CheckSpec(name="page_scan", command="printf 'a\\nb\\n'")]
+        checks = [eg.CheckSpec(name="page_scan", command=PASS_CMD)]
         return self._engine(checks=checks)
 
     def test_tc17_bound_claim_with_green_check_passes(self):
         engine = self._passing_engine()
         decision = engine.evaluate(
             CLAIM_TEXT,
-            claims=[{"text": "全部完成，无遗漏", "check": "page_scan", "expected_count": 2}],
+            claims=[{"text": "全部完成，无遗漏", "check": "page_scan", "expected_count": 1}],
             evidence_policy="enforce",
         )
-        self.assertTrue(decision.passed, decision.unbound_claims)
+        self.assertTrue(decision.passed, self._why(decision))
         self.assertEqual(decision.verdict, "green")
         self.assertEqual([e.name for e in decision.evidence], ["page_scan"])
-        self.assertEqual(decision.evidence[0].counted, 2)
+        self.assertEqual(decision.evidence[0].counted, 1)
 
     def test_tc17b_caller_supplied_verification_command_counts_as_evidence(self):
         engine = self._engine()
         decision = engine.evaluate(
             CLAIM_TEXT,
             claims=[{"text": "全部完成", "check": "verify-1"}],
-            verification_commands=["printf 'x\\n'"],
+            verification_commands=[PASS_CMD],
             evidence_policy="enforce",
         )
-        self.assertTrue(decision.passed, decision.warnings)
+        self.assertTrue(decision.passed, self._why(decision))
         self.assertEqual(decision.evidence[0].source, "caller")
         self.assertEqual(decision.verdict, "green")
 
@@ -122,7 +131,7 @@ class ClaimBindingTests(GateEvidenceTestCase):
     def test_tc19_qualified_claim_is_not_reported_as_unbound(self):
         engine = self._passing_engine()
         decision = engine.evaluate("抽样 5/22 页，其余未验证。", evidence_policy="enforce")
-        self.assertTrue(decision.passed, decision.unbound_claims)
+        self.assertTrue(decision.passed, self._why(decision))
         self.assertEqual(decision.unbound_claims, [])
 
     def test_tc19b_unbound_claim_blocks_under_enforce(self):
@@ -142,7 +151,7 @@ class ClaimBindingTests(GateEvidenceTestCase):
         self.assertTrue(any("i18n_keys" in e for e in decision.claim_errors))
 
     def test_expected_count_mismatch_is_red(self):
-        checks = [eg.CheckSpec(name="page_scan", command="printf 'a\\nb\\nc\\n'")]
+        checks = [eg.CheckSpec(name="page_scan", command=PASS_CMD)]
         engine = self._engine(checks=checks)
         decision = engine.evaluate(
             CLAIM_TEXT,

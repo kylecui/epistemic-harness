@@ -8,6 +8,16 @@ Also mirrors the review-turn contract checks from
 `proxy_gateway/response_guard.py` (issue #1): a review turn that declares a
 defect must ship a complete remediation plan (acceptance criteria + rollback),
 and structured outputs must not silently promote L3-derived conclusions.
+
+Verification contract (issue #2):
+  * a green verdict requires at least one check that actually executed;
+  * `run_gate(claims=[...], verification_commands=[...])` binds quantified
+    claims to evidence the gate produced itself;
+  * `.pi/exit_gate.json` commands MUST be shell-agnostic: on Windows the gate
+    may be launched with `cmd.exe` or with a POSIX shell depending on the host
+    environment, so no `printf`, no `;` chaining, no bash-only builtins;
+  * a launcher failure (OSError/timeout) is retried once and reported as
+    `EXEC_ERROR:`, because that is an environment fault, not a code defect.
 """
 
 from __future__ import annotations
@@ -478,11 +488,16 @@ class ExitGateEngine:
 
     # -- evidence execution ------------------------------------------------
 
-    def _run_checks(self, specs: list[CheckSpec], source: str) -> tuple[list[CheckFailure], list[Evidence]]:
-        """Execute checks and keep the machine-checked outcome for every one of them."""
-        failures: list[CheckFailure] = []
-        evidence: list[Evidence] = []
-        for chk in specs:
+    def _run_one(self, chk: CheckSpec) -> tuple[int, str, str]:
+        """Run one command; a launcher failure (OSError/timeout) is retried once.
+
+        Windows AV scanners and transient file locks can make an executable fail
+        to start, which is an environment fault, not a code defect. Retrying once
+        keeps that noise out of the verdict while still reporting it honestly via
+        the `EXEC_ERROR:` tail when it persists.
+        """
+        last_exc: Exception | None = None
+        for _attempt in range(2):
             try:
                 proc = subprocess.run(
                     chk.command,
@@ -493,11 +508,18 @@ class ExitGateEngine:
                     timeout=self.command_timeout_sec,
                     text=True,
                 )
-                rc = proc.returncode
                 stdout = proc.stdout or ""
-                combined = (stdout + "\n" + (proc.stderr or "")).strip()
+                return proc.returncode, stdout, (stdout + "\n" + (proc.stderr or "")).strip()
             except (OSError, subprocess.SubprocessError) as exc:
-                rc, stdout, combined = 127, "", f"EXEC_ERROR: {exc}"
+                last_exc = exc
+        return 127, "", f"EXEC_ERROR: {last_exc}"
+
+    def _run_checks(self, specs: list[CheckSpec], source: str) -> tuple[list[CheckFailure], list[Evidence]]:
+        """Execute checks and keep the machine-checked outcome for every one of them."""
+        failures: list[CheckFailure] = []
+        evidence: list[Evidence] = []
+        for chk in specs:
+            rc, stdout, combined = self._run_one(chk)
             tail = "\n".join(combined.splitlines()[-25:])
             counted = len([ln for ln in stdout.splitlines() if ln.strip()])
             evidence.append(
