@@ -91,6 +91,27 @@ def save(repo_dir: Path, contract: TaskContract) -> Path:
     return path
 
 
+def close_contract(repo_dir: Path) -> Path | None:
+    """Retire a completed contract: .pi/task_contract.json -> .pi/task_contract.done/<id>.json.
+
+    A finished task must not leave its dispatch_required/predicate scope active —
+    otherwise every later unrelated turn inherits a foreign task's gate. Loop
+    hygiene: open at kickoff, close at delivery.
+    """
+    path = Path(repo_dir) / CONTRACT_REL
+    if not path.exists():
+        return None
+    contract = load(repo_dir)
+    done_dir = Path(repo_dir) / ".pi" / "task_contract.done"
+    done_dir.mkdir(parents=True, exist_ok=True)
+    target = done_dir / f"{contract.task_id if contract else 'unknown'}.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    payload["closed_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    path.unlink()
+    return target
+
+
 def unclosed(contract: TaskContract, executed: list[str], failed: list[str]) -> list[dict[str, Any]]:
     """Predicates not backed by a successful executed check."""
     items: list[dict[str, Any]] = []

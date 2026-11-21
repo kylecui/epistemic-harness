@@ -19,5 +19,6 @@
       "statement": "routing table validates",
       "check": "routing_validate"
     }
-  ]
+  ],
+  "closed_at": "2026-11-21T03:14:02+00:00"
 }
