@@ -20,7 +20,7 @@
  *        fingerprint escalating across turns is visible, not just within one turn.
  */
 
-import { execSync } from "node:child_process";
+import { execSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
@@ -195,6 +195,23 @@ function estimateChangedLines(toolName: string, input: Record<string, any> | und
   return 0;
 }
 
+function runReviewCheck(cwd: string, text: string): any | null {
+  // Judge the assistant text with the Python review contract. Tries python
+  // interpreters in order; returns null when unavailable (never breaks a turn).
+  const script = join(cwd, "orchestrator", "exit_gate.py");
+  if (!existsSync(script)) return null;
+  for (const py of ["python", "py", "python3"]) {
+    try {
+      const res = spawnSync(py, [script, "--review-check"], {
+        cwd, input: text, encoding: "utf-8", timeout: 30000,
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+      if (res.status === 0 && res.stdout) return JSON.parse(String(res.stdout).trim());
+    } catch { /* try next interpreter */ }
+  }
+  return null;
+}
+
 function extractLastAssistantText(event: any): string {
   const messages = Array.isArray(event?.messages) ? event.messages : [];
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -221,6 +238,8 @@ export default function (pi: any) {
   // Exit Gate & Anti-Shirking state
   let mutatedThisTurn = false;
   let gateRetriesThisTurn = 0;
+  // Review-contract self-loop state (2026-11-22): bounces once, then halts.
+  let reviewRetriesThisTurn = 0;
   let lastErrorFingerprint = "";
 
   const isDispatchCall = (event: any): boolean => {
@@ -245,8 +264,8 @@ export default function (pi: any) {
   pi.on("before_agent_start", async (event: any) => {
     if (event.messageType !== "user") return undefined;
     const prompt = String(event.prompt || "");
-    // Preserve Exit Gate retry counters when the continuation turn was injected by our own gate
-    const isGateBounce = prompt.startsWith("[HARNESS_EXIT_GATE_RETRY]");
+    // Preserve retry counters when the continuation turn was injected by our own gate
+    const isGateBounce = prompt.startsWith("[HARNESS_EXIT_GATE_RETRY]") || prompt.startsWith("[HARNESS_REVIEW_GATE_RETRY]");
     if (!isGateBounce) {
       isLargeArchTurn = LARGE_ARCH_INTENT.test(prompt);
       dispatchedThisTurn = false;
@@ -255,6 +274,7 @@ export default function (pi: any) {
       bypassExitGateThisTurn = EXIT_GATE_BYPASS.test(prompt);
       mutatedThisTurn = false;
       gateRetriesThisTurn = 0;
+      reviewRetriesThisTurn = 0;
       lastErrorFingerprint = "";
     }
     return { systemPrompt: (event.systemPrompt || "") + "\n\n" + CONTRACT };
@@ -409,9 +429,47 @@ export default function (pi: any) {
       dispatched: dispatchedThisTurn,
       override: overrideThisTurn,
     });
-    if (!mutatedThisTurn || bypassExitGateThisTurn) return undefined;
 
     const cwd = String(ctx?.cwd || process.cwd());
+
+    // Review-contract self-loop (2026-11-22): judge EVERY substantial assistant
+    // answer before the mutation early-return. The Python engine enforced this
+    // in evaluate(), but production never called it — this TS gate early-returned
+    // on non-mutated turns and never saw the text, so intercepts kept appearing
+    // on all instances with no automatic redo. Bounce once, then halt.
+    if (!bypassExitGateThisTurn) {
+      try {
+        const assistantText = extractLastAssistantText(event);
+        if (assistantText.trim().length >= 40) {
+          const jr = runReviewCheck(cwd, assistantText);
+          if (jr && Array.isArray(jr.violations) && jr.violations.length) {
+            audit(`[review-gate] ${jr.violations.length} violation(s) cwd=${cwd}`);
+            if (reviewRetriesThisTurn >= 1) {
+              const halt =
+                "[HARNESS_REVIEW_GATE_RETRY] 重试后仍违规, 按 L2 上报人工复核, 不得再次自动打回。\n" +
+                (jr.bounce_halt || "");
+              ctx.ui.notify("harness-guard: review contract still violated — halting to user", "warn");
+              if (typeof pi.sendUserMessage === "function") {
+                pi.sendUserMessage(halt, { deliverAs: "followUp" });
+              }
+              return { continueWith: halt };
+            }
+            reviewRetriesThisTurn += 1;
+            const bounce = jr.bounce_retry || "[HARNESS_REVIEW_GATE_RETRY] 请按契约重做本回合。";
+            ctx.ui.notify(`harness-guard: review contract violation — bouncing (${jr.violations.length})`, "warn");
+            if (typeof pi.sendUserMessage === "function") {
+              pi.sendUserMessage(bounce, { deliverAs: "followUp" });
+            }
+            return { continueWith: bounce };
+          }
+          reviewRetriesThisTurn = 0;
+        }
+      } catch (e) {
+        audit(`[review-gate] skipped: ${e}`);
+      }
+    }
+
+    if (!mutatedThisTurn || bypassExitGateThisTurn) return undefined;
 
     // Controller-contract hardening: a task contract may declare that this task
     // must be decomposed and dispatched. Implementation turns without a dispatch
