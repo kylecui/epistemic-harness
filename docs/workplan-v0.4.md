@@ -283,3 +283,12 @@ promotions）、迁移幂等（.pi/upgrade_state.json 记录已应用项）、�
 不覆盖用户 exit_gate 配置、失败留备份并给回退指令、成功四重验收
 （迁移报告 → 容器重建+health → 单测绿 → 版本戳）。已在本仓库实跑两轮
 验证幂等（v0.4.0 → v0.5.0）。`tests/test_upgrade.py` 4 项。
+
+## 十六、论文包（研究内容，留在 feature 分支，不入 master 直至投稿）
+
+`docs/paper/`：outline.md（贡献四条各自绑定已提交工件）、experiments.md
+（E1–E4 全部数字绑到 evals/reports/ 具体报告文件）、related-work.md
+（OmO 五个 PR 为主竞争者锚点 + 校准/自验证/过程奖励/记忆四条线，全部
+带检索日期）、abstract.md（约 260 词工作稿）。投稿前缺口与激活条件
+列于 outline.md 末尾（闸内消融、与 OmO 检测器的同集 FP 对比、enforce
+成本分析），不阻塞分支合并决策之外的任何交付。
