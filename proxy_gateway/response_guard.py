@@ -85,7 +85,11 @@ def normalize_declared_cap(text: str) -> tuple[str, str | None]:
     note = f"[Harness] 头部 Confidence Cap L{declared} 与正文最弱依据 L{body} 不一致, 已按代码计算归一为 L{body}"
     return fixed, note
 BODY_LAYER_RE = re.compile(r"\[L([1-5])\b")
-L3_TAG_RE = re.compile(r"\[L3\b")
+# An epistemic label is BLOCK-LEVEL: it opens a line (optionally bolded).
+# Mid-sentence mentions like '我反复写 [L3] 依据配 L2 头' are discussing the
+# syntax, not labeling a claim (live FP class #7, 2026-11-22 — same lesson
+# as inline code: mentioning a label is not using it).
+L3_TAG_RE = re.compile(r"^\s*(?:\*\*?)?\[L3\b", re.M)
 L3_SCOPE_RE = re.compile(r"(适用|scope|适用范围|適用|スコープ|適用範囲|적용(?:범위)?|범위)", re.I)
 L3_COUNTER_RE = re.compile(r"(反例|counter[- ]?example|失效|失敗例|例外ケース|想定外|예외|반례|실패 사례)", re.I)
 

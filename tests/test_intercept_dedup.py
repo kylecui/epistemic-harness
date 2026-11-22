@@ -209,3 +209,26 @@ class CapNormalizationTests(unittest.TestCase):
         )
         self.assertFalse(any("silent promotion" in v for v in out["violations"]))
         self.assertIn("归一", out.get("cap_note", ""))
+
+class LabelMentionTests(unittest.TestCase):
+    """FP class #7 (2026-11-22): mid-sentence mentions of the [L3] syntax are
+    not labels — the proximity rule only applies to block-level labels."""
+
+    def test_mid_sentence_mention_not_a_label(self):
+        text = ("你问得好：我反复写 [L3] 依据配 L2 头，这是习惯问题。"
+                "现在起全部改用 [L2]，不再制造此类违规。\n"
+                "## 核心结论\n见上。\n## 认识论分解\n[L2] 全部实测证据。\n"
+                "## 证据缺口\n无。\n" + "补充说明行。\n" * 12)
+        self.assertEqual(rg.check_output_structure(text, "system_1_5", "Converge"), [])
+        self.assertEqual(eg.check_l3_scope(text), [])
+
+    def test_block_level_label_still_requires_scope(self):
+        text = ("[Tier: Structured Analysis | Mode: Converge | Confidence Cap: L3]\n"
+                "## 核心结论\n占位内容行, 超过最小长度门槛要求。\n"
+                "## 认识论分解\n[L3] 经验判断。\n## 证据缺口\n无。\n" + "补充行。\n" * 10)
+        self.assertTrue(eg.check_l3_scope(text))
+        self.assertTrue(rg.check_output_structure(text, "system_1_5", "Converge"))
+
+    def test_bolded_block_label_still_requires_scope(self):
+        text = ("## 认识论分解\n**[L3]** 经验判断。\n" + "x\n" * 12)
+        self.assertTrue(eg.check_l3_scope(text))

@@ -202,7 +202,9 @@ _L4_TRADEOFF_RE = re.compile(
 )
 _HEADER_CAP_RE = re.compile(r"Confidence Cap:\s*(L[1-5])", re.I)
 _BODY_LAYER_RE = re.compile(r"\[L([1-5])\b")
-_L3_TAG_RE = re.compile(r"\[L3\b")
+# Mirror of response_guard.L3_TAG_RE: labels are block-level (line-opening);
+# mid-sentence mentions of the syntax are not labels (live FP class #7).
+_L3_TAG_RE = re.compile(r"^\s*(?:\*\*?)?\[L3\b", re.M)
 _L3_SCOPE_RE = re.compile(r"(适用|scope|适用范围|適用|スコープ|適用範囲|적용(?:범위)?|범위)", re.I)
 _L3_COUNTER_RE = re.compile(r"(反例|counter[- ]?example|失效|失敗例|例外ケース|想定外|예외|반례|실패 사례)", re.I)
 _SECTION_CORE_RE = re.compile(r"(核心结论|core conclusion)", re.I)

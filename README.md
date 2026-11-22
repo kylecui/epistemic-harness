@@ -3,7 +3,7 @@
 **Governance for LLM coding agents: evidence-bound claims, tiered cognition, and loops that exhaust problems instead of ping-ponging them.**
 
 [![version](https://img.shields.io/badge/version-v0.5.1-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-278%20green-brightgreen)](scripts/verify.py)
+[![tests](https://img.shields.io/badge/tests-281%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *中文介绍见 [README_ZH.md](README_ZH.md)。 All normative content (rules, contracts, skills) is English-only; Chinese exists only as auxiliary translation.*
@@ -88,7 +88,7 @@ English and Chinese. Query them any time via the orchestrator MCP (`query_skills
 ```bash
 git clone https://github.com/kylecui/epistemic-harness.git
 cd epistemic-harness
-./scripts/hvx                                # 278 tests, docker by default
+./scripts/hvx                                # 281 tests, docker by default
 python evals/run_evals.py --mock             # fixture self-test 12/12 (tests the assertions, not models)
 python evals/run_real_matrix.py              # real-model golden matrix, reports -> evals/reports/
 python evals/false_completion/run_experiment.py     # false-completion inducement (baseline vs harness)
