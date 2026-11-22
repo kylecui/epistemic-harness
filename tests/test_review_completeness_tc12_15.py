@@ -174,6 +174,23 @@ class ExitGateReviewTurnTests(unittest.TestCase):
         self.assertTrue(d.passed)
 
 
+    def test_mutated_turn_with_review_violation_still_bounces(self):
+        """Live gap 2026-11-22: a turn that BOTH mutated files and answered in
+        review format previously skipped the review contract entirely (the
+        mutation flag partitioned the two obligations). The self-loop requires
+        the review check on every substantial answer."""
+        engine = self._engine()
+        reply = (
+            "[Tier: Structured Analysis | Mode: Converge | Confidence Cap: L2]\n"
+            "## 核心结论\n完成。\n## 认识论分解\n[L3] 某个经验判断。\n"
+            "适用: 某场景。\n反例: 另一场景。\n## 证据缺口\n无。\n"
+        )
+        d1 = engine.evaluate(reply, mutated_this_turn=True)
+        self.assertFalse(d1.passed)
+        self.assertEqual(d1.action, "bounce")
+        self.assertTrue(any("silent promotion" in v for v in d1.contract_violations))
+
+
 class GatewayIntegrationTests(unittest.TestCase):
     """End-to-end through create_app: the intercept bounce really happens."""
 
