@@ -29,6 +29,7 @@ from proxy_gateway.provider_auth import copilot_auth, google_headers
 from proxy_gateway.response_guard import (
     build_contract_intercept,
     check_response_contract,
+    normalize_declared_cap,
     build_tier_tag,
     detect_mode,
     guard_anthropic_content,
@@ -284,6 +285,10 @@ def create_app(
             _msg = (data.get("choices") or [{}])[0].get("message") or {}
             _resp_text = _msg.get("content") if isinstance(_msg.get("content"), str) else ""
             if _resp_text:
+                # Cap is computed, not self-declared: align the header before judging.
+                _resp_text, _cap_note = normalize_declared_cap(_resp_text)
+                if _cap_note and isinstance(_msg.get("content"), str):
+                    _msg["content"] = _resp_text
                 contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode)
             if contract_violations and isinstance(_msg.get("content"), str):
                 retry_payload = dict(rewritten)
@@ -301,6 +306,9 @@ def create_app(
                         rdata = rresp.json()
                         _rmsg = (rdata.get("choices") or [{}])[0].get("message") or {}
                         _rtext = _rmsg.get("content") if isinstance(_rmsg.get("content"), str) else ""
+                        _rtext, _cap_note_r = normalize_declared_cap(_rtext)
+                        if _cap_note_r:
+                            _rmsg["content"] = _rtext
                         _still = (
                             check_response_contract(_rtext, decision.tier, resp_mode)
                             if _rtext else list(contract_violations)
@@ -436,8 +444,15 @@ def create_app(
                     if full_text.strip():
                         # Review-turn contract check (issue #1): inject the
                         # intercept once, before the held [DONE], so the client
-                        # sees the bounce.
-                        contract_violations = check_response_contract(full_text, decision.tier, resp_mode)
+                        # sees the bounce. Cap mismatches are normalized
+                        # (computed), not bounced — surfaced as a note chunk.
+                        cap_notes: list[str] = []
+                        contract_violations = check_response_contract(
+                            full_text, decision.tier, resp_mode, notes=cap_notes)
+                        if cap_notes:
+                            yield _openai_contract_chunk(
+                                last_chunk_id, "\n\n" + cap_notes[0]
+                            ).encode("utf-8")
                         if contract_violations:
                             yield _openai_contract_chunk(
                                 last_chunk_id, "\n\n" + build_contract_intercept(contract_violations, retry=True)
@@ -600,6 +615,10 @@ def create_app(
                 if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str)
             )
             if _resp_text:
+                # Cap is computed, not self-declared: align the header before judging.
+                _resp_text, _cap_note = normalize_declared_cap(_resp_text)
+                if _cap_note and isinstance(_msg.get("content"), str):
+                    _msg["content"] = _resp_text
                 contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode)
             if contract_violations:
                 retry_payload = dict(rewritten)
@@ -623,6 +642,14 @@ def create_app(
                             str(b.get("text")) for b in _rblocks
                             if isinstance(b, dict) and b.get("type") == "text" and isinstance(b.get("text"), str)
                         )
+                        # Cap is computed, not self-declared: align before judging.
+                        _rtext, _cap_note_r2 = normalize_declared_cap(_rtext)
+                        if _cap_note_r2:
+                            for _b in _rblocks:
+                                if isinstance(_b, dict) and _b.get("type") == "text" and isinstance(_b.get("text"), str):
+                                    if "Confidence Cap:" in _b["text"]:
+                                        _b["text"] = _rtext
+                                        break
                         _still = (
                             check_response_contract(_rtext, decision.tier, resp_mode)
                             if _rtext else list(contract_violations)
@@ -732,8 +759,20 @@ def create_app(
                     )
                 if stop_lines and full_text.strip():
                     # Review-turn contract check (issue #1): inject the intercept
-                    # once, before the held message_stop.
-                    contract_violations = check_response_contract(full_text, decision.tier, resp_mode)
+                    # once, before the held message_stop. Cap mismatches are
+                    # normalized (computed), not bounced — surfaced as a note.
+                    cap_notes = []
+                    contract_violations = check_response_contract(
+                        full_text, decision.tier, resp_mode, notes=cap_notes)
+                    if cap_notes:
+                        yield (
+                            "event: content_block_delta\n"
+                            + "data: " + json.dumps({
+                                "type": "content_block_delta",
+                                "delta": {"type": "text_delta", "text": "\n\n" + cap_notes[0]},
+                            })
+                            + "\n\n"
+                        ).encode("utf-8")
                     if contract_violations:
                         yield (
                             "event: content_block_delta\n"

@@ -442,9 +442,13 @@ export default function (pi: any) {
         const assistantText = extractLastAssistantText(event);
         if (assistantText.trim().length >= 40) {
           const jr = runReviewCheck(cwd, assistantText);
+          if (jr && typeof jr.cap_note === "string" && jr.cap_note) {
+            // Computed-cap correction: surface one quiet line, no bounce.
+            ctx.ui.notify(jr.cap_note, "info");
+            audit(`[review-gate] cap normalized cwd=${cwd}`);
+          }
           if (jr && Array.isArray(jr.violations) && jr.violations.length) {
-            audit(`[review-gate] ${jr.violations.length} violation(s) cwd=${cwd}`);
-            if (reviewRetriesThisTurn >= 1) {
+            audit(`[review-gate] ${jr.violations.length} violation(s) cwd=${cwd}`);            if (reviewRetriesThisTurn >= 1) {
               const halt =
                 "[HARNESS_REVIEW_GATE_RETRY] 重试后仍违规, 按 L2 上报人工复核, 不得再次自动打回。\n" +
                 (jr.bounce_halt || "");
