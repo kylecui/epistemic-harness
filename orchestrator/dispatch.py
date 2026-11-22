@@ -41,6 +41,13 @@ BUDGET_BY_PROFILE: dict[str, int] = {
     "critic": 8192,
 }
 
+# Empty-content retries may reduce effort only within each profile's C1 contract.
+RETRY_EFFORTS: dict[str, tuple[str, str]] = {
+    "coder": ("low", "low"),
+    "deep": ("medium", "medium"),
+    "critic": ("medium", "medium"),
+}
+
 _BIAS_GUARD = None
 
 
@@ -187,7 +194,8 @@ def dispatch_subtask(
             break
         # Empty assistant text: the model spent the entire budget on reasoning. Clamp and retry.
         payload["max_tokens"] = min(int(payload["max_tokens"]) * 2, 16384)
-        headers["X-Harness-Effort"] = "low" if attempts == 1 else "minimal"
+        retries = RETRY_EFFORTS.get(agent_profile, ("low", "minimal"))
+        headers["X-Harness-Effort"] = retries[min(attempts - 1, 1)]
 
     result = {
         "agent_profile": agent_profile,

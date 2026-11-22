@@ -37,7 +37,7 @@ import tempfile
 
 import yaml
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
+REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -104,6 +104,7 @@ def _run_scenario(scenario: dict, model: str, mode: str, pi_bin: str, timeout: i
             "checks": checks, "unbound_claims": unbound,
             "contract_violations": contract,
             "reply_chars": len(reply or ""),
+            "reply": (reply or "")[:2000],
         }
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

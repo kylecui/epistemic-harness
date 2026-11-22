@@ -1,0 +1,57 @@
+{
+  "runner": "evals/memory_effectiveness/run_experiment.py",
+  "generated_at": "2026-11-22T05:51:11+00:00",
+  "basis": "arXiv:2611.22179 (read 2026-11-21): score what memory enables, not what it retrieves",
+  "results": [
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": false,
+      "tools_used": [],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 860
+    },
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1059
+    },
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": false,
+      "tools_used": [
+        "bash",
+        "codemode"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1293
+    },
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": false,
+      "tools_used": [],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1061
+    }
+  ]
+}

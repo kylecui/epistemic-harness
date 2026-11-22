@@ -13,3 +13,5 @@ promotions/
 __pycache__/
 .pi/loop_ledger.jsonl
 .pi/l4_inputs.jsonl
+.pi/controller_metrics.jsonl
+.pi/hollow_audit.jsonl

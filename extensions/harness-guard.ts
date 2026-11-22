@@ -321,6 +321,21 @@ export default function (pi: any) {
     }
   };
 
+  // ---- controller metrics (P2.9, 2026-11-22): the controller contract is
+  // enforced by thresholds above; these records let us MEASURE how the main
+  // agent actually works — direct writes vs dispatches per turn — instead of
+  // claiming a dispatch rate nobody verified. Append-only, best-effort.
+  const metric = (rec: Record<string, unknown>) => {
+    try {
+      const dir = join(process.cwd(), ".pi");
+      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+      appendFileSync(
+        join(dir, "controller_metrics.jsonl"),
+        JSON.stringify({ ts: new Date().toISOString(), ...rec }) + "\n"
+      );
+    } catch { /* metrics must never break a turn */ }
+  };
+
   pi.on("tool_call", async (event: any, ctx: any) => {
     if (process.env.HARNESS_GUARD_DEBUG) {
       const keys = Object.keys(event.input || {}).join(",");
@@ -334,6 +349,7 @@ export default function (pi: any) {
     }
     if (isDispatchCall(event)) {
       dispatchedThisTurn = true;
+      metric({ event: "dispatch", tool: String(event.toolName || "dispatch") });
       return undefined;
     }
     const name = String(event.toolName || "");
@@ -349,6 +365,7 @@ export default function (pi: any) {
     // for the hook to see; the command line is the signal then.
     if (name === "bash" && /(dispatch_subtask\(|run_plan\(|dispatch_tooled\(|orchestrator\.server)/.test(cmd)) {
       dispatchedThisTurn = true;
+      metric({ event: "dispatch", tool: "bash-cli" });
     }
     if (name !== "edit" && name !== "write") return undefined;
 
@@ -359,9 +376,13 @@ export default function (pi: any) {
     // P1-2 fix: inspect actual edit/write size; small mechanical edits pass with zero friction!
     const lines = estimateChangedLines(name, event.input);
     const exceedsThreshold = (name === "edit" && lines > 15) || (name === "write" && lines > 40);
-    if (!isLargeArchTurn && !exceedsThreshold) return undefined;
+    if (!isLargeArchTurn && !exceedsThreshold) {
+      metric({ event: "direct_write", tool: name, lines, blocked: false });
+      return undefined;
+    }
 
     blocksThisTurn += 1;
+    metric({ event: "direct_write", tool: name, lines, blocked: true });
     ctx.ui.notify(`harness-guard: large ${name} (${lines} lines) — consider plan/critic review first`, "warn");
     return {
       block: true,
@@ -382,6 +403,12 @@ export default function (pi: any) {
 
   // Deterministic Exit Gate + State-Coupled Anti-Shirking Guard
   pi.on("agent_end", async (event: any, ctx: any) => {
+    metric({
+      event: "turn_end",
+      mutated: mutatedThisTurn,
+      dispatched: dispatchedThisTurn,
+      override: overrideThisTurn,
+    });
     if (!mutatedThisTurn || bypassExitGateThisTurn) return undefined;
 
     const cwd = String(ctx?.cwd || process.cwd());

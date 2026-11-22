@@ -1,0 +1,48 @@
+{
+  "runner": "evals/run_real_matrix.py",
+  "generated_at": "2026-11-22T05:06:34+00:00",
+  "lang": "zh",
+  "models": [
+    "zhipu-glm-5.3"
+  ],
+  "results": [
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-04",
+      "passed": true,
+      "failures": [],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-05",
+      "passed": false,
+      "failures": [
+        "Required MCP tool not invoked: query_l1",
+        "Required MCP tool not invoked: submit_l5_claim",
+        "Required MCP tool not invoked: audit_dag"
+      ],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-06",
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    }
+  ]
+}

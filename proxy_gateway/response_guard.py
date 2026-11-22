@@ -57,8 +57,8 @@ SECTION_GAPS_RE = re.compile(r"(证据缺口|evidence gap)", re.I)
 HEADER_CAP_RE = re.compile(r"Confidence Cap:\s*(L[1-5])", re.I)
 BODY_LAYER_RE = re.compile(r"\[L([1-5])\b")
 L3_TAG_RE = re.compile(r"\[L3\b")
-L3_SCOPE_RE = re.compile(r"(适用|scope|适用范围)", re.I)
-L3_COUNTER_RE = re.compile(r"(反例|counter[- ]?example|失效)", re.I)
+L3_SCOPE_RE = re.compile(r"(适用|scope|适用范围|適用|スコープ|適用範囲|적용(?:범위)?|범위)", re.I)
+L3_COUNTER_RE = re.compile(r"(反例|counter[- ]?example|失效|失敗例|例外ケース|想定外|예외|반례|실패 사례)", re.I)
 
 # Declared-defect item anchors. Deliberately specific (requires an item
 # number) so the compliant "证据缺口 & Complete Remediation Plan" section
@@ -71,7 +71,7 @@ DEFECT_ITEM_RE = re.compile(
     re.I,
 )
 ACCEPTANCE_RE = re.compile(r"(验收|acceptance)", re.I)
-ROLLBACK_RE = re.compile(r"(回退|回滚|rollback|恢复路径)", re.I)
+ROLLBACK_RE = re.compile(r"(回退|回滚|rollback|恢复路径|ロールバック|復旧|롤백|복원)", re.I)
 
 # --- Substance checks (2026-11-22 review, defect #2) -----------------------
 # Anchor-word matching alone is a keyword game: "适用: 各种情况。反例: 有时不适用"
@@ -79,21 +79,26 @@ ROLLBACK_RE = re.compile(r"(回退|回滚|rollback|恢复路径)", re.I)
 # around each anchor to carry non-boilerplate content.
 _FILLER_RE = re.compile(
     r"(各种情况|视情况(?:而定)?|具体情况|都有可能|某些情况|有时候|部分情况|"
-    r"因情况而异|都有可能|不好说|不一定|不适用|not applicable|\bn/?a\b)",
+    r"因情况而异|都有可能|不好说|不一定|不适用|not applicable|\bn/?a\b|"
+    r"場合による|ケースバイケース|状況次第|상황에 따라|경우에 따라)",
     re.I,
 )
 # A falsifiable acceptance names a measurable outcome: a number, a concrete
 # test command, an assertion, or a zero-count predicate.
 _FALSIFIABLE_RE = re.compile(
     r"(\d|exit\s*0|assert|断言|单测|单元测试|集成测试|unittest|pytest|green|"
-    r"为零|0\s*条|不通过|相等|一致|match|curl|命令|复现失败|计数)",
+    r"为零|0\s*条|不通过|相等|一致|match|curl|命令|复现失败|计数|"
+    r"テストコマンド|単体テスト|結合テスト|"
+    r"단위 테스트|통합 테스트|테스트 명령어)",
     re.I,
 )
 # A concrete rollback names the mechanism, not the word itself ("回退: 可以回退"
 # is a tautology).
 _ROLLBACK_CONCRETE_RE = re.compile(
     r"(git|快照|备份|开关|feature flag|revert|镜像|上一版本|恢复原|回滚到|"
-    r"回滚迁移|迁移回滚|命令|脚本|备份文件|重新部署)",
+    r"回滚迁移|迁移回滚|命令|脚本|备份文件|重新部署|ロールバック|スナップショット|"
+    r"バックアップ|フラグ|以前のバージョン|コマンド|復旧|"
+    r"롤백|백업|스냅샷|플래그|이전 버전|명령어|복원)",
     re.I,
 )
 _CJK_RUN = re.compile(r"[一-鿿]+")

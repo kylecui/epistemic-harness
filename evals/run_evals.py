@@ -231,13 +231,22 @@ def run_pi_case(
     else:
         cmd = [pi_bin, "--print", "--approve", "--no-session", "--no-skills", "--skill", "./clients/skills/epistemic-dual-process-harness", *extra_args, *turns]
 
-    proc = subprocess.run(
-        cmd,
-        cwd=str(REPO_ROOT),
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        timeout=timeout_sec,
-    )
+    try:
+        proc = subprocess.run(
+            cmd,
+            cwd=str(REPO_ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=timeout_sec,
+        )
+    except subprocess.TimeoutExpired:
+        # A real-model run that exceeds the budget is itself a measurement:
+        # report it as a timeout instead of crashing the whole matrix.
+        return RunTrace(
+            case_id=case["id"],
+            exit_code=124,
+            raw_stderr=f"pi timed out after {timeout_sec}s",
+        )
     stderr_text = proc.stderr.decode("utf-8", errors="replace")
 
     if mode == "json":
