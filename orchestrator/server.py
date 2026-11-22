@@ -247,7 +247,7 @@ TOOLS: list[dict[str, Any]] = [
     },
     {
         "name": "submit_l5_claim",
-        "description": "Submit an L5 interim derivation; code enforces source existence and weakest-link cap.",
+        "description": "Submit an L5 interim derivation; code enforces source existence, retrieval-trace grounding, implicit-L3 detection and weakest-link cap.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -255,6 +255,7 @@ TOOLS: list[dict[str, Any]] = [
                 "claim": {"type": "string"},
                 "claimed_tier": {"type": "string", "enum": ["L1", "L2", "L3"]},
                 "source_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                "retrieval_trace": {"type": "array", "items": {"type": "string"}},
                 "assumptions": {"type": "array", "items": {"type": "string"}},
                 "conflicts_with_l1": {"type": "array", "items": {"type": "string"}},
             },

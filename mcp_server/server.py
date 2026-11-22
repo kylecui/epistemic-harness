@@ -65,7 +65,10 @@ TOOLS: list[dict[str, Any]] = [
         "name": "submit_l5_claim",
         "description": (
             "Submit an L5 interim derivation or conclusion. Hard-enforces source_id existence "
-            "(blocks invented L1 axioms) and computes transitive weakest-link confidence ceiling in code."
+            "(blocks invented L1 axioms), requires every cited L1/L2/L3 source to appear in this "
+            "session's retrieval trace (GROUNDING_VIOLATION otherwise), auto-detects uncited L3 "
+            "heuristics whose text matches the claim (IMPLICIT_L3_DEPENDENCY, anti-laundering), "
+            "and computes transitive weakest-link confidence ceiling in code."
         ),
         "inputSchema": {
             "type": "object",
@@ -74,6 +77,8 @@ TOOLS: list[dict[str, Any]] = [
                 "claim": {"type": "string"},
                 "claimed_tier": {"type": "string", "enum": ["L1", "L2", "L3"]},
                 "source_ids": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                "retrieval_trace": {"type": "array", "items": {"type": "string"},
+                                     "description": "IDs actually returned by query_l1/search_l2/recall_l3"},
                 "assumptions": {"type": "array", "items": {"type": "string"}},
                 "conflicts_with_l1": {"type": "array", "items": {"type": "string"}},
             },

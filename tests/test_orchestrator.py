@@ -109,6 +109,7 @@ class TestOrchestratorMCP(unittest.TestCase):
         self.assertEqual(res["agent_profile"], "deep")
 
     def test_submit_and_audit_shared_engine(self) -> None:
+        self.orch.engine.query_l1("CAP")
         self._call("submit_l5_claim", {
             "claim_id": "L5-ORCH-1",
             "claim": "test claim",

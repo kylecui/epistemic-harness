@@ -75,6 +75,14 @@ class MemoryPersistenceTests(unittest.TestCase):
         return EpistemicEngine(self.repo, store_root=self.repo)
 
     def _submit(self, engine: EpistemicEngine, claim_id: str, sources: list[str], tier: str = "L1"):
+        # Grounding rule: retrieve every cited store id before citing it.
+        for sid in sources:
+            if sid.startswith("L1-"):
+                engine.query_l1(sid)
+            elif sid.startswith("L2-"):
+                engine.search_l2(sid)
+            elif sid.startswith("L3-"):
+                engine.recall_l3(sid)
         return engine.submit_l5_claim({
             "claim_id": claim_id,
             "claim": f"derived conclusion {claim_id}",

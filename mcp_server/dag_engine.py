@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any, Literal
 
 import yaml
@@ -29,6 +30,36 @@ Tier = Literal["L1", "L2", "L3", "L4", "L5"]
 TIER_STRENGTH: dict[str, int] = {"L1": 3, "L2": 2, "L3": 1}
 STRENGTH_TO_TIER: dict[int, str] = {3: "L1", 2: "L2", 1: "L3"}
 
+# CJK bigram + ascii-word tokenizer for implicit-dependency detection.
+# Deliberately local (not imported from memory_index): this module must stay
+# importable standalone for tests and compile_clients.
+_CJK_RUN = re.compile(r"[\u3400-\u9fff]+")
+_ASCII_WORD = re.compile(r"[a-z0-9_\-]{2,}")
+
+
+def _text_tokens(text: str) -> set[str]:
+    low = (text or "").lower()
+    toks: set[str] = set(_ASCII_WORD.findall(low))
+    for run in _CJK_RUN.findall(low):
+        toks.update(run[i:i + 2] for i in range(len(run) - 1))
+        if len(run) <= 6:
+            toks.add(run)
+    return {t for t in toks if t.strip()}
+
+
+def _jaccard(a: set[str], b: set[str]) -> float:
+    if not a or not b:
+        return 0.0
+    inter = len(a & b)
+    return inter / (len(a) + len(b) - inter)
+
+
+def _containment(a: set[str], b: set[str]) -> float:
+    """Fraction of b's tokens covered by a. Paraphrases keep the source's
+    content words even when they add many of their own, so Jaccard alone
+    under-fires on loose paraphrases; containment catches them."""
+    return len(a & b) / len(b) if b else 0.0
+
 
 class L5ClaimInput(BaseModel):
     claim_id: str = Field(..., min_length=2, description="Unique ID for this interim claim, e.g. L5-001")
@@ -38,6 +69,14 @@ class L5ClaimInput(BaseModel):
     )
     source_ids: list[str] = Field(
         ..., min_length=1, description="Exact IDs from L1/L2/L3 stores, registered L4 inputs, or prior L5 claims"
+    )
+    retrieval_trace: list[str] = Field(
+        default_factory=list,
+        description=(
+            "IDs this session actually retrieved via query_l1/search_l2/recall_l3 "
+            "(the engine also tracks them automatically). Grounding rule: every cited "
+            "L1/L2/L3 source must appear in the retrieval trace or the engine session log."
+        ),
     )
     assumptions: list[str] = Field(default_factory=list)
     conflicts_with_l1: list[str] = Field(default_factory=list)
@@ -54,11 +93,14 @@ class L5ClaimRecord(BaseModel):
     resolved_ancestor_tiers: dict[str, str]
     assumptions: list[str]
     conflicts_with_l1: list[str]
+    # L3 heuristics whose text matches the claim but were NOT cited by the model;
+    # detected in code and force-inherited as dependencies (anti-laundering).
+    implicit_dependencies: list[str] = Field(default_factory=list)
     status: Literal["provisional", "blocked_l1_conflict"] = "provisional"
 
 
 class EpistemicEngine:
-    def __init__(self, repo_root: Path, store_root: Path | None = None) -> None:
+    def __init__(self, repo_root: Path, store_root: Path | None = None, *, implicit_l3_threshold: float = 0.35, implicit_l3_containment_threshold: float = 0.15) -> None:
         self.repo_root = repo_root
         self.knowledge_dir = repo_root / "knowledge"
         self.promotions_dir = repo_root / "promotions"
@@ -72,6 +114,22 @@ class EpistemicEngine:
         self.l3_heuristics: dict[str, dict[str, Any]] = {}
         self.l4_inputs: dict[str, dict[str, Any]] = {}
         self.l5_claims: dict[str, L5ClaimRecord] = {}
+        self.l5_claims: dict[str, L5ClaimRecord] = {}
+        # Anti-laundering (2026-11-22 review, defect #1):
+        #  * session_retrieved_ids: every L1/L2/L3 id the tools actually returned
+        #    in this process. A claim may only cite what was retrieved — citing
+        #    an id the model never saw means the citation was fabricated from
+        #    context/memory rather than grounded in the stores.
+        #  * implicit detection: claims whose text matches an L3 heuristic but
+        #    do not cite it get that heuristic force-added as a dependency, so
+        #    "blogs say X" cannot be laundered into an L1/L2-capped conclusion.
+        self.session_retrieved_ids: set[str] = set()
+        # Combined similarity gate, calibrated on
+        # tests/test_l5_grounding_adversarial.py (2026-11-22):
+        #   jaccard(title|claim)  — attacks >= 0.28 near-copies, clean <= 0.05
+        #   containment(claim)    — loose paraphrases 0.19-0.69, clean <= 0.10
+        self.implicit_l3_threshold: float = implicit_l3_threshold
+        self.implicit_l3_containment_threshold: float = implicit_l3_containment_threshold
         # Claims created in THIS process; audit_dag defaults to the session view so
         # a long-lived store never silently changes a fresh session's converge gate.
         self.session_claim_ids: set[str] = set()
@@ -155,6 +213,7 @@ class EpistemicEngine:
 
     def query_l1(self, query: str = "") -> dict[str, Any]:
         matches = [v for v in self.l1_axioms.values() if self._match(v, query)]
+        self.session_retrieved_ids.update(m["id"] for m in matches)
         return {
             "epistemic_tier": "L1",
             "read_only": True,
@@ -164,6 +223,7 @@ class EpistemicEngine:
 
     def search_l2(self, query: str = "") -> dict[str, Any]:
         matches = [v for v in self.l2_evidence.values() if self._match(v, query)]
+        self.session_retrieved_ids.update(m["id"] for m in matches)
         return {
             "epistemic_tier": "L2",
             "policy": "L2 proves observed facts only; always preserve source and verified_at.",
@@ -172,6 +232,7 @@ class EpistemicEngine:
 
     def recall_l3(self, query: str = "") -> dict[str, Any]:
         matches = [v for v in self.l3_heuristics.values() if self._match(v, query)]
+        self.session_retrieved_ids.update(m["id"] for m in matches)
         return {
             "epistemic_tier": "L3",
             "falsifiable": True,
@@ -214,6 +275,35 @@ class EpistemicEngine:
             f"UNKNOWN_SOURCE_ID: '{source_id}' not found in L1/L2/L3 stores or session L4/L5 registry."
         )
 
+    def _detect_implicit_l3(self, claim_text: str, cited: set[str]) -> list[str]:
+        """L3 heuristics whose text overlaps the claim but were not cited.
+
+        Deterministic anti-laundering: a model may not reach an L1/L2-capped
+        conclusion whose substance is a blog-style heuristic by simply omitting
+        the heuristic from source_ids.
+        """
+        claim_tokens = _text_tokens(claim_text)
+        if not claim_tokens:
+            return []
+        hits: list[tuple[str, float]] = []
+        for hid, item in self.l3_heuristics.items():
+            if hid in cited:
+                continue
+            claim_toks = _text_tokens(str(item.get("claim", "")))
+            hit = (
+                _jaccard(claim_tokens, _text_tokens(str(item.get("title", "")))) >= self.implicit_l3_threshold
+                or _jaccard(claim_tokens, claim_toks) >= self.implicit_l3_threshold
+                or _containment(claim_tokens, claim_toks) >= self.implicit_l3_containment_threshold
+            )
+            if hit:
+                hits.append((hid, max(
+                    _jaccard(claim_tokens, _text_tokens(str(item.get("title", "")))),
+                    _jaccard(claim_tokens, claim_toks),
+                    _containment(claim_tokens, claim_toks),
+                )))
+        hits.sort(key=lambda kv: -kv[1])
+        return [hid for hid, _ in hits]
+
     def submit_l5_claim(self, payload: dict[str, Any]) -> dict[str, Any]:
         data = L5ClaimInput(**payload)
         resolved: dict[str, str] = {}
@@ -224,6 +314,30 @@ class EpistemicEngine:
             resolved[sid] = tier_label
             if score is not None:
                 strengths.append(score)
+
+        # --- Grounding rule (hard error) ------------------------------------
+        # Every cited L1/L2/L3 source must have been returned by the retrieval
+        # tools in this session (engine-tracked) or be declared in the caller's
+        # retrieval_trace. Prior L5 claims are exempt (they were validated when
+        # created); L4 user intent is exempt (registered, not retrieved).
+        seen = self.session_retrieved_ids | set(data.retrieval_trace)
+        ungrounded = [
+            sid for sid in data.source_ids
+            if resolved.get(sid, "").startswith(("L1", "L2", "L3")) and sid not in seen
+        ]
+        if ungrounded:
+            raise ValueError(
+                "GROUNDING_VIOLATION: cited sources were never retrieved this session: "
+                f"{ungrounded}. Call query_l1/search_l2/recall_l3 (or pass retrieval_trace) "
+                "before citing — a citation the tools never returned is not evidence."
+            )
+
+        # --- Implicit L3 dependency detection -------------------------------
+        implicit = self._detect_implicit_l3(data.claim, set(data.source_ids))
+        if implicit:
+            for hid in implicit:
+                resolved[hid] = "L3(implicit)"
+            strengths.append(TIER_STRENGTH["L3"])
 
         # Verify conflicts_with_l1 IDs exist in L1 store
         for l1_id in data.conflicts_with_l1:
@@ -237,10 +351,16 @@ class EpistemicEngine:
         downgraded = TIER_STRENGTH[data.claimed_tier] > weakest_strength
         downgrade_reason = None
         if downgraded:
-            downgrade_reason = (
+            parts = [
                 f"WEAKEST_LINK_OVERRIDE: Model claimed {data.claimed_tier}, "
                 f"but upstream dependencies {resolved} hard-cap this claim at {effective_tier}."
-            )
+            ]
+            if implicit:
+                parts.append(
+                    f"IMPLICIT_L3_DEPENDENCY: claim text matches uncited heuristics {implicit}; "
+                    "they were force-inherited as dependencies."
+                )
+            downgrade_reason = " ".join(parts)
 
         status: Literal["provisional", "blocked_l1_conflict"] = (
             "blocked_l1_conflict" if data.conflicts_with_l1 else "provisional"
@@ -257,6 +377,7 @@ class EpistemicEngine:
             resolved_ancestor_tiers=resolved,
             assumptions=data.assumptions,
             conflicts_with_l1=data.conflicts_with_l1,
+            implicit_dependencies=implicit,
             status=status,
         )
         self.l5_claims[record.claim_id] = record
