@@ -1239,3 +1239,28 @@ class ExitGateEngine:
             retry_count=self.retry_count,
             bounce_prompt="\n".join(lines),
         )
+
+
+# ---------------------------------------------------------------------------
+# CLI: the TS turn-end guard (extensions/harness-guard.ts) enforces the review
+# contract by piping the assistant text to this entry point (2026-11-22).
+# ---------------------------------------------------------------------------
+
+def _cli() -> int:
+    import sys
+
+    if "--review-check" in sys.argv:
+        text = sys.stdin.read()
+        violations = check_review_completeness(text)
+        print(json.dumps({
+            "violations": violations,
+            "bounce_retry": build_review_intercept(violations, retry=True) if violations else "",
+            "bounce_halt": build_review_intercept(violations, retry=False) if violations else "",
+        }, ensure_ascii=False))
+        return 0
+    print("usage: python orchestrator/exit_gate.py --review-check   (text on stdin)", file=sys.stderr)
+    return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(_cli())

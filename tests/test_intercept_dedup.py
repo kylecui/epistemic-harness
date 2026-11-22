@@ -11,6 +11,7 @@ and 'P2 回环' matched the defect-item anchors without declaring anything.
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import unittest
@@ -136,3 +137,38 @@ class InterceptSlimmingAndTracingTests(unittest.TestCase):
         turn_text = VIOLATING_REPLY + "\n\n" + rg.build_contract_intercept(site1, retry=False)
         self.assertEqual(rg.check_response_contract(turn_text, "system_1_5", "Converge"), [])
         self.assertEqual(eg.check_review_completeness(turn_text), [])
+
+class ReviewCheckCliTests(unittest.TestCase):
+    """exit_gate.py --review-check: the TS turn-end guard's judgment entry."""
+
+    def _run_cli(self, text: str) -> dict:
+        import subprocess as sp
+        proc = sp.run(
+            [sys.executable, str(PACK_ROOT / "orchestrator" / "exit_gate.py"), "--review-check"],
+            input=text, capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(proc.returncode, 0, proc.stderr[-300:])
+        return json.loads(proc.stdout)
+
+    def test_cli_flags_violations_and_builds_bounce(self):
+        out = self._run_cli(
+            "[Tier: Structured Analysis | Mode: Converge | Confidence Cap: L2]\n"
+            "## 核心结论\nx\n## 认识论分解\n[L3] 经验。\n## 证据缺口\n无。\n"
+        )
+        self.assertTrue(any("silent promotion" in v for v in out["violations"]))
+        # TS wraps this payload with the [HARNESS_REVIEW_GATE_RETRY] prefix
+        self.assertIn("[REVIEW_CONTRACT_INTERCEPT]", out["bounce_retry"])
+
+    def test_cli_clean_text_no_bounce(self):
+        out = self._run_cli("全部测试通过, 已验证, 无遗留。\n")
+        self.assertEqual(out["violations"], [])
+        self.assertEqual(out["bounce_retry"], "")
+
+    def test_cli_dedup_already_judged_text(self):
+        text = (
+            "[Tier: Structured Analysis | Mode: Converge | Confidence Cap: L2]\n"
+            "## 核心结论\nx\n## 认识论分解\n[L3] 经验。\n适用: s。反例: c。\n## 证据缺口\n无。\n"
+            "\n\n[OUTPUT_CONTRACT_INTERCEPT] 输出契约违规 1 项; 首条: silent promotion\n"
+        )
+        out = self._run_cli(text)
+        self.assertEqual(out["violations"], [])
