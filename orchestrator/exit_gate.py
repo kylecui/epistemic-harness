@@ -1015,30 +1015,37 @@ class ExitGateEngine:
         task_contract: TaskContract | None = None,
     ) -> GateDecision:
         policy = (evidence_policy or self.evidence_policy or "warn").lower()
-        if not mutated_this_turn:
-            # Review turn (zero file changes): the file/residue gate stays off,
-            # but a declared defect must still ship a complete remediation plan
-            # (issue #1). Bounce at most once, then escalate to an L2 report.
-            violations = check_review_completeness(assistant_text)
-            if not violations:
-                self.review_retry_count = 0
-                return GateDecision(passed=True, action="pass")
-            if self.review_retry_count >= 1:
+        # Review-contract obligations apply to EVERY substantial answer,
+        # not only to zero-mutation turns (live gap 2026-11-22: a turn that
+        # both mutated files and answered in review format got only the
+        # verification checks; the silent-promotion violation rode through to
+        # the user with no self-loop). The check is self-limiting — plain and
+        # short replies pass — and the dedup guard keeps already-judged text
+        # silent, so running it unconditionally costs ~0.15 ms.
+        if assistant_text and assistant_text.strip():
+            review_violations = check_review_completeness(assistant_text)
+            if review_violations:
+                if self.review_retry_count >= 1:
+                    return GateDecision(
+                        passed=False,
+                        action="halt_to_user",
+                        contract_violations=review_violations,
+                        retry_count=self.review_retry_count,
+                        bounce_prompt=build_review_intercept(review_violations, retry=False),
+                    )
+                self.review_retry_count += 1
                 return GateDecision(
                     passed=False,
-                    action="halt_to_user",
-                    contract_violations=violations,
+                    action="bounce",
+                    contract_violations=review_violations,
                     retry_count=self.review_retry_count,
-                    bounce_prompt=build_review_intercept(violations, retry=False),
+                    bounce_prompt=build_review_intercept(review_violations, retry=True),
                 )
-            self.review_retry_count += 1
-            return GateDecision(
-                passed=False,
-                action="bounce",
-                contract_violations=violations,
-                retry_count=self.review_retry_count,
-                bounce_prompt=build_review_intercept(violations, retry=True),
-            )
+            self.review_retry_count = 0
+        if not mutated_this_turn:
+            # Review turn (zero file changes): no file/residue gate; the
+            # review contract was already judged above.
+            return GateDecision(passed=True, action="pass")
 
         failures: list[CheckFailure] = []
         evidence: list[Evidence] = []
