@@ -94,3 +94,45 @@ class InlineCodeMentionTests(unittest.TestCase):
         text = "缺陷1: 真实缺陷。\n改动点: 改。\n回退: 可以回退。\n验收: 测试通过即可。\n"
         self.assertTrue(rg.check_remediation_completeness(text))
         self.assertTrue(eg.check_remediation_completeness(text))
+
+class InterceptSlimmingAndTracingTests(unittest.TestCase):
+    """Compact intercept + forensic tracing (2026-11-22)."""
+
+    def test_compact_intercept_keeps_marker_and_pointer(self):
+        text = rg.build_contract_intercept(["v1", "v2", "v3"], retry=True)
+        self.assertIn("[OUTPUT_CONTRACT_INTERCEPT]", text)  # dedup marker survives
+        self.assertIn("3 项", text)
+        self.assertIn("traces/contract_violations.jsonl", text)
+        self.assertLessEqual(len(text.splitlines()), 3, "stream carries one compact block")
+
+    def test_violations_are_traced_with_fingerprint(self):
+        import json as _json
+        import os as _os
+        import tempfile as _tf
+        with _tf.TemporaryDirectory() as tmp:
+            prev = _os.environ.get("HARNESS_TRACES_DIR")  # restore, don't clobber (suite-order coupling)
+            _os.environ["HARNESS_TRACES_DIR"] = tmp
+            try:
+                v = rg.check_response_contract(
+                    "缺陷1: 真实缺陷。\n改动点: 改。\n回退: 可以回退。\n验收: 测试通过即可。\n",
+                    "system_1_5", "Converge")
+                self.assertTrue(v)
+                lines = (Path(tmp) / "contract_violations.jsonl").read_text(encoding="utf-8").splitlines()
+                self.assertEqual(len(lines), 1)
+                rec = _json.loads(lines[0])
+                self.assertEqual(rec["layer"], "gateway")
+                self.assertEqual(rec["n_violations"], len(v))
+                self.assertEqual(len(rec["text_sha256"]), 64)
+                self.assertTrue(rec["code_rev"])
+            finally:
+                if prev is None:
+                    _os.environ.pop("HARNESS_TRACES_DIR", None)
+                else:
+                    _os.environ["HARNESS_TRACES_DIR"] = prev
+
+    def test_dedup_still_works_with_compact_intercept(self):
+        site1 = rg.check_response_contract(VIOLATING_REPLY, "system_1_5", "Converge")
+        self.assertTrue(site1)
+        turn_text = VIOLATING_REPLY + "\n\n" + rg.build_contract_intercept(site1, retry=False)
+        self.assertEqual(rg.check_response_contract(turn_text, "system_1_5", "Converge"), [])
+        self.assertEqual(eg.check_review_completeness(turn_text), [])

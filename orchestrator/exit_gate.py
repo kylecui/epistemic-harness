@@ -23,6 +23,7 @@ Verification contract (issue #2):
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 import fnmatch
 import hashlib
 import json
@@ -411,19 +412,25 @@ def check_review_completeness(text: str) -> list[str]:
     """
     if any(m in (text or "") for m in _INTERCEPT_MARKERS):
         return []
-    return (
+    violations = (
         check_remediation_completeness(text)
         + check_silent_promotion(text)
         + check_l3_scope(text)
         + check_underdetermination(text)
         + check_external_grounding(text)
     )
+    if violations:
+        _trace_review_violations(text, violations)
+    return violations
 
 
 def build_review_intercept(violations: list[str], *, retry: bool) -> str:
+    """Deterministic intercept prompt; compact — full list goes to traces
+    (mirror of response_guard.build_contract_intercept, 2026-11-22)."""
+    first = violations[0] if violations else "(none)"
     lines = [
-        "[REVIEW_CONTRACT_INTERCEPT] 评审回合契约违规:",
-        *[f"  - {v}" for v in violations],
+        f"[REVIEW_CONTRACT_INTERCEPT] 评审回合契约违规 {len(violations)} 项; 首条: {first}",
+        "完整清单与被判文本指纹: traces/contract_violations.jsonl",
     ]
     if retry:
         lines.append(
@@ -434,6 +441,35 @@ def build_review_intercept(violations: list[str], *, retry: bool) -> str:
     else:
         lines.append("[ESCALATE_TO_L2] 重试后仍违规, 按 L2 上报人工复核, 不得再次自动打回。")
     return "\n".join(lines)
+
+
+# Mirror of response_guard.CONTRACT_CODE_REV — bump together.
+_CONTRACT_CODE_REV = "2026-11-22.r3"
+
+
+def _trace_review_violations(text: str, violations: list[str]) -> None:
+    """Forensic record (mirror of response_guard._trace_contract_violations)."""
+    try:
+        import hashlib
+        import os
+
+        repo_root = Path(__file__).resolve().parent.parent
+        traces_dir = Path(os.environ.get("HARNESS_TRACES_DIR") or (repo_root / "traces"))
+        traces_dir.mkdir(parents=True, exist_ok=True)
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "layer": "exit_gate",
+            "code_rev": _CONTRACT_CODE_REV,
+            "n_violations": len(violations),
+            "violations": violations,
+            "text_sha256": hashlib.sha256((text or "").encode("utf-8")).hexdigest(),
+            "text_len": len(text or ""),
+            "text_tail": (text or "")[-200:],
+        }
+        with (traces_dir / "contract_violations.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
 
 
 @dataclass
