@@ -110,6 +110,34 @@ _STRUCTURED_BLOCK_RE = re.compile(r"```harness-claim\s*\n(.*?)```", re.S)
 _STRUCT_REQUIRED_FIELDS = ("defect", "fix_points", "rollback", "acceptance")
 
 
+# Mirror of response_guard._INTERCEPT_MARKERS: quoting a previous intercept
+# must not re-trigger the checks it describes (live self-reference loop,
+# 2026-11-22).
+_INTERCEPT_MARKERS = (
+    "[OUTPUT_CONTRACT_INTERCEPT]",
+    "[REVIEW_CONTRACT_INTERCEPT]",
+    "[HARNESS_EXIT_GATE_RETRY]",
+    "[ESCALATE_TO_L2]",
+)
+
+
+def _drop_intercept_quotes(text: str) -> str:
+    """Remove quoted intercept/bounce blocks (marker line + its bullets)."""
+    out: list[str] = []
+    skipping = False
+    for ln in (text or "").splitlines():
+        if any(m in ln for m in _INTERCEPT_MARKERS):
+            skipping = True
+            continue
+        if skipping:
+            s = ln.strip()
+            if s.startswith(("- ", "• ", "* ")) or s.startswith("请按契约重做") or s.startswith("[ESCALATE_TO_L2]"):
+                continue
+            skipping = False
+        out.append(ln)
+    return "\n".join(out)
+
+
 def _substantive(text: str, min_cjk_chars: int = 3) -> bool:
     cleaned = _FILLER_RE.sub(" ", text or "")
     return sum(len(m.group(0)) for m in _CJK_RUN.finditer(cleaned)) >= min_cjk_chars
@@ -192,8 +220,10 @@ def check_remediation_completeness(text: str) -> list[str]:
     """Declared defects must ship a complete fix plan (issue #1).
 
     No defect anchors -> not a defect-review turn -> pass. An explicit L4
-    trade-off cited in the reply (review-only request) -> pass.
+    trade-off cited in the reply (review-only request) -> pass. Quoted
+    intercept blocks are ignored.
     """
+    text = _drop_intercept_quotes(text)
     if not text or not text.strip():
         return []
     items = _defect_items(text)
@@ -260,6 +290,7 @@ def check_silent_promotion(text: str) -> list[str]:
 
 def check_l3_scope(text: str) -> list[str]:
     """Each `[L3` label needs scope + counter-example anchors within 3 lines."""
+    text = _drop_intercept_quotes(text)
     lines = (text or "").splitlines()
     violations: list[str] = []
     for idx, line in enumerate(lines):
@@ -317,8 +348,8 @@ _FENCE_RE = re.compile(r"```.*?```", re.S)
 
 
 def _strip_noise(text: str) -> list[str]:
-    """Drop fenced code and blockquoted lines so quoted material cannot trip the checks."""
-    text = _FENCE_RE.sub("\n", text or "")
+    """Drop fenced code, blockquoted lines and quoted intercept blocks."""
+    text = _FENCE_RE.sub("\n", _drop_intercept_quotes(text or ""))
     return [ln for ln in text.splitlines() if not ln.lstrip().startswith(">")]
 
 

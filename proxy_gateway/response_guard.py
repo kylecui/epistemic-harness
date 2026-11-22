@@ -325,6 +325,36 @@ def weakest_body_layer(text: str) -> int | None:
     return max(layers) if layers else None
 
 
+# Lines quoting a previous intercept/gate bounce must not re-trigger the
+# checks they describe — otherwise replying ABOUT a bounce bounces again
+# (live loop found 2026-11-22: quoting the intercept re-flagged its own
+# '缺陷1:' violation bullets). The quoted block = the marker line plus its
+# continuation bullets and the canned remedy line.
+_INTERCEPT_MARKERS = (
+    "[OUTPUT_CONTRACT_INTERCEPT]",
+    "[REVIEW_CONTRACT_INTERCEPT]",
+    "[HARNESS_EXIT_GATE_RETRY]",
+    "[ESCALATE_TO_L2]",
+)
+
+
+def _drop_intercept_quotes(text: str) -> str:
+    """Remove quoted intercept/bounce blocks (marker line + its bullets)."""
+    out: list[str] = []
+    skipping = False
+    for ln in (text or "").splitlines():
+        if any(m in ln for m in _INTERCEPT_MARKERS):
+            skipping = True
+            continue
+        if skipping:
+            s = ln.strip()
+            if s.startswith(("- ", "• ", "* ")) or s.startswith("请按契约重做") or s.startswith("[ESCALATE_TO_L2]"):
+                continue
+            skipping = False
+        out.append(ln)
+    return "\n".join(out)
+
+
 def _l3_proximity_violations(text: str) -> list[str]:
     """L3 proximity rule: within 3 lines after each `[L3` label there must be a
     substantive scope anchor AND a substantive counter-example anchor (filler
@@ -357,6 +387,18 @@ def check_output_structure(text: str, tier: str, mode: str) -> list[str]:
     """
     if not text or not text.strip():
         return []
+    text = _drop_intercept_quotes(text)
+    if not text.strip():
+        return []
+    # Review-output gate: the three-section deliverable structure targets
+    # substantial reviews (long text, or text that already declares epistemic
+    # markers). Short status/verification replies skip the section anchors —
+    # cap and L3 checks below still apply to them (live false positive
+    # 2026-11-22: a 5-line gate-fix status reply was bounced for missing
+    # '核心结论/认识论分解/证据缺口').
+    has_review_markers = bool(HEADER_CAP_RE.search(text) or BODY_LAYER_RE.search(text))
+    if len(text.strip()) < 400 and not has_review_markers:
+        return _l3_proximity_violations(text)
     if len(text.strip()) < MIN_STRUCTURED_LEN:
         # Short acknowledgement: no deliverable structure to validate — but a
         # deliberate [L3] epistemic label still answers for its scope/counter
@@ -415,7 +457,9 @@ def check_remediation_completeness(text: str) -> list[str]:
     * Each numbered defect item needs an acceptance anchor and a rollback
       anchor inside its own segment.
     * Downgrade phrasing co-occurring with declared defects -> violation.
+    * Lines quoting a previous intercept are ignored (see _drop_intercept_quotes).
     """
+    text = _drop_intercept_quotes(text)
     if not text or not text.strip():
         return []
     items = _defect_items(text)
@@ -525,8 +569,9 @@ FENCE_RE = re.compile(r"```.*?```", re.S)
 
 
 def strip_noise(text: str) -> list[str]:
-    """Drop fenced code and blockquoted lines so quoted material cannot trip checks."""
-    body = FENCE_RE.sub("\n", text or "")
+    """Drop fenced code, blockquoted lines and quoted intercept blocks so quoted
+    material cannot trip checks."""
+    body = FENCE_RE.sub("\n", _drop_intercept_quotes(text or ""))
     return [ln for ln in body.splitlines() if not ln.lstrip().startswith(">")]
 
 
