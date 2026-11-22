@@ -71,3 +71,34 @@ class UpgradeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class EnvSeedingTests(unittest.TestCase):
+    """Live WSL incident 2026-11-22: docker compose needs .env (env_file);
+    keyless installs should be seeded from .env.example, not fail the upgrade."""
+
+    def test_docker_rebuild_seeds_env_from_example(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _fake_repo(Path(tmp))
+            (repo / ".env").unlink()
+            (repo / ".env.example").write_text("KEY=\n", encoding="utf-8")
+            # stub the subprocess calls so no real docker/health runs
+            calls = []
+            def fake_run(cmd, **kw):
+                calls.append(cmd)
+                class R:
+                    returncode = 0
+                    stderr = ""
+                    stdout = '{"status":"ok"}'
+                return R()
+            orig_run = up.subprocess.run
+            up.subprocess.run = fake_run
+            orig_root = up.REPO_ROOT
+            up.REPO_ROOT = repo
+            try:
+                note = up.docker_rebuild()
+            finally:
+                up.subprocess.run = orig_run
+                up.REPO_ROOT = orig_root
+            self.assertTrue((repo / ".env").exists())
+            self.assertIn("seeded", note)
+            self.assertEqual(calls[0][:3], ["docker", "compose", "up"])
