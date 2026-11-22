@@ -1,0 +1,33 @@
+{
+  "runner": "evals/cost_analysis.py",
+  "generated_at": "2026-11-22T10:41:28+00:00",
+  "model": "zhipu-glm-5.3-flash",
+  "prompt_layer": {
+    "per_mode": [
+      {
+        "mode": "baseline",
+        "input_tokens_median": 32,
+        "total_tokens_median": 4323,
+        "wall_ms_median": 1792,
+        "n": 3
+      },
+      {
+        "mode": "harness",
+        "input_tokens_median": 3834,
+        "total_tokens_median": 7946,
+        "wall_ms_median": 2008,
+        "n": 3
+      }
+    ],
+    "delta": {
+      "input_token_overhead": 3802,
+      "wall_overhead_ms": 216
+    }
+  },
+  "deterministic_checks": {
+    "calls": 800,
+    "total_ms": 123.9,
+    "ms_per_call": 0.155
+  },
+  "scope_note": "model costs (input tokens) are prompt-layer only; transport gateway overhead is included in wall time; docker verify runner startup (~9s) is a CI cost, not a per-turn cost."
+}

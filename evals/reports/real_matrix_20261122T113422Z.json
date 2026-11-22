@@ -1,0 +1,209 @@
+{
+  "runner": "evals/run_real_matrix.py",
+  "generated_at": "2026-11-22T11:34:22+00:00",
+  "lang": "zh",
+  "models": [
+    "kimi-k3.1-pro"
+  ],
+  "trials_per_case": 5,
+  "results": [
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-01",
+      "trial": 1,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "classify_task",
+        "codemode",
+        "dispatch_subagent",
+        "query_l1",
+        "read",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-01",
+      "trial": 2,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "classify_task",
+        "codemode",
+        "dispatch_subagent",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-01",
+      "trial": 3,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "classify_task",
+        "codemode",
+        "dispatch_subagent",
+        "query_l1",
+        "read",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-01",
+      "trial": 4,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "classify_task",
+        "codemode",
+        "dispatch_subagent",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-01",
+      "trial": 5,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "classify_task",
+        "codemode",
+        "dispatch_subagent",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-02",
+      "trial": 1,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "classify_task",
+        "codemode",
+        "dispatch_subagent",
+        "query_l1",
+        "read",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-02",
+      "trial": 2,
+      "passed": false,
+      "failures": [
+        "Required MCP tool not invoked: recall_l3",
+        "Required MCP tool not invoked: submit_l5_claim",
+        "Required MCP tool not invoked: audit_dag",
+        "Missing `audit_dag` MCP result in JSON event stream."
+      ],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-02",
+      "trial": 3,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-02",
+      "trial": 4,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-02",
+      "trial": 5,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    }
+  ]
+}

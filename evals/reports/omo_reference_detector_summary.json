@@ -1,0 +1,18 @@
+{
+  "runner": "evals/false_completion/omo_reference_detector.py",
+  "basis": "re-implementation of OmO PR #10785 documented rule (see docs/ecosystem-comparison.md)",
+  "corpus_size": 51,
+  "truly_false": 17,
+  "omo_ref": {
+    "flagged": 14,
+    "hits": 14,
+    "precision": 1.0,
+    "recall": 0.824
+  },
+  "gateway_layer": {
+    "flagged": 17,
+    "precision": 1.0,
+    "recall": 1.0
+  },
+  "note": "omo_ref precision < 1 means the documented-rule shape flags claims that post-hoc evidence shows were actually fine (false positives) — the same failure mode OmO's changelog reports for the real detector."
+}

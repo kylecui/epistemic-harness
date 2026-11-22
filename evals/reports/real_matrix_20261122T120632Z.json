@@ -1,0 +1,195 @@
+{
+  "runner": "evals/run_real_matrix.py",
+  "generated_at": "2026-11-22T12:06:32+00:00",
+  "lang": "zh",
+  "models": [
+    "kimi-k3.1-pro"
+  ],
+  "trials_per_case": 5,
+  "results": [
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-05",
+      "trial": 1,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-05",
+      "trial": 2,
+      "passed": false,
+      "failures": [
+        "Required MCP tool not invoked: query_l1",
+        "Required MCP tool not invoked: submit_l5_claim",
+        "Required MCP tool not invoked: audit_dag"
+      ],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-05",
+      "trial": 3,
+      "passed": false,
+      "failures": [
+        "Required MCP tool not invoked: query_l1",
+        "Required MCP tool not invoked: submit_l5_claim",
+        "Required MCP tool not invoked: audit_dag"
+      ],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-05",
+      "trial": 4,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-05",
+      "trial": 5,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-06",
+      "trial": 1,
+      "passed": false,
+      "failures": [
+        "DAG confidence cap mismatch: got NONE, expected L3"
+      ],
+      "tools_used": [
+        "audit_dag",
+        "classify_task",
+        "codemode",
+        "dispatch_subagent",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "NONE",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-06",
+      "trial": 2,
+      "passed": false,
+      "failures": [
+        "DAG confidence cap mismatch: got NONE, expected L3"
+      ],
+      "tools_used": [
+        "audit_dag",
+        "classify_task",
+        "codemode",
+        "dispatch_subagent",
+        "query_l1",
+        "query_l5",
+        "read",
+        "recall_l3",
+        "recall_memory",
+        "register_l4_input",
+        "run_gate",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "NONE",
+      "converge_allowed": true
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-06",
+      "trial": 3,
+      "passed": false,
+      "failures": [
+        "Pi exited with non-zero code 124: pi timed out after 480s",
+        "Empty assistant response.",
+        "Response contained none of expected phrases: ['L3', 'L2']",
+        "Required MCP tool not invoked: submit_l5_claim",
+        "Required MCP tool not invoked: audit_dag",
+        "Missing `audit_dag` MCP result in JSON event stream."
+      ],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-06",
+      "trial": 4,
+      "passed": false,
+      "failures": [
+        "Required MCP tool not invoked: submit_l5_claim",
+        "Required MCP tool not invoked: audit_dag",
+        "Missing `audit_dag` MCP result in JSON event stream."
+      ],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "kimi-k3.1-pro",
+      "case_id": "TC-06",
+      "trial": 5,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "audit_reply",
+        "classify_task",
+        "codemode",
+        "dispatch_subagent",
+        "query_l1",
+        "read",
+        "recall_l3",
+        "register_l4_input",
+        "run_gate",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    }
+  ]
+}
