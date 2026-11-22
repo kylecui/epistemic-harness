@@ -145,6 +145,15 @@ def backup(repo: Path, sink: Path) -> list[str]:
 
 
 def docker_rebuild() -> str:
+    # docker-compose.yml declares env_file: .env; compose fails hard when it
+    # is missing (live WSL upgrade incident 2026-11-22). A keyless install is
+    # valid — seed from the example rather than failing the whole upgrade.
+    env_path = REPO_ROOT / ".env"
+    example = REPO_ROOT / ".env.example"
+    seeded = False
+    if not env_path.exists() and example.exists():
+        shutil.copy2(example, env_path)
+        seeded = True
     out = subprocess.run(
         ["docker", "compose", "up", "-d", "--build"],
         cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=900,
@@ -157,7 +166,10 @@ def docker_rebuild() -> str:
     )
     if health.returncode != 0 or '"status"' not in health.stdout:
         raise RuntimeError(f"backend smoke test failed: {health.stdout[-200:]}")
-    return "containers rebuilt, /health ok"
+    note = "containers rebuilt, /health ok"
+    if seeded:
+        note += " (.env seeded from .env.example — no keys, set them in .env)"
+    return note
 
 
 def verify() -> str:
