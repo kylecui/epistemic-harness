@@ -459,20 +459,29 @@ def check_remediation_completeness(text: str) -> list[str]:
     * Each numbered defect item needs an acceptance anchor and a rollback
       anchor inside its own segment.
     * Downgrade phrasing co-occurring with declared defects -> violation.
-    * Lines quoting a previous intercept are ignored (see _drop_intercept_quotes).
+    * Downgrade phrasing co-occurring with declared defects -> violation.
+    * Lines quoting a previous intercept are ignored (see _drop_intercept_quotes);
+      inline-code spans mentioning the anchor syntax are likewise metalinguistic
+      ('`缺陷1:` 才算声明' is discussing the format, not declaring) — live FP
+      2026-11-22: discussing the colon rule in code spans re-triggered it.
     """
     text = _drop_intercept_quotes(text)
     if not text or not text.strip():
         return []
-    items = _defect_items(text)
     structured_claims, structured_violations = _validate_structured_claims(text)
     if structured_claims:
         # Structured path chosen: prose anchor checks are waived (the model gave
         # machine-validable fields instead); only schema violations surface.
         return structured_violations
+    # Inline code = mentioning the syntax, not using it. Strip for the prose
+    # scan AFTER structured extraction (stripping first corrupts the ```
+    # fence opener and loses the structured path — hollow-suite regression,
+    # 2026-11-22). Live FP: discussing '`缺陷1:` 才算声明' re-triggered checks.
+    prose_text = re.sub(r"`[^`\n]*`", " ", text)
+    items = _defect_items(prose_text)
     if not items:
         return structured_violations
-    if L4_TRADEOFF_RE.search(text):
+    if L4_TRADEOFF_RE.search(prose_text):
         return []  # user explicitly scoped this turn to review-only (L4)
 
     violations: list[str] = list(structured_violations)

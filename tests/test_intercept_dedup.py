@@ -76,3 +76,21 @@ class InterceptDedupTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class InlineCodeMentionTests(unittest.TestCase):
+    """Live FP 2026-11-22: discussing the anchor syntax in inline code
+    ('`缺陷1:`/`P1:` 才算声明') re-triggered the defect declaration check."""
+
+    MENTION = (
+        "修复说明: 现在要求尾冒号, `缺陷1:`/`P1:` 才算声明; 裸提及如 缺陷项 P1 不触发。\n"
+        "改动点: 两个镜像模块同步。\n回退: git revert 本提交。\n验收: 新增回归测试 2 项通过。\n"
+    )
+
+    def test_inline_code_syntax_mention_not_a_declaration(self):
+        self.assertEqual(rg.check_remediation_completeness(self.MENTION), [])
+        self.assertEqual(eg.check_remediation_completeness(self.MENTION), [])
+
+    def test_real_declaration_outside_code_still_caught(self):
+        text = "缺陷1: 真实缺陷。\n改动点: 改。\n回退: 可以回退。\n验收: 测试通过即可。\n"
+        self.assertTrue(rg.check_remediation_completeness(text))
+        self.assertTrue(eg.check_remediation_completeness(text))
