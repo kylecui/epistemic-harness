@@ -1,0 +1,170 @@
+{
+  "runner": "evals/memory_effectiveness/run_experiment.py",
+  "generated_at": "2026-11-22T06:54:32+00:00",
+  "trials_per_cell": 5,
+  "basis": "arXiv:2611.22179 (read 2026-11-21): score what memory enables, not what it retrieves",
+  "results": [
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": false,
+      "tools_used": [],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1168,
+      "trial": 1
+    },
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": false,
+      "tools_used": [],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1112,
+      "trial": 2
+    },
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1323,
+      "trial": 3
+    },
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1337,
+      "trial": 4
+    },
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": false,
+      "tools_used": [],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1272,
+      "trial": 5
+    },
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "recall_l3",
+        "register_l4_input",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1450,
+      "trial": 1
+    },
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1663,
+      "trial": 2
+    },
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "recall_memory",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1442,
+      "trial": 3
+    },
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": false,
+      "tools_used": [
+        "bash",
+        "codemode"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1253,
+      "trial": 4
+    },
+    {
+      "scenario": "ME-01",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1475,
+      "trial": 5
+    }
+  ]
+}

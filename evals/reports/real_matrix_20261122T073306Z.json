@@ -1,0 +1,167 @@
+{
+  "runner": "evals/run_real_matrix.py",
+  "generated_at": "2026-11-22T07:33:06+00:00",
+  "lang": "zh",
+  "models": [
+    "zhipu-glm-5.3"
+  ],
+  "trials_per_case": 5,
+  "results": [
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-03",
+      "trial": 1,
+      "passed": false,
+      "failures": [
+        "DAG confidence cap mismatch: got L2, expected L1",
+        "DAG `converge_allowed` mismatch: got True, expected False"
+      ],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "read",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L2",
+      "converge_allowed": true
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-03",
+      "trial": 2,
+      "passed": false,
+      "failures": [
+        "Missing `audit_dag` MCP result in JSON event stream.",
+        "Missing `audit_dag` MCP result to verify `converge_allowed`."
+      ],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-03",
+      "trial": 3,
+      "passed": false,
+      "failures": [
+        "DAG confidence cap mismatch: got L3, expected L1"
+      ],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": false
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-03",
+      "trial": 4,
+      "passed": false,
+      "failures": [
+        "Pi exited with non-zero code 124: pi timed out after 420s",
+        "Empty assistant response.",
+        "Response contained none of expected phrases: ['CAP', 'CP', 'AP']",
+        "Required MCP tool not invoked: query_l1",
+        "Required MCP tool not invoked: submit_l5_claim",
+        "Required MCP tool not invoked: audit_dag",
+        "Missing `audit_dag` MCP result in JSON event stream.",
+        "Missing `audit_dag` MCP result to verify `converge_allowed`."
+      ],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-03",
+      "trial": 5,
+      "passed": false,
+      "failures": [
+        "DAG confidence cap mismatch: got L3, expected L1"
+      ],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "read",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": false
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-04",
+      "trial": 1,
+      "passed": true,
+      "failures": [],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-04",
+      "trial": 2,
+      "passed": true,
+      "failures": [],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-04",
+      "trial": 3,
+      "passed": true,
+      "failures": [],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-04",
+      "trial": 4,
+      "passed": true,
+      "failures": [],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-04",
+      "trial": 5,
+      "passed": true,
+      "failures": [],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    }
+  ]
+}

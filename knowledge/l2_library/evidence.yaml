@@ -4,3 +4,13 @@ evidence:
     fact: "Eric Brewer 在 2017 年白皮书中明确指出，Spanner 本质仍是 CP 系统；分区发生时会牺牲少数派可用性以守住强一致性，仅通过私有冗余骨干网大幅降低分区概率。"
     source: "Eric Brewer, Spanner, TrueTime and the CAP Theorem (2017)"
     verified_at: "2026-11-19"
+  - id: "L2-OMO-001"
+    title: "OmO 已有 claim-receipts 证据绑定子系统（shadow 模式）"
+    fact: >
+      oh-my-openagent (71k★, 2026-11-22 在维护) 的 CHANGELOG 记录其 claim receipts 子系统：
+      PR #10785 在会话末尾检查最终回复中 "tests pass / done" 类声明是否有最后一次代码编辑之后通过的检查作支撑，
+      并记录声明是否 backed；该功能以 shadow 模式上线（不展示、不拦截），官方记录一周自用会话中多数 flag 为误报，
+      nudge 提示与 gate reviewer 需显式开启 omo-senpi-claim-receipt-nudge。另有 PR #11794（bun check 计为 typecheck 证据）、
+      #11046（ulw 研究报告 fact ledger / claim index）、#12832（ulw-research 强制 OBSERVED:/PROBED: 声明标签）。
+    source: "github.com/code-yeongyu/oh-my-openagent CHANGELOG（depth-1 clone + ripgrep，2026-11-22 检索）"
+    verified_at: "2026-11-22"

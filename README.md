@@ -3,7 +3,7 @@
 **Governance for LLM coding agents: evidence-bound claims, tiered cognition, and loops that exhaust problems instead of ping-ponging them.**
 
 [![version](https://img.shields.io/badge/version-v0.5.0-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-247%20green-brightgreen)](scripts/verify.py)
+[![tests](https://img.shields.io/badge/tests-254%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *中文介绍见 [README_ZH.md](README_ZH.md)。 All normative content (rules, contracts, skills) is English-only; Chinese exists only as auxiliary translation.*
@@ -81,13 +81,14 @@ English and Chinese. Query them any time via the orchestrator MCP (`query_skills
 - [docs/execution-runner.md](docs/execution-runner.md) — why verification runs in Docker first
 - [docs/browser-runner.md](docs/browser-runner.md) — where the browser goes for CDP work
 - [docs/workplan-v0.4.md](docs/workplan-v0.4.md) — v0.4 delivery log with measured evidence
+- [docs/UPGRADE.md](docs/UPGRADE.md) — upgrade an existing install (idempotent migrations + rollback)
 
 ## Development
 
 ```bash
 git clone https://github.com/kylecui/epistemic-harness.git
 cd epistemic-harness
-./scripts/hvx                                # 247 tests, docker by default
+./scripts/hvx                                # 254 tests, docker by default
 python evals/run_evals.py --mock             # fixture self-test 12/12 (tests the assertions, not models)
 python evals/run_real_matrix.py              # real-model golden matrix, reports -> evals/reports/
 python evals/false_completion/run_experiment.py     # false-completion inducement (baseline vs harness)

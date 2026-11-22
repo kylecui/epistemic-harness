@@ -78,6 +78,7 @@ def main() -> int:
     ap.add_argument("--models", default="zhipu-glm-5.3")
     ap.add_argument("--scenarios", default="")
     ap.add_argument("--timeout", type=int, default=240)
+    ap.add_argument("--trials", type=int, default=1)
     ap.add_argument("--pi-bin", default="pi")
     ap.add_argument("--out-dir", type=Path, default=REPO_ROOT / "evals" / "reports")
     args = ap.parse_args()
@@ -93,11 +94,13 @@ def main() -> int:
     for model in models:
         for mode in ("no_memory", "with_memory"):
             for sc in scenarios:
-                print(f"[me] {model} / {mode} / {sc['id']} ...", flush=True)
-                r = run_one(sc, model, mode, args.pi_bin, args.timeout)
-                results.append(r)
-                print(f"     -> recall={r['recall_used']} fact={r['fact_used']} honest={r['tier_honest']}",
-                      flush=True)
+                for trial in range(1, args.trials + 1):
+                    print(f"[me] {model} / {mode} / {sc['id']} (trial {trial}/{args.trials}) ...", flush=True)
+                    r = run_one(sc, model, mode, args.pi_bin, args.timeout)
+                    r["trial"] = trial
+                    results.append(r)
+                    print(f"     -> recall={r['recall_used']} fact={r['fact_used']} honest={r['tier_honest']}",
+                          flush=True)
 
     print("\n=== Memory-effectiveness summary ===")
     for model in models:
@@ -108,8 +111,15 @@ def main() -> int:
             rec = sum(1 for r in rows if r["recall_used"])
             fact = sum(1 for r in rows if r["fact_used"])
             hon = sum(1 for r in rows if r["tier_honest"])
-            print(f"{model:<26} {mode:<13} recall={rec}/{len(rows)} fact_used={fact}/{len(rows)} "
-                  f"tier_honest={hon}/{len(rows)}")
+            n = len(rows)
+            print(f"{model:<26} {mode:<13} recall={rec}/{n} fact_used={fact}/{n} "
+                  f"tier_honest={hon}/{n}")
+            for sc in scenarios:
+                srows = [r for r in rows if r["scenario"] == sc["id"]]
+                if not srows:
+                    continue
+                srec = sum(1 for r in srows if r["recall_used"])
+                print(f"    {sc['id']:<7} recall_rate={srec}/{len(srows)} ({srec / len(srows):.0%})")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -117,6 +127,7 @@ def main() -> int:
     out.write_text(json.dumps({
         "runner": "evals/memory_effectiveness/run_experiment.py",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "trials_per_cell": args.trials,
         "basis": "arXiv:2611.22179 (read 2026-11-21): score what memory enables, not what it retrieves",
         "results": results,
     }, ensure_ascii=False, indent=2), encoding="utf-8")

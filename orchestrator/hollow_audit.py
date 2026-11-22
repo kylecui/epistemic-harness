@@ -100,6 +100,10 @@ def audit_text(
             hits.append(AuditHit(kind, segment, True, "pending"))  # unscored
             continue
         verdict = critic_fn(CRITIC_PROMPT.format(kind=kind, segment=segment)).strip().upper()
+        if verdict.startswith("PENDING") or not verdict:
+            # critic transport failed: never fabricate a verdict from an error
+            hits.append(AuditHit(kind, segment, True, "pending"))
+            continue
         hits.append(AuditHit(kind, segment, verdict.startswith("YES"), "critic"))
 
     scored = [h for h in hits if h.decided_by != "pending"]

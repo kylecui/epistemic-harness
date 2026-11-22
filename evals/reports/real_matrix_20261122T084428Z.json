@@ -1,0 +1,107 @@
+{
+  "runner": "evals/run_real_matrix.py",
+  "generated_at": "2026-11-22T08:44:28+00:00",
+  "lang": "zh",
+  "models": [
+    "zhipu-glm-5.3"
+  ],
+  "trials_per_case": 5,
+  "results": [
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-02",
+      "trial": 1,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "dispatch_subagent",
+        "query_l1",
+        "query_l5",
+        "recall_l3",
+        "register_l4_input",
+        "run_gate",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-02",
+      "trial": 2,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "run_gate",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": false
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-02",
+      "trial": 3,
+      "passed": false,
+      "failures": [
+        "Pi exited with non-zero code 124: pi timed out after 420s",
+        "Empty assistant response.",
+        "Response contained none of expected phrases: ['L3', 'A/B', 'L2']",
+        "Required MCP tool not invoked: recall_l3",
+        "Required MCP tool not invoked: submit_l5_claim",
+        "Required MCP tool not invoked: audit_dag",
+        "Missing `audit_dag` MCP result in JSON event stream."
+      ],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-02",
+      "trial": 4,
+      "passed": true,
+      "failures": [],
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": false
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-02",
+      "trial": 5,
+      "passed": false,
+      "failures": [
+        "Pi exited with non-zero code 124: pi timed out after 420s",
+        "Empty assistant response.",
+        "Response contained none of expected phrases: ['L3', 'A/B', 'L2']",
+        "Required MCP tool not invoked: recall_l3",
+        "Required MCP tool not invoked: submit_l5_claim",
+        "Required MCP tool not invoked: audit_dag",
+        "Missing `audit_dag` MCP result in JSON event stream."
+      ],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    }
+  ]
+}

@@ -30,7 +30,12 @@
     "*.orig",
     "debug_*.py",
     "scratch_*",
-    "tmp_*"
+    "tmp_*",
+    ".*tmp*",
+    ".*scratch*",
+    ".*debug*",
+    ".*.bak",
+    ".*.orig"
   ],
   "bypass_phrases": [
     "skip exit gate",

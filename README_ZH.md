@@ -3,7 +3,7 @@
 **面向 LLM 编码 agent 的治理层：证据绑定的完成声明、分层认知，以及把问题耗尽而不是来回踢皮球的回环。**
 
 [![version](https://img.shields.io/badge/version-v0.5.0-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-247%20green-brightgreen)](scripts/verify.py)
+[![tests](https://img.shields.io/badge/tests-254%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *本文是 [README.md](README.md) 的中文辅助翻译；规范内容一律以英文版与 AGENTS.md 为准（思考语言约束见契约）。*
@@ -77,13 +77,14 @@ python scripts/install.py
 - [docs/execution-runner.md](docs/execution-runner.md) — 为什么验证默认跑在容器里（英文）
 - [docs/browser-runner.md](docs/browser-runner.md) — CDP/浏览器放置策略（英文）
 - [docs/workplan-v0.4.md](docs/workplan-v0.4.md) — v0.4 交付日志（双语，顶部有英文摘要）
+- [docs/UPGRADE.md](docs/UPGRADE.md) — 既有安装升级（幂等迁移 + 回退）
 
 ## 开发
 
 ```bash
 git clone https://github.com/kylecui/epistemic-harness.git
 cd epistemic-harness
-./scripts/hvx                                # 247 项测试
+./scripts/hvx                                # 254 项测试
 python evals/run_evals.py --mock             # 夹具自测 12/12（测的是断言机, 不是模型）
 python evals/run_real_matrix.py              # 真模型黄金矩阵, 报告落 evals/reports/
 python evals/false_completion/run_experiment.py    # 虚假完成诱导实验（baseline vs harness）

@@ -113,8 +113,11 @@ def _run_scenario(scenario: dict, model: str, mode: str, pi_bin: str, timeout: i
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--models", default="zhipu-glm-5.3,kimi-k3.1-pro")
+    ap.add_argument("--modes", default="baseline,harness", help="comma-separated: baseline, harness")
     ap.add_argument("--scenarios", default="", help="comma-separated ids")
     ap.add_argument("--timeout", type=int, default=240)
+    ap.add_argument("--trials", type=int, default=1,
+                    help="repeat each (model, mode, scenario) N times; report per-scenario rates")
     ap.add_argument("--pi-bin", default="pi")
     ap.add_argument("--out-dir", type=Path, default=REPO_ROOT / "evals" / "reports")
     args = ap.parse_args()
@@ -126,16 +129,19 @@ def main() -> int:
         scenarios = [s for s in scenarios if s["id"].upper() in sel]
 
     models = [m.strip() for m in args.models.split(",") if m.strip()]
+    modes = [m.strip() for m in args.modes.split(",") if m.strip()]
     results = []
     for model in models:
-        for mode in ("baseline", "harness"):
+        for mode in modes:
             for sc in scenarios:
-                print(f"[fc] {model} / {mode} / {sc['id']} ...", flush=True)
-                r = _run_scenario(sc, model, mode, args.pi_bin, args.timeout)
-                results.append(r)
-                print(f"     -> {r['verdict']}"
-                      + (f" | contract_hits={len(r['contract_violations'])}" if r["contract_violations"] else ""),
-                      flush=True)
+                for trial in range(1, args.trials + 1):
+                    print(f"[fc] {model} / {mode} / {sc['id']} (trial {trial}/{args.trials}) ...", flush=True)
+                    r = _run_scenario(sc, model, mode, args.pi_bin, args.timeout)
+                    r["trial"] = trial
+                    results.append(r)
+                    print(f"     -> {r['verdict']}"
+                          + (f" | contract_hits={len(r['contract_violations'])}" if r["contract_violations"] else ""),
+                          flush=True)
 
     print("\n=== False-completion summary ===")
     for model in models:
@@ -145,6 +151,14 @@ def main() -> int:
             vc = sum(1 for r in rows if r["verdict"] == "verified_completion")
             nc = sum(1 for r in rows if r["verdict"] == "no_claim")
             print(f"{model:<26} {mode:<9} false={fc} verified={vc} no_claim={nc} / {len(rows)}")
+            # per-scenario rates (the multi-trial statistic the paper needs)
+            for sc in scenarios:
+                srows = [r for r in rows if r["scenario"] == sc["id"]]
+                if not srows:
+                    continue
+                sfc = sum(1 for r in srows if r["verdict"] == "false_completion")
+                print(f"    {sc['id']:<7} false_completion_rate={sfc}/{len(srows)}"
+                      f" ({sfc / len(srows):.0%})")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -152,6 +166,7 @@ def main() -> int:
     out.write_text(json.dumps({
         "runner": "evals/false_completion/run_experiment.py",
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "trials_per_cell": args.trials,
         "scope_note": "transport-layer enforcement (gateway tags/thrashing) active in BOTH modes; "
                       "experiment isolates the prompt+tool+gate layer",
         "results": results,

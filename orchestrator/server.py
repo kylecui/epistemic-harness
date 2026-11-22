@@ -17,6 +17,7 @@ Tools exposed to the main agent (controller):
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Any
@@ -177,6 +178,23 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "audit_reply",
+        "description": (
+            "Hollow-compliance audit of a reply: deterministic-hollow claim segments are scored locally; "
+            "the rest are judged by a critic sub-agent (cross-family). Returns per-segment verdicts plus the "
+            "rolling hollow rate; >0.2 recommends forcing the structured harness-claim output path."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string", "description": "The assistant reply to audit"},
+                "use_critic": {"type": "boolean", "default": True,
+                               "description": "Dispatch a critic sub-agent for non-deterministic segments"},
+            },
+            "required": ["text"],
+        },
+    },
+    {
         "name": "run_gate",
         "description": (
             "Deterministic exit gate: runs repo-configured checks (.pi/exit_gate.json) plus any caller-supplied "
@@ -325,6 +343,42 @@ class Orchestrator:
             timeout=float(args.get("timeout", 600)),
         )
 
+    def audit_reply(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Production wiring for orchestrator/hollow_audit.py (P1.6).
+
+        Audits a reply's compliance claims. Deterministic-hollow segments are
+        scored locally; the rest go to a critic sub-agent (cross-family per
+        the controller contract) dispatched as an HTTP client of the gateway —
+        no gateway recursion. Set use_critic=false for a local-only scan.
+        """
+        from orchestrator import hollow_audit
+
+        text = str(args.get("text") or "")
+        use_critic = bool(args.get("use_critic", True))
+
+        critic_fn = None
+        if use_critic:
+            def critic_fn(prompt: str) -> str:  # noqa: F811
+                try:
+                    result = dispatch_subtask(
+                        agent_profile="critic",
+                        task_text=prompt,
+                        context=("hollow_audit critic: reply with exactly one word, YES or NO. "
+                                 "YES = the segment is substantive (concrete checkable condition "
+                                 "or real counter-example). NO = hollow filler."),
+                        task_id=f"hollow-audit-{os.getpid()}",
+                        category="review",
+                    )
+                    return str(result.get("content") or result.get("text") or "")
+                except Exception as exc:  # noqa: BLE001 - audit must never break the turn
+                    return f"PENDING({type(exc).__name__})"
+
+        return hollow_audit.audit_text(
+            text,
+            critic_fn=critic_fn,
+            context={"tool": "audit_reply", "use_critic": use_critic},
+        )
+
     def run_gate(self, args: dict[str, Any]) -> dict[str, Any]:
         repo = Path(args.get("repo_dir") or REPO_ROOT)
         eng = ExitGateEngine.from_repo_config(repo)
@@ -416,6 +470,8 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
                 )
             elif name == "run_gate":
                 res = orch.run_gate(args)
+            elif name == "audit_reply":
+                res = orch.audit_reply(args)
             else:
                 return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Unknown tool: {name}"}}
             return {

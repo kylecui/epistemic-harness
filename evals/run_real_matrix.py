@@ -65,6 +65,8 @@ def main() -> int:
     ap.add_argument("--lang", choices=["zh", "en", "all"], default="zh")
     ap.add_argument("--cases", default="", help="comma-separated case ids")
     ap.add_argument("--timeout", type=int, default=240)
+    ap.add_argument("--trials", type=int, default=1,
+                    help="repeat each (model, case) N times; report per-case pass rates")
     ap.add_argument("--pi-bin", default="pi")
     ap.add_argument("--out-dir", type=Path, default=REPO_ROOT / "evals" / "reports")
     args = ap.parse_args()
@@ -78,31 +80,38 @@ def main() -> int:
     all_outcomes: list[dict] = []
     for model in models:
         for case in cases:
-            print(f"[real] {model} / {case['id']} ...", flush=True)
-            trace = run_pi_case(case, args.pi_bin, "json", args.timeout, ["--model", model])
-            outcome = evaluate_trace(case, trace, "json")
-            all_outcomes.append({
-                "model": model,
-                "case_id": case["id"],
-                "passed": outcome.passed,
-                "failures": outcome.failures,
-                "tools_used": outcome.tools_used,
-                "audit_cap": outcome.audit_cap,
-                "converge_allowed": outcome.converge_allowed,
-            })
-            print(f"       -> {'PASS' if outcome.passed else 'FAIL'} "
-                  f"(cap={outcome.audit_cap}, converge={outcome.converge_allowed})", flush=True)
+            for trial in range(1, args.trials + 1):
+                print(f"[real] {model} / {case['id']} (trial {trial}/{args.trials}) ...", flush=True)
+                trace = run_pi_case(case, args.pi_bin, "json", args.timeout, ["--model", model])
+                outcome = evaluate_trace(case, trace, "json")
+                all_outcomes.append({
+                    "model": model,
+                    "case_id": case["id"],
+                    "trial": trial,
+                    "passed": outcome.passed,
+                    "failures": outcome.failures,
+                    "tools_used": outcome.tools_used,
+                    "audit_cap": outcome.audit_cap,
+                    "converge_allowed": outcome.converge_allowed,
+                })
+                print(f"       -> {'PASS' if outcome.passed else 'FAIL'} "
+                      f"(cap={outcome.audit_cap}, converge={outcome.converge_allowed})", flush=True)
 
-    # per-model scorecard
+    # per-model scorecard with per-case pass rates across trials
     print("\n=== Real-Model Golden Matrix ===")
     for model in models:
         rows = [o for o in all_outcomes if o["model"] == model]
         passed = sum(1 for o in rows if o["passed"])
-        print(f"{model:<28} {passed}/{len(rows)} PASS")
-        for o in rows:
-            if not o["passed"]:
-                for f in o["failures"]:
-                    print(f"   -> {o['case_id']}: {f}")
+        print(f"{model:<28} {passed}/{len(rows)} PASS (trials={args.trials})")
+        for case in cases:
+            crows = [o for o in rows if o["case_id"] == case["id"]]
+            cp = sum(1 for o in crows if o["passed"])
+            mark = "" if cp == len(crows) else "   <- unstable" if 0 < cp < len(crows) else "   <- failing"
+            print(f"    {case['id']:<7} pass_rate={cp}/{len(crows)} ({cp / len(crows):.0%}){mark}")
+            for o in crows:
+                if not o["passed"]:
+                    for f in o["failures"]:
+                        print(f"       -> t{o['trial']}: {f}")
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -112,6 +121,7 @@ def main() -> int:
         "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "lang": args.lang,
         "models": models,
+        "trials_per_case": args.trials,
         "results": all_outcomes,
     }, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"\nreport: {out.relative_to(REPO_ROOT)}")
