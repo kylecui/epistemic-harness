@@ -223,19 +223,24 @@ def check_remediation_completeness(text: str) -> list[str]:
 
     No defect anchors -> not a defect-review turn -> pass. An explicit L4
     trade-off cited in the reply (review-only request) -> pass. Quoted
-    intercept blocks are ignored.
+    intercept blocks are ignored; inline-code spans mentioning the anchor
+    syntax are metalinguistic, not declarations (mirror of response_guard).
     """
     text = _drop_intercept_quotes(text)
     if not text or not text.strip():
         return []
-    items = _defect_items(text)
     structured_claims, structured_violations = _validate_structured_claims(text)
     if structured_claims:
         # Structured path chosen: prose anchor checks waived; schema violations only.
         return structured_violations
+    # Mirror of response_guard: inline code = mentioning the syntax, not using
+    # it. Strip for the prose scan only, AFTER structured extraction (stripping
+    # first corrupts the ``` fence opener — hollow-suite regression 2026-11-22).
+    prose_text = re.sub(r"`[^`\n]*`", " ", text)
+    items = _defect_items(prose_text)
     if not items:
         return structured_violations
-    if _L4_TRADEOFF_RE.search(text):
+    if _L4_TRADEOFF_RE.search(prose_text):
         return []
     violations: list[str] = list(structured_violations)
     for label, segment in items:
