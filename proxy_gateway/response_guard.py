@@ -23,6 +23,7 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 TIER_LABELS: dict[str, str] = {
@@ -520,10 +521,18 @@ def check_remediation_completeness(text: str) -> list[str]:
 
 
 def build_contract_intercept(violations: list[str], *, retry: bool) -> str:
-    """Deterministic intercept prompt appended to bounced responses."""
+    """Deterministic intercept prompt appended to bounced responses.
+
+    Compact by design (2026-11-22): the stream carries ONE line — the full
+    violation list goes to traces/contract_violations.jsonl via
+    _trace_contract_violations. Fat intercepts were quoted back into later
+    turns, ballooned context and re-fed the checks (six false-positive
+    classes all started from quoted intercept material).
+    """
+    first = violations[0] if violations else "(none)"
     lines = [
-        "[OUTPUT_CONTRACT_INTERCEPT] 输出契约违规(评审回合):",
-        *[f"  - {v}" for v in violations],
+        f"[OUTPUT_CONTRACT_INTERCEPT] 输出契约违规 {len(violations)} 项; 首条: {first}",
+        f"完整清单与被判文本指纹: traces/contract_violations.jsonl",
     ]
     if retry:
         lines.append(
@@ -532,10 +541,49 @@ def build_contract_intercept(violations: list[str], *, retry: bool) -> str:
             "范围与反例, 已声明缺陷必须给出完整修复方案 (改动点/迁移影响/回退路径/可证伪验收判据)。"
         )
     else:
-        lines.append(
-            "[ESCALATE_TO_L2] 重试后仍违规, 按 L2 上报人工复核, 不得再次自动打回。"
-        )
+        lines.append("[ESCALATE_TO_L2] 重试后仍违规, 按 L2 上报人工复核, 不得再次自动打回。")
     return "\n".join(lines)
+
+
+# Bumped whenever the contract-check code changes; written into every trace
+# record so a phantom violation can be tied to the exact code revision that
+# produced it (live incident 2026-11-22: could not tell which revision judged).
+CONTRACT_CODE_REV = "2026-11-22.r3"
+
+
+def _trace_contract_violations(
+    text: str, tier: str, mode: str, violations: list[str], *, layer: str
+) -> None:
+    """Forensic record: what was judged, by which code, with what result.
+
+    Best-effort append to traces/contract_violations.jsonl; never raises.
+    The checked text itself is NOT written (privacy/size) — its sha256 + tail
+    is enough to locate the exact source text in session logs afterwards.
+    """
+    try:
+        import hashlib
+        import os
+        from datetime import datetime, timezone
+
+        repo_root = Path(__file__).resolve().parent.parent
+        traces_dir = Path(os.environ.get("HARNESS_TRACES_DIR") or (repo_root / "traces"))
+        traces_dir.mkdir(parents=True, exist_ok=True)
+        record = {
+            "ts": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "layer": layer,
+            "code_rev": CONTRACT_CODE_REV,
+            "tier": tier,
+            "mode": mode,
+            "n_violations": len(violations),
+            "violations": violations,
+            "text_sha256": hashlib.sha256((text or "").encode("utf-8")).hexdigest(),
+            "text_len": len(text or ""),
+            "text_tail": (text or "")[-200:],
+        }
+        with (traces_dir / "contract_violations.jsonl").open("a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except OSError:
+        pass  # tracing must never break the check
 
 
 # ---------------------------------------------------------------------------
@@ -633,9 +681,12 @@ def check_response_contract(text: str, tier: str, mode: str) -> list[str]:
     """
     if any(m in (text or "") for m in _INTERCEPT_MARKERS):
         return []
-    return (
+    violations = (
         check_output_structure(text, tier, mode)
         + check_remediation_completeness(text)
         + check_underdetermination(text)
         + check_external_grounding(text)
     )
+    if violations:
+        _trace_contract_violations(text, tier, mode, violations, layer="gateway")
+    return violations
