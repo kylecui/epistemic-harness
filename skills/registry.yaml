@@ -51,6 +51,21 @@ skills:
       3. python scripts/memory_stats.py            # memory hit ratio + archive candidates
       Read the JSON variants with --json when composing reports.
 
+  - id: SKILL-HARNESS-UPGRADE
+    name: harness-upgrade
+    description: "Upgrade an existing installation to the current repo version: preview migrations, backup, migrate, rebuild containers, verify, stamp."
+    tags: [harness, upgrade, release, migration]
+    triggers: [upgrade, 升级, update harness, 更新, migration, 迁移, 发版, release]
+    tier_hint: system_0
+    content: |
+      [Skill: harness-upgrade]
+      Authoritative doc: docs/UPGRADE.md. Short version:
+      1. git pull
+      2. python scripts/upgrade.py --check     # preview: installed -> spec, pending migrations
+      3. python scripts/upgrade.py             # backup -> migrate (idempotent) -> rebuild -> verify -> stamp
+      Rollback on failure: restore .upgrade-backup-<ts>/ over the repo (script prints the exact dir).
+      Host-only machines: pass --no-docker. Keep the backup with --keep-backup.
+
   - id: SKILL-HARNESS-MAINTAIN
     name: harness-maintain
     description: "After editing harness.yaml, docs, or the routing table: recompile clients, revalidate, rebuild indexes."

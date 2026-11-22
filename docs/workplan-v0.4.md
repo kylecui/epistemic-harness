@@ -292,3 +292,12 @@ promotions）、迁移幂等（.pi/upgrade_state.json 记录已应用项）、�
 带检索日期）、abstract.md（约 260 词工作稿）。投稿前缺口与激活条件
 列于 outline.md 末尾（闸内消融、与 OmO 检测器的同集 FP 对比、enforce
 成本分析），不阻塞分支合并决策之外的任何交付。
+
+## 十七、v0.5.1 发版（2026-11-22）
+
+v0.5.0 之后的契约层热修复合集，合并线已全部入 master。发版内容：
+输出契约六类误报根修（版本号锚点、引用回环、短回复误伤、多站点重复判定、
+散文提及、行内代码提及）、回合级去重、拦截瘦身（细节入 traces）、违规取证
+追踪（code_rev + 文本指纹）。新增 harness-upgrade skill（docs/UPGRADE.md 的
+快捷入口）。升级路径：git pull → python scripts/upgrade.py --check →
+python scripts/upgrade.py（幂等，含备份与回退）。

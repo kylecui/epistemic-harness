@@ -218,9 +218,9 @@ def main() -> int:
         INSTALLED_VERSION_PATH.write_text(f"v{new}\n", encoding="utf-8")
         if not args.keep_backup:
             shutil.rmtree(backup_dir, ignore_errors=True)
-            print(f"\nupgrade complete: v{cur} -> v{new} (backup removed; --keep-backup to retain)")
+            print(f"\nupgrade complete: {cur} -> v{new} (backup removed; --keep-backup to retain)")
         else:
-            print(f"\nupgrade complete: v{cur} -> v{new} (backup kept at {backup_dir.name})")
+            print(f"\nupgrade complete: {cur} -> v{new} (backup kept at {backup_dir.name})")
         return 0
     except Exception as exc:  # noqa: BLE001 - report with rollback pointer
         print(f"\nUPGRADE FAILED: {exc}", file=sys.stderr)
