@@ -137,30 +137,30 @@ class InterceptSlimmingAndTracingTests(unittest.TestCase):
         turn_text = VIOLATING_REPLY + "\n\n" + rg.build_contract_intercept(site1, retry=False)
         self.assertEqual(rg.check_response_contract(turn_text, "system_1_5", "Converge"), [])
         self.assertEqual(eg.check_review_completeness(turn_text), [])
+def _run_review_cli(text: str) -> dict:
+    import subprocess as sp
+    proc = sp.run(
+        [sys.executable, str(PACK_ROOT / "orchestrator" / "exit_gate.py"), "--review-check"],
+        input=text, capture_output=True, text=True, timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr[-300:]
+    return json.loads(proc.stdout)
+
 
 class ReviewCheckCliTests(unittest.TestCase):
     """exit_gate.py --review-check: the TS turn-end guard's judgment entry."""
 
-    def _run_cli(self, text: str) -> dict:
-        import subprocess as sp
-        proc = sp.run(
-            [sys.executable, str(PACK_ROOT / "orchestrator" / "exit_gate.py"), "--review-check"],
-            input=text, capture_output=True, text=True, timeout=60,
-        )
-        self.assertEqual(proc.returncode, 0, proc.stderr[-300:])
-        return json.loads(proc.stdout)
-
     def test_cli_flags_violations_and_builds_bounce(self):
-        out = self._run_cli(
+        out = _run_review_cli(
             "[Tier: Structured Analysis | Mode: Converge | Confidence Cap: L2]\n"
             "## 核心结论\nx\n## 认识论分解\n[L3] 经验。\n## 证据缺口\n无。\n"
         )
-        self.assertTrue(any("silent promotion" in v for v in out["violations"]))
-        # TS wraps this payload with the [HARNESS_REVIEW_GATE_RETRY] prefix
-        self.assertIn("[REVIEW_CONTRACT_INTERCEPT]", out["bounce_retry"])
+        # cap mismatch is normalized (computed), not bounced:
+        self.assertFalse(any("silent promotion" in v for v in out["violations"]))
+        self.assertIn("归一", out.get("cap_note", ""))
 
     def test_cli_clean_text_no_bounce(self):
-        out = self._run_cli("全部测试通过, 已验证, 无遗留。\n")
+        out = _run_review_cli("全部测试通过, 已验证, 无遗留。\n")
         self.assertEqual(out["violations"], [])
         self.assertEqual(out["bounce_retry"], "")
 
@@ -170,5 +170,42 @@ class ReviewCheckCliTests(unittest.TestCase):
             "## 核心结论\nx\n## 认识论分解\n[L3] 经验。\n适用: s。反例: c。\n## 证据缺口\n无。\n"
             "\n\n[OUTPUT_CONTRACT_INTERCEPT] 输出契约违规 1 项; 首条: silent promotion\n"
         )
-        out = self._run_cli(text)
+        out = _run_review_cli(text)
         self.assertEqual(out["violations"], [])
+
+class CapNormalizationTests(unittest.TestCase):
+    """Cap is computed, not self-declared: production judges the normalized copy."""
+
+    def test_normalize_rewrites_header_and_notes(self):
+        text = ("[Tier: Structured Analysis | Mode: Converge | Confidence Cap: L2]\n"
+                "## 认识论分解\n[L3] 经验判断。\n适用: s。反例: c。\n")
+        fixed, note = rg.normalize_declared_cap(text)
+        self.assertIn("Confidence Cap: L3", fixed)
+        self.assertIn("L2", note) and self.assertIn("L3", note)
+        # judging the normalized copy: silent-promotion unreachable
+        self.assertFalse(any("silent promotion" in v
+                             for v in rg.check_response_contract(fixed, "system_1_5", "Converge")))
+
+    def test_normalize_noop_when_consistent(self):
+        text = "[Tier: X | Confidence Cap: L3]\n[L3] 经验。适用: s。反例: c。\n"
+        fixed, note = eg.normalize_declared_cap(text)
+        self.assertEqual(fixed, text)
+        self.assertIsNone(note)
+
+    def test_pure_detector_still_flags_raw_inconsistency(self):
+        """Golden TC-14 semantics preserved: the raw detector keeps working."""
+        text = ("[Tier: Structured Analysis | Mode: Converge | Confidence Cap: L2]\n"
+                "## 核心结论\n结论内容占位, 使文本超过结构检查的最小长度门槛。\n"
+                "## 认识论分解\n[L3] 经验。适用: s。反例: c。\n"
+                "## 证据缺口\n无。\n" + "补充行。\n" * 8)
+        self.assertTrue(any("silent promotion" in v
+                            for v in rg.check_output_structure(text, "system_1_5", "Converge")))
+
+    def test_cli_normalizes_before_judging(self):
+        out = _run_review_cli(
+            "[Tier: Structured Analysis | Mode: Converge | Confidence Cap: L2]\n"
+            "## 核心结论\n结论占位行。\n## 认识论分解\n[L3] 经验。适用: s。反例: c。\n"
+            "## 证据缺口\n无。\n" + "补充行。\n" * 8
+        )
+        self.assertFalse(any("silent promotion" in v for v in out["violations"]))
+        self.assertIn("归一", out.get("cap_note", ""))

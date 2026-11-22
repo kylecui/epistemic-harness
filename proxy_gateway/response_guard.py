@@ -56,6 +56,34 @@ SECTION_BREAKDOWN_RE = re.compile(r"(认识论分解|epistemic breakdown|依据�
 SECTION_GAPS_RE = re.compile(r"(证据缺口|evidence gap)", re.I)
 
 HEADER_CAP_RE = re.compile(r"Confidence Cap:\s*(L[1-5])", re.I)
+
+
+def normalize_declared_cap(text: str) -> tuple[str, str | None]:
+    """Compute the cap from the body's weakest layer and align the header.
+
+    First principle of this repo (harness.yaml L5): the confidence ceiling is
+    DETERMINISTICALLY COMPUTED IN CODE, never taken from model self-declaration.
+    A header claiming L2 over an [L3]-bearing body is therefore not a
+    bounce-able sin — it is a wrong self-declaration the engine corrects, the
+    same way the L5 DAG downgrades claims (live lesson 2026-11-22: the same
+    silent-promotion violation was generated ~5 times by the harness author
+    himself; bouncing did not change the habit, computing the cap does).
+
+    Returns (text_with_normalized_header, note_or_None). Pure function — the
+    pure detectors (check_output_structure / check_silent_promotion, golden
+    TC-14) keep flagging raw inconsistencies; production call sites normalize
+    BEFORE judging, so the violation class is unreachable in production.
+    """
+    m = HEADER_CAP_RE.search(text or "")
+    body = weakest_body_layer(text or "")
+    if not m or body is None:
+        return text or "", None
+    declared = int(m.group(1)[1])
+    if declared >= body:
+        return text or "", None
+    fixed = (text or "")[:m.start()] + f"Confidence Cap: L{body}" + (text or "")[m.end():]
+    note = f"[Harness] 头部 Confidence Cap L{declared} 与正文最弱依据 L{body} 不一致, 已按代码计算归一为 L{body}"
+    return fixed, note
 BODY_LAYER_RE = re.compile(r"\[L([1-5])\b")
 L3_TAG_RE = re.compile(r"\[L3\b")
 L3_SCOPE_RE = re.compile(r"(适用|scope|适用范围|適用|スコープ|適用範囲|적용(?:범위)?|범위)", re.I)
@@ -670,7 +698,9 @@ def check_external_grounding(text: str) -> list[str]:
     ]
 
 
-def check_response_contract(text: str, tier: str, mode: str) -> list[str]:
+def check_response_contract(
+    text: str, tier: str, mode: str, notes: list[str] | None = None
+) -> list[str]:
     """Run structure + remediation checks; returns the union of violations.
 
     Turn-level dedup (2026-11-22): the gateway checks at several call sites
@@ -678,9 +708,20 @@ def check_response_contract(text: str, tier: str, mode: str) -> list[str]:
     turn end) and each used to append its own intercept — one violation
     became N intercept blocks as the text accumulated them. If the text
     already carries an intercept marker the turn has been judged: skip.
+
+    Cap normalization (2026-11-22, second lesson): the declared header cap is
+    a model self-declaration; this repo's first principle is that the cap is
+    COMPUTED (weakest body layer). Judging happens on the normalized copy, so
+    silent-promotion is corrected, not bounced. Pure detectors
+    (check_output_structure / check_silent_promotion) keep flagging raw
+    inconsistencies for the golden suites. When `notes` is given, the
+    normalization note (if any) is appended there for the caller to surface.
     """
     if any(m in (text or "") for m in _INTERCEPT_MARKERS):
         return []
+    text, cap_note = normalize_declared_cap(text)
+    if cap_note and notes is not None:
+        notes.append(cap_note)
     violations = (
         check_output_structure(text, tier, mode)
         + check_remediation_completeness(text)

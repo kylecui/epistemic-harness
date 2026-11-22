@@ -296,6 +296,25 @@ def check_silent_promotion(text: str) -> list[str]:
     return []
 
 
+def normalize_declared_cap(text: str) -> tuple[str, str | None]:
+    """Compute the cap from the body's weakest layer and align the header.
+
+    Mirror of response_guard.normalize_declared_cap — keep the two in sync.
+    Production judges the normalized copy (cap is computed, not self-declared);
+    this pure detector above keeps flagging raw inconsistencies for the suites.
+    """
+    m = _HEADER_CAP_RE.search(text or "")
+    layers = [int(n) for n in _BODY_LAYER_RE.findall(text or "")]
+    if not m or not layers:
+        return text or "", None
+    declared, body = int(m.group(1)[1]), max(layers)
+    if declared >= body:
+        return text or "", None
+    fixed = (text or "")[:m.start()] + f"Confidence Cap: L{body}" + (text or "")[m.end():]
+    note = f"[Harness] 头部 Confidence Cap L{declared} 与正文最弱依据 L{body} 不一致, 已按代码计算归一为 L{body}"
+    return fixed, note
+
+
 def check_l3_scope(text: str) -> list[str]:
     """Each `[L3` label needs scope + counter-example anchors within 3 lines."""
     text = _drop_intercept_quotes(text)
@@ -1251,9 +1270,12 @@ def _cli() -> int:
 
     if "--review-check" in sys.argv:
         text = sys.stdin.read()
+        # Cap is computed, not self-declared (same normalization as the gateway).
+        text, cap_note = normalize_declared_cap(text)
         violations = check_review_completeness(text)
         print(json.dumps({
             "violations": violations,
+            "cap_note": cap_note or "",
             "bounce_retry": build_review_intercept(violations, retry=True) if violations else "",
             "bounce_halt": build_review_intercept(violations, retry=False) if violations else "",
         }, ensure_ascii=False))
