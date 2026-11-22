@@ -16,3 +16,4 @@ __pycache__/
 .pi/controller_metrics.jsonl
 .pi/hollow_audit.jsonl
 .pi/upgrade_state.json
+.pi/installed_version
