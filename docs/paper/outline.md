@@ -44,6 +44,10 @@ failure classes require in-loop claim binding.
    passes strict golden matrix only 11/30 across 5 trials; two distinct
    failure modes (protocol skipping, false conflict declaration). Motivates
    deterministic enforcement. Artifact: `evals/reports/real_matrix_*`.
+5. **A live-fire deployment taxonomy** — seven enumerable false-positive
+   classes found and closed in one production day, plus the two architectural
+   lessons (every enforcement needs a wired caller; caps are computed, not
+   declared). Artifacts: case-study-live-fire.md, 27 regression tests.
 
 ## Target venues (ranked)
 
@@ -68,6 +72,9 @@ failure classes require in-loop claim binding.
 5. **Effect methodology** — inducement scenarios; baseline/harness
    isolation; honest scope notes (transport active in both modes).
 6. **Results** — see `experiments.md` for the full tables.
+6b. **Deployment case study** — one day of live fire against the authors
+   themselves: seven false-positive classes, the no-caller gap, computed-cap
+   principle. Source: case-study-live-fire.md (every row = commit + test).
 7. **Threats to validity** — single flagship model (+1 secondary), n=5,
    post-hoc measurement without in-loop gate on FC, parametric-memory
    confound in memory experiments, regex-language coverage (zh/en/ja/ko).

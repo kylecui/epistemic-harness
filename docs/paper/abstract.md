@@ -25,7 +25,11 @@ models pass a strict prompt-only contract only 11/30 and 18/30 across trials
 (two frontier families), and neither declares hard-axiom conflicts unprompted
 (0/10) — demonstrating why deterministic enforcement rather than stronger
 prompting is the right lever. Enforcement costs +3.8k input tokens and
-~0.2 s per turn. All artifacts, suites and measurement reports are open and
+~0.2 s per turn. A one-day live deployment against the authors themselves
+surfaced seven enumerable false-positive classes — each closed with a
+regression test — demonstrating that the precision barrier the incumbent
+cited for staying in shadow mode is surmountable, and that the residual
+obligations are the ones agents genuinely fail. All artifacts, suites and measurement reports are open and
 committed.
 
 ~260 words. Target: NeurIPS/ICLR agent workshop; trim to 200 if the CFP

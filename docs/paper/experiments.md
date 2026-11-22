@@ -151,3 +151,10 @@ side; our scenarios under-sample that class. Report:
 Report: `enforcement_cost_20261122T104128Z.json`. Reading: the per-turn cost
 is dominated by prompt tokens (~4k), trivial CPU, sub-second latency — cheap
 relative to a false completion escaping into production.
+
+## E9 — Live-fire deployment taxonomy (case study, not a controlled experiment)
+
+Seven false-positive classes and two architectural findings from one day of
+the enforcement layer operating on its own authors' session. Full timeline
+with commit-level evidence: `case-study-live-fire.md`. Not a controlled
+experiment — included as deployment evidence for contribution 2/5.
