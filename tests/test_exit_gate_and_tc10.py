@@ -139,7 +139,11 @@ class TestExitGateAndTC10(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)
             _init_tc10_fixture_repo(repo)
-            (repo / "pricing.py").write_text("x = 1\n", encoding="utf-8")
+            (repo / "pricing.py").write_text(
+                "def apply_discount(subtotal: float, pct: float) -> float:\n"
+                "    return max(0.0, round(subtotal * (1 - pct / 100.0), 2))\n",
+                encoding="utf-8",
+            )
             (repo / ".tmp_omo.md").write_text("scratch\n", encoding="utf-8")
             (repo / ".scratch_notes.md").write_text("scratch\n", encoding="utf-8")
 
