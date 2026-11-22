@@ -57,7 +57,13 @@ SHIRKING_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"(不是我引入|原有问题|历史遗留|与本次修改无关|超出本次范围|留给用户|非本次改动导致)"),
 ]
 
-DEFAULT_RESIDUE_GLOBS = ["*.tmp", "*.bak", "*.orig", "debug_*.py", "scratch_*", "tmp_*"]
+DEFAULT_RESIDUE_GLOBS = [
+    "*.tmp", "*.bak", "*.orig", "debug_*.py", "scratch_*", "tmp_*",
+    # dotfile scratch (e.g. `.tmp_omo.md` found in repo root 2026-11-22): the
+    # plain `tmp_*` glob does NOT match a leading-dot name under fnmatch rules
+    # (`.*.tmp*` needs two dots; `.tmp_omo.md` has one).
+    ".*tmp*", ".*scratch*", ".*debug*", ".*.bak", ".*.orig",
+]
 
 # ---------------------------------------------------------------------------
 # Review-turn contract checks (mirror of proxy_gateway/response_guard.py)

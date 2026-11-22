@@ -77,12 +77,56 @@ def check_docs_index(problems: list[str]) -> None:
             problems.append(f"docs/{doc.name} is not listed in docs/README.md")
 
 
+def _discover_test_count() -> int:
+    """Count unittest cases under tests/ without executing them (discovery imports only)."""
+    import unittest
+
+    loader = unittest.TestLoader()
+    suite = loader.discover(str(REPO_ROOT / "tests"), top_level_dir=str(REPO_ROOT))
+
+    def count(s: unittest.TestSuite) -> int:
+        n = 0
+        for item in s:
+            if isinstance(item, unittest.TestSuite):
+                n += count(item)
+            else:
+                n += 1
+        return n
+
+    return count(suite)
+
+
+def check_test_count_badge(problems: list[str]) -> None:
+    """README's `tests-N green` badge must equal the real discovered count.
+
+    Catches exactly the drift found on 2026-11-22 (badge said 206, the suite
+    had grown to 222): version-string alignment alone never notices numeric
+    badges going stale.
+    """
+    badge_re = re.compile(r"tests-(\d+)%20green")
+    for name in ("README.md", "README_ZH.md"):
+        path = REPO_ROOT / name
+        if not path.exists():
+            continue
+        m = badge_re.search(path.read_text(encoding="utf-8"))
+        if not m:
+            continue
+        actual = _discover_test_count()
+        if int(m.group(1)) != actual:
+            problems.append(
+                f"{name} badge says {m.group(1)} tests but discovery finds {actual} — "
+                "update the badge (or run the suite and sync the real number)"
+            )
+            return  # one report is enough; both badges are updated together
+
+
 def main() -> int:
     problems: list[str] = []
     check_version_alignment(problems)
     check_compiled_clients(problems)
     check_install_doc(problems)
     check_docs_index(problems)
+    check_test_count_badge(problems)
     if problems:
         print("docs drift detected — docs and code must ship in sync:", file=sys.stderr)
         for p in problems:
