@@ -76,6 +76,78 @@ _DEFECT_ITEM_RE = re.compile(
 )
 _ACCEPTANCE_RE = re.compile(r"(验收|acceptance)", re.I)
 _ROLLBACK_RE = re.compile(r"(回退|回滚|rollback|恢复路径)", re.I)
+
+# --- Substance checks (2026-11-22 review, defect #2; mirror of
+# proxy_gateway/response_guard.py — keep the two in sync) --------------------
+_FILLER_RE = re.compile(
+    r"(各种情况|视情况(?:而定)?|具体情况|都有可能|某些情况|有时候|部分情况|"
+    r"因情况而异|都有可能|不好说|不一定|不适用|not applicable|\bn/?a\b)",
+    re.I,
+)
+_FALSIFIABLE_RE = re.compile(
+    r"(\d|exit\s*0|assert|断言|单测|单元测试|集成测试|unittest|pytest|green|"
+    r"为零|0\s*条|不通过|相等|一致|match|curl|命令|复现失败|计数)",
+    re.I,
+)
+_ROLLBACK_CONCRETE_RE = re.compile(
+    r"(git|快照|备份|开关|feature flag|revert|镜像|上一版本|恢复原|回滚到|"
+    r"回滚迁移|迁移回滚|命令|脚本|备份文件|重新部署)",
+    re.I,
+)
+_CJK_RUN = re.compile(r"[一-鿿]+")
+_STRUCTURED_BLOCK_RE = re.compile(r"```harness-claim\s*\n(.*?)```", re.S)
+_STRUCT_REQUIRED_FIELDS = ("defect", "fix_points", "rollback", "acceptance")
+
+
+def _substantive(text: str, min_cjk_chars: int = 3) -> bool:
+    cleaned = _FILLER_RE.sub(" ", text or "")
+    return sum(len(m.group(0)) for m in _CJK_RUN.finditer(cleaned)) >= min_cjk_chars
+
+
+def _anchor_substantive(window: str, anchor_re: "re.Pattern[str]") -> bool:
+    # Mirror of response_guard._anchor_substantive: substance is judged on the
+    # anchor's own line only, so a neighbouring section cannot lend weight to
+    # a filler phrase like '适用: 各种情况'.
+    m = anchor_re.search(window or "")
+    if not m:
+        return False
+    rest = window[m.end():].split("\n", 1)[0]
+    return _substantive(rest[:60])
+
+
+def _validate_structured_claims(text: str) -> tuple[list[dict], list[str]]:
+    """Parse and validate ```harness-claim JSON blocks (mirror of response_guard)."""
+    import json as _json
+
+    claims: list[dict] = []
+    violations: list[str] = []
+    for block_idx, m in enumerate(_STRUCTURED_BLOCK_RE.finditer(text or "")):
+        raw = m.group(1).strip()
+        try:
+            data = _json.loads(raw)
+        except ValueError as exc:
+            violations.append(f"harness-claim 块 #{block_idx + 1}: JSON 解析失败 ({exc})")
+            continue
+        items = data if isinstance(data, list) else [data]
+        for item_idx, item in enumerate(items):
+            label = f"harness-claim #{block_idx + 1}.{item_idx + 1}"
+            if not isinstance(item, dict):
+                violations.append(f"{label}: 必须是 JSON object")
+                continue
+            for field in _STRUCT_REQUIRED_FIELDS:
+                value = str(item.get(field, "") or "")
+                if not value.strip():
+                    violations.append(f"{label}: 字段 '{field}' 为空")
+                elif field == "acceptance" and not _FALSIFIABLE_RE.search(value):
+                    violations.append(f"{label}: acceptance 缺少可证伪判据 (数字/测试命令/断言)")
+                elif field == "rollback" and not (
+                    _ROLLBACK_CONCRETE_RE.search(value) and _substantive(value, min_cjk_chars=2)
+                ):
+                    violations.append(f"{label}: rollback 缺少具体机制 (git/快照/开关/命令)")
+                elif field in ("defect", "fix_points") and not _substantive(value, min_cjk_chars=4):
+                    violations.append(f"{label}: 字段 '{field}' 内容过短或为样板话")
+            claims.append(item)
+    return claims, violations
 _DOWNGRADE_RE = re.compile(
     r"(最小后续动作|minimal next (?:actions|steps)|补一段文档|补充文档|写进已知问题|"
     r"记为已知问题|记入已知问题|留待观察|defer(?:red)? to)",
@@ -114,14 +186,40 @@ def check_remediation_completeness(text: str) -> list[str]:
     if not text or not text.strip():
         return []
     items = _defect_items(text)
+    structured_claims, structured_violations = _validate_structured_claims(text)
+    if structured_claims:
+        # Structured path chosen: prose anchor checks waived; schema violations only.
+        return structured_violations
     if not items:
-        return []
+        return structured_violations
     if _L4_TRADEOFF_RE.search(text):
         return []
-    violations: list[str] = []
+    violations: list[str] = list(structured_violations)
     for label, segment in items:
-        if not _ACCEPTANCE_RE.search(segment):
+        acc_match = _ACCEPTANCE_RE.search(segment)
+        if not acc_match:
             violations.append(f"{label}: 已声明缺陷但缺少验收判据 (验收/acceptance)")
+        else:
+            # Mirror of response_guard: scan the criterion itself, not the whole
+            # segment — the item label's digit ("缺陷1") must not count as the
+            # falsifiable number.
+            acc_rest = segment[acc_match.end():acc_match.end() + 80]
+            if not _FALSIFIABLE_RE.search(acc_rest):
+                violations.append(
+                    f"{label}: 验收判据不可证伪 (需数字/测试命令/断言, 而非 '测试通过即可')"
+                )
+        rb_match = _ROLLBACK_RE.search(segment)
+        if not rb_match:
+            violations.append(f"{label}: 已声明缺陷但缺少回退路径 (回退/rollback)")
+        else:
+            rb_rest = segment[rb_match.end():rb_match.end() + 80]
+            if not (
+                _ROLLBACK_CONCRETE_RE.search(rb_rest)
+                and _substantive(rb_rest, min_cjk_chars=2)
+            ):
+                violations.append(
+                    f"{label}: 回退路径不具体 (需命名机制: git/快照/开关/命令, 而非 '可回退')"
+                )
         if not _ROLLBACK_RE.search(segment):
             violations.append(f"{label}: 已声明缺陷但缺少回退路径 (回退/rollback)")
     downgrade = _DOWNGRADE_RE.search(text)
@@ -157,9 +255,9 @@ def check_l3_scope(text: str) -> list[str]:
         for _m in _L3_TAG_RE.finditer(line):
             window = "\n".join(lines[idx:idx + 3])
             missing = []
-            if not _L3_SCOPE_RE.search(window):
+            if not _anchor_substantive(window, _L3_SCOPE_RE):
                 missing.append("适用/scope")
-            if not _L3_COUNTER_RE.search(window):
+            if not _anchor_substantive(window, _L3_COUNTER_RE):
                 missing.append("反例/counter-example")
             if missing:
                 violations.append(f"[L3] 标签(第{idx + 1}行)后 3 行内缺少: {', '.join(missing)}")
