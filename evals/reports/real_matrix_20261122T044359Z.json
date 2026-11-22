@@ -1,0 +1,39 @@
+{
+  "runner": "evals/run_real_matrix.py",
+  "generated_at": "2026-11-22T04:43:59+00:00",
+  "lang": "zh",
+  "models": [
+    "zhipu-glm-5.3-flash"
+  ],
+  "results": [
+    {
+      "model": "zhipu-glm-5.3-flash",
+      "case_id": "TC-01",
+      "passed": false,
+      "failures": [
+        "Missing `audit_dag` MCP result in JSON event stream.",
+        "Missing `audit_dag` MCP result to verify `converge_allowed`."
+      ],
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3-flash",
+      "case_id": "TC-04",
+      "passed": true,
+      "failures": [],
+      "tools_used": [],
+      "audit_cap": null,
+      "converge_allowed": null
+    }
+  ]
+}

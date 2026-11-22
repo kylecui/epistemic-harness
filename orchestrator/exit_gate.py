@@ -70,7 +70,10 @@ DEFAULT_RESIDUE_GLOBS = [
 # ---------------------------------------------------------------------------
 
 _DEFECT_ITEM_RE = re.compile(
-    r"(?:\bP[1-9]\d?\b|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
+    # 'P1' style anchors must not fire on version/milestone numbers like
+    # 'P1.6' or 'P12.3' (live false positive 2026-11-22: a progress header
+    # 'P1.6 完成' was read as a declared defect item).
+    r"(?:\bP[1-9]\d?(?![.\d])\b|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
     r"\bdefect\s*#?[1-9]\d?|\bissue\s*#?[1-9]\d?)",
     re.I,
 )

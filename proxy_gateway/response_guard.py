@@ -64,7 +64,9 @@ L3_COUNTER_RE = re.compile(r"(反例|counter[- ]?example|失效)", re.I)
 # number) so the compliant "证据缺口 & Complete Remediation Plan" section
 # header alone never triggers the check.
 DEFECT_ITEM_RE = re.compile(
-    r"(?:\bP[1-9]\d?\b|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
+    # Mirror of exit_gate: 'P1' must not fire on version/milestone numbers
+    # ('P1.6' progress header false positive, 2026-11-22).
+    r"(?:\bP[1-9]\d?(?![.\d])\b|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
     r"\bdefect\s*#?[1-9]\d?|\bissue\s*#?[1-9]\d?)",
     re.I,
 )

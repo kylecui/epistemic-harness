@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -70,6 +71,16 @@ class EvalOutcome:
 def _extract_text_blocks(content: Any) -> str:
     if isinstance(content, str):
         return content
+    if isinstance(content, dict):
+        # tool result envelopes: {"content": [...blocks...]} (pi codemode results)
+        inner = content.get("content")
+        if inner is not None:
+            return _extract_text_blocks(inner)
+        if isinstance(content.get("text"), str):
+            return content["text"]
+        if isinstance(content.get("output"), (list, str)):
+            return _extract_text_blocks(content["output"])
+        return ""
     if isinstance(content, list):
         parts: list[str] = []
         for block in content:
@@ -90,6 +101,48 @@ def _normalize_tool_name(name: str) -> str:
         if sep in name:
             name = name.split(sep)[-1]
     return name
+
+
+# MCP tools are invoked INSIDE codemode scripts (pi exposes MCP servers to the
+# model as codemode tool declarations), so the JSON event stream records
+# toolName "codemode", not "audit_dag". Recover the real tool names from the
+# script source so require_mcp_tools assertions stay meaningful.
+_CODEMODE_MCP_RE = re.compile(r"mcp__epistemic(?:_harness|_orchestrator)__([a-zA-Z0-9_]+)")
+_KNOWN_MCP_TOOLS = (
+    "query_l1", "search_l2", "recall_l3", "register_l4_input", "submit_l5_claim",
+    "audit_dag", "query_l5", "recall_memory", "propose_promotion", "bias_scan",
+)
+
+
+def _codemode_tool_names(code: str) -> list[str]:
+    names = [_normalize_tool_name(m.group(0)) for m in _CODEMODE_MCP_RE.finditer(code or "")]
+    for t in _KNOWN_MCP_TOOLS:
+        if re.search(rf"\b{re.escape(t)}\b", code or ""):
+            names.append(t)
+    return names
+
+
+def _extract_audit_from_text(text: str) -> dict[str, Any] | None:
+    """Locate an audit_dag JSON object embedded in codemode console output.
+
+    The stream text has prose prefixes ("Script completed...Output:") and the
+    audit object may sit inside a larger returned JSON, so brace-match outward
+    from the key instead of json.loads-ing the whole text.
+    """
+    idx = (text or "").find('"overall_confidence_cap"')
+    if idx < 0:
+        return None
+    dec = json.JSONDecoder()
+    for s in range(text.rfind("{", 0, idx), max(-1, text.rfind("{", 0, idx) - 4000), -1):
+        if text[s] != "{":
+            continue
+        try:
+            obj, _ = dec.raw_decode(text[s:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and "overall_confidence_cap" in obj:
+            return obj
+    return None
 
 
 def parse_pi_jsonl_events(case_id: str, raw_stdout: bytes, exit_code: int, stderr: str) -> RunTrace:
@@ -125,12 +178,22 @@ def parse_pi_jsonl_events(case_id: str, raw_stdout: bytes, exit_code: int, stder
                         tname = block.get("name") or block.get("toolName")
                         if isinstance(tname, str):
                             trace.tool_calls.append(_normalize_tool_name(tname))
+                            if tname == "codemode":
+                                args = block.get("arguments") or block.get("input") or {}
+                                if isinstance(args, dict):
+                                    trace.tool_calls.extend(_codemode_tool_names(
+                                        str(args.get("code", ""))))
 
-        # 2. Dedicated tool call start events
-        if ev_type in ("tool_execution_start", "tool_call"):
+        # 2. Dedicated tool call start events (pi emits camelCase 'toolCall'
+        # blocks both top-level and inside assistant messages)
+        if ev_type in ("tool_execution_start", "tool_call", "toolCall"):
             tname = event.get("toolName") or event.get("name")
             if isinstance(tname, str):
                 trace.tool_calls.append(_normalize_tool_name(tname))
+                if tname == "codemode":
+                    args = event.get("arguments") or {}
+                    if isinstance(args, dict):
+                        trace.tool_calls.extend(_codemode_tool_names(str(args.get("code", ""))))
 
         # 3. Tool result capture (including MCP `audit_dag` JSON payload & hard errors)
         if msg.get("role") == "toolResult" or ev_type in ("tool_execution_end", "tool_result"):
@@ -139,13 +202,16 @@ def parse_pi_jsonl_events(case_id: str, raw_stdout: bytes, exit_code: int, stder
             result_text = _extract_text_blocks(result_payload)
             if "HARD_CONSTRAINT_ERROR" in result_text or event.get("isError") is True:
                 trace.tool_errors.append(result_text)
+            audit = None
             if tname == "audit_dag" or '"overall_confidence_cap"' in result_text:
                 try:
                     parsed = json.loads(result_text)
                     if isinstance(parsed, dict) and "overall_confidence_cap" in parsed:
-                        trace.audit_dag_results.append(parsed)
+                        audit = parsed
                 except json.JSONDecodeError:
-                    pass
+                    audit = _extract_audit_from_text(result_text)
+            if audit is not None:
+                trace.audit_dag_results.append(audit)
 
     return trace
 
