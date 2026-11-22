@@ -283,3 +283,12 @@ promotions）、迁移幂等（.pi/upgrade_state.json 记录已应用项）、�
 不覆盖用户 exit_gate 配置、失败留备份并给回退指令、成功四重验收
 （迁移报告 → 容器重建+health → 单测绿 → 版本戳）。已在本仓库实跑两轮
 验证幂等（v0.4.0 → v0.5.0）。`tests/test_upgrade.py` 4 项。
+
+## 十七、v0.5.1 发版（2026-11-22）
+
+v0.5.0 之后的契约层热修复合集，合并线已全部入 master。发版内容：
+输出契约六类误报根修（版本号锚点、引用回环、短回复误伤、多站点重复判定、
+散文提及、行内代码提及）、回合级去重、拦截瘦身（细节入 traces）、违规取证
+追踪（code_rev + 文本指纹）。新增 harness-upgrade skill（docs/UPGRADE.md 的
+快捷入口）。升级路径：git pull → python scripts/upgrade.py --check →
+python scripts/upgrade.py（幂等，含备份与回退）。
