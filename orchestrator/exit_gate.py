@@ -75,9 +75,11 @@ DEFAULT_RESIDUE_GLOBS = [
 _DEFECT_ITEM_RE = re.compile(
     # 'P1' style anchors must not fire on version/milestone numbers like
     # 'P1.6' or 'P12.3' (live false positive 2026-11-22: a progress header
-    # 'P1.6 完成' was read as a declared defect item).
-    r"(?:\bP[1-9]\d?(?![.\d])\b|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
-    r"\bdefect\s*#?[1-9]\d?|\bissue\s*#?[1-9]\d?)",
+    # 'P1.6 完成' was read as a declared defect item). Every anchor requires
+    # a trailing colon: bare prose mentions ('缺陷项 P1', 'P2 回环') are not
+    # defect declarations (live false positive, same day).
+    r"(?:\bP[1-9]\d?(?![.\d])|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
+    r"\bdefect\s*#?[1-9]\d?|\bissue\s*#?[1-9]\d?)\s*[:：]",
     re.I,
 )
 _ACCEPTANCE_RE = re.compile(r"(验收|acceptance)", re.I)
@@ -212,7 +214,7 @@ def _defect_items(text: str) -> list[tuple[str, str]]:
     items: list[tuple[str, str]] = []
     for i, m in enumerate(matches):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        items.append((m.group(0), text[m.start():end]))
+        items.append((m.group(0).rstrip(':：'), text[m.start():end]))
     return items
 
 
@@ -394,7 +396,16 @@ def check_external_grounding(text: str) -> list[str]:
 
 
 def check_review_completeness(text: str) -> list[str]:
-    """Union of review-turn contract checks. Empty means compliant."""
+    """Union of review-turn contract checks. Empty means compliant.
+
+    Turn-level dedup (2026-11-22): the exit gate runs at turn end on text
+    the gateway may already have judged and appended an intercept to;
+    without this guard the quoted bullets re-flagged and each check site
+    appended another intercept (observed: 3 blocks in one turn, counts
+    doubling per turn). Already-judged text is skipped.
+    """
+    if any(m in (text or "") for m in _INTERCEPT_MARKERS):
+        return []
     return (
         check_remediation_completeness(text)
         + check_silent_promotion(text)
