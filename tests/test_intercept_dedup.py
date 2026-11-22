@@ -1,0 +1,78 @@
+"""Regression: turn-level dedup + colon-required defect anchors.
+
+Live incident 2026-11-22: one assistant turn accumulated THREE intercept
+blocks because the gateway checks at several call sites (non-streaming
+initial/retry/final + streaming variants) and the exit gate re-checks at
+turn end — none deduplicated, so each site judged text that already carried
+a previous site's intercept. Additionally, prose mentions like '缺陷项 P1'
+and 'P2 回环' matched the defect-item anchors without declaring anything.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+import sys
+import unittest
+
+PACK_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PACK_ROOT))
+
+
+def _load(name: str, rel: str):
+    spec = importlib.util.spec_from_file_location(name, PACK_ROOT / rel)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec and spec.loader
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+rg = _load("response_guard_dedup", "proxy_gateway/response_guard.py")
+eg = _load("exit_gate_dedup", "orchestrator/exit_gate.py")
+
+VIOLATING_REPLY = (
+    "某段缺章节的长回复内容, 足够触发结构检查。" * 24
+)
+INTERCEPT_TAIL = (
+    "\n\n[OUTPUT_CONTRACT_INTERCEPT] 输出契约违规(评审回合):\n"
+    "  - P2: 已声明缺陷但缺少验收判据 (验收/acceptance)\n"
+    "  - P2: 已声明缺陷但缺少回退路径 (回退/rollback)\n"
+    "请按契约重做本回合: 三段式结构 ...\n"
+)
+
+
+class InterceptDedupTests(unittest.TestCase):
+    def test_second_check_site_sees_already_judged_text_and_skips(self):
+        first = rg.check_response_contract(VIOLATING_REPLY, "system_1_5", "Converge")
+        self.assertTrue(first, "first judgement must still fire")
+        second = rg.check_response_contract(VIOLATING_REPLY + INTERCEPT_TAIL, "system_1_5", "Converge")
+        self.assertEqual(second, [], "already-judged text must not be re-judged")
+
+    def test_exit_gate_turn_end_skips_gateway_judged_text(self):
+        self.assertEqual(eg.check_review_completeness(VIOLATING_REPLY + INTERCEPT_TAIL), [])
+
+    def test_prose_mentions_without_colon_do_not_declare_defects(self):
+        text = ("表格说明: 缺陷项 P1 是版本号误捕案例; 监控项: P2 回环复现一次即升级调查。\n"
+                "均已修复, 无遗留。\n")
+        self.assertEqual(rg.check_remediation_completeness(text), [])
+        self.assertEqual(eg.check_remediation_completeness(text), [])
+
+    def test_real_colon_declarations_still_caught(self):
+        text = "缺陷1: 真实缺陷。\n改动点: 改。\n回退: 可以回退。\n验收: 测试通过即可。\n"
+        self.assertTrue(rg.check_remediation_completeness(text))
+        self.assertTrue(eg.check_remediation_completeness(text))
+
+    def test_multiplication_scenario_end_to_end(self):
+        """Simulate the live incident: site 1 judges, appends; site 2 (turn
+        end) must stay silent — total intercepts per turn = 1, not 3."""
+        site1 = rg.check_response_contract(VIOLATING_REPLY, "system_1_5", "Converge")
+        turn_text = VIOLATING_REPLY + "\n\n" + rg.build_contract_intercept(site1, retry=False)
+        site2_gateway = rg.check_response_contract(turn_text, "system_1_5", "Converge")
+        site2_engine = eg.check_review_completeness(turn_text)
+        self.assertEqual(site2_gateway, [])
+        self.assertEqual(site2_engine, [])
+
+
+if __name__ == "__main__":
+    unittest.main()

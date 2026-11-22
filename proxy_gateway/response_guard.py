@@ -65,9 +65,11 @@ L3_COUNTER_RE = re.compile(r"(反例|counter[- ]?example|失效|失敗例|例外
 # header alone never triggers the check.
 DEFECT_ITEM_RE = re.compile(
     # Mirror of exit_gate: 'P1' must not fire on version/milestone numbers
-    # ('P1.6' progress header false positive, 2026-11-22).
-    r"(?:\bP[1-9]\d?(?![.\d])\b|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
-    r"\bdefect\s*#?[1-9]\d?|\bissue\s*#?[1-9]\d?)",
+    # ('P1.6' progress header false positive, 2026-11-22); and every item
+    # anchor requires a trailing colon — bare mentions like '缺陷项 P1' or
+    # 'P2 回环' in prose are not declarations (live FP, 2026-11-22).
+    r"(?:\bP[1-9]\d?(?![.\d])|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
+    r"\bdefect\s*#?[1-9]\d?|\bissue\s*#?[1-9]\d?)\s*[:：]",
     re.I,
 )
 ACCEPTANCE_RE = re.compile(r"(验收|acceptance)", re.I)
@@ -445,7 +447,7 @@ def _defect_items(text: str) -> list[tuple[str, str]]:
     items: list[tuple[str, str]] = []
     for i, m in enumerate(matches):
         end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
-        items.append((m.group(0), text[m.start():end]))
+        items.append((m.group(0).rstrip(':：'), text[m.start():end]))
     return items
 
 
@@ -612,7 +614,16 @@ def check_external_grounding(text: str) -> list[str]:
 
 
 def check_response_contract(text: str, tier: str, mode: str) -> list[str]:
-    """Run structure + remediation checks; returns the union of violations."""
+    """Run structure + remediation checks; returns the union of violations.
+
+    Turn-level dedup (2026-11-22): the gateway checks at several call sites
+    (non-streaming initial/retry/final, streaming, plus the exit gate at
+    turn end) and each used to append its own intercept — one violation
+    became N intercept blocks as the text accumulated them. If the text
+    already carries an intercept marker the turn has been judged: skip.
+    """
+    if any(m in (text or "") for m in _INTERCEPT_MARKERS):
+        return []
     return (
         check_output_structure(text, tier, mode)
         + check_remediation_completeness(text)
