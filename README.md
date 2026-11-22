@@ -2,8 +2,8 @@
 
 **Governance for LLM coding agents: evidence-bound claims, tiered cognition, and loops that exhaust problems instead of ping-ponging them.**
 
-[![version](https://img.shields.io/badge/version-v0.4.0-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-206%20green-brightgreen)](scripts/verify.py)
+[![version](https://img.shields.io/badge/version-v0.5.0-blue)](docs/workplan-v0.4.md)
+[![tests](https://img.shields.io/badge/tests-254%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *中文介绍见 [README_ZH.md](README_ZH.md)。 All normative content (rules, contracts, skills) is English-only; Chinese exists only as auxiliary translation.*
@@ -81,18 +81,41 @@ English and Chinese. Query them any time via the orchestrator MCP (`query_skills
 - [docs/execution-runner.md](docs/execution-runner.md) — why verification runs in Docker first
 - [docs/browser-runner.md](docs/browser-runner.md) — where the browser goes for CDP work
 - [docs/workplan-v0.4.md](docs/workplan-v0.4.md) — v0.4 delivery log with measured evidence
+- [docs/UPGRADE.md](docs/UPGRADE.md) — upgrade an existing install (idempotent migrations + rollback)
 
 ## Development
 
 ```bash
 git clone https://github.com/kylecui/epistemic-harness.git
 cd epistemic-harness
-./scripts/hvx                                # 206 tests, docker by default
-python evals/run_evals.py --mock             # golden-case regression (12/12)
+./scripts/hvx                                # 254 tests, docker by default
+python evals/run_evals.py --mock             # fixture self-test 12/12 (tests the assertions, not models)
+python evals/run_real_matrix.py              # real-model golden matrix, reports -> evals/reports/
+python evals/false_completion/run_experiment.py     # false-completion inducement (baseline vs harness)
+python evals/memory_effectiveness/run_experiment.py  # memory effectiveness: behaviour, not hit rate
 python scripts/check_eol.py                  # line-ending policy
-python scripts/check_docs.py                 # docs/code sync gate
+python scripts/check_docs.py                 # docs/code sync gate (incl. test-count badge alignment)
 python scripts/analyze_dispatches.py         # what was delegated, to which model, at what effort
-python scripts/capability_matrix.py          # the (model × effort) schedulable space
+python scripts/capability_matrix.py          # the (model × effort) schedulable space (estimate_only)
+python scripts/controller_metrics.py         # measured direct-write vs dispatch rate (not claimed)
+python scripts/traces_panel.py               # traces/ -> single-file HTML panel
 ```
+
+## v0.5 quality program (2026-11-22)
+
+Hard fixes for the self-deception channels found in the deep review, each with
+an adversarial suite:
+
+- **L5 anti-laundering**: citations must appear in this session's retrieval
+  trace (GROUNDING_VIOLATION hard error); claim text matching an undeclared L3
+  heuristic is force-inherited as an implicit dependency and capped at L3
+  (13/13 attacks intercepted, 0/7 clean claims false-flagged).
+- **Contract substance**: boilerplate ("适用: 各种情况") no longer counts;
+  acceptance must be falsifiable, rollback must name a mechanism; a structured
+  ```harness-claim JSON path waives prose anchors (10/10 hollow replies
+  intercepted on both gateway and exit_gate).
+- **Real-model measurement**: mock 12/12 is demoted to fixture self-test; real
+  golden matrix / false-completion / memory-effectiveness reports land in
+  evals/reports/ and are committed — README numbers must trace to a commit.
 
 MIT licensed. See [LICENSE](LICENSE).

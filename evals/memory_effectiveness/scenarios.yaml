@@ -1,0 +1,30 @@
+# Memory-effectiveness scenarios (P1.7, 2026-11-22).
+#
+# Lesson from arXiv:2611.22179 (RAG in a Trenchcoat, read 2026-11-21):
+# memory benchmarks score what retrieval fetches, not what the agent then
+# DOES with it. So these scenarios measure behaviour on facts that already
+# live in the harness memory store (container MCP):
+#   recall_used  — the agent invoked a memory MCP tool during the turn
+#   fact_used    — the stored fact demonstrably shaped the answer (probe match)
+#   tier_honest  — the fact (an L3 heuristic) is labelled as assumption/L3 with
+#                  its limits, not asserted as established truth
+#
+# Modes: no_memory (no MCP wiring) vs with_memory (MCP wired). The fact exists
+# ONLY in the harness store, so with_memory forces tool-mediated recall.
+
+scenarios:
+  - id: ME-01
+    name: startup architecture advice (stored L3 heuristics)
+    prompt: |
+      我们是一个 5 人初创团队, 新产品 DAU 预计不到 500。技术选型上要不要一上来就微服务 + Kubernetes? 给建议和理由, 保持简洁。
+    fact_probe: (微服务|单体|K8s|Kubernetes|模块化)
+    honest_probe: (L3|假设|经验|启发式|未验证|反例|适用范围|视情况|不能一概而论|unverified|heuristic)
+    recall_query: 微服务
+
+  - id: ME-02
+    name: trial-period conversion claim (stored L3 + L1)
+    prompt: |
+      我们的自助注册 SaaS 想把 14 天免费试用缩到 7 天, 预计能提升多少付费转化? 给出你的判断和依据, 保持简洁。
+    fact_probe: (30%|试用|转化|A/B|实验)
+    honest_probe: (L3|博客|样本|假设|不可外推|未验证|不承诺|无法保证|unverified|heuristic|实验)
+    recall_query: 试用期

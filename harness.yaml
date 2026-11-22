@@ -1,5 +1,5 @@
 # 单一规范源 — Epistemic & Dual-Process Governance Harness
-version: 0.4.0
+version: 0.5.0
 name: epistemic-dual-process-harness
 description: Canonical Single Source of Truth for the Epistemic & Dual-Process Governance
   Harness (Phase 1+2).
@@ -103,10 +103,16 @@ thinking_language:
       拉通, 对齐, 打通, 沉淀, 链路), and no stiff translationese (avoid passive 被...所... and
       stacked 的...的... modifiers).'
 orchestration:
-  controller_contract: 'The main agent is a pure controller: understand the task,
-    decompose it, classify each subtask (classify_task), dispatch to a sub-agent (dispatch_subagent),
-    collect results, and converge (submit_l5_claim + audit_dag). The main agent NEVER
-    writes concrete implementation content itself.'
+  controller_contract: 'Measured controller model (v0.5, 2026-11-22): the main
+    agent acts as controller for substantial work — understand the task, decompose it
+    (classify_task), dispatch to sub-agents (dispatch_subagent), collect results,
+    and converge (submit_l5_claim + audit_dag). Small mechanical edits (<=15 changed
+    lines) may be executed directly without ceremony (lowest-viable-tier default);
+    larger edits are bounced toward plan/critic review by harness-guard. Controller
+    behaviour is MEASURED, not assumed: harness-guard writes per-turn direct-write/
+    dispatch records to .pi/controller_metrics.jsonl, and scripts/controller_metrics.py
+    reports the actual rates. A claimed mandate nobody verified is a pseudo-contract
+    (issue #3 class); a measured one with numeric triggers can be improved honestly.'
   agent_profiles:
     explorer: system_1
     coder: system_1_5

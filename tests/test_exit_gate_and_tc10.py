@@ -133,6 +133,33 @@ class TestExitGateAndTC10(unittest.TestCase):
             d2 = gate.evaluate("已清理临时文件，全部测试通过。", mutated_this_turn=True)
             self.assertTrue(d2.passed)
 
+    def test_03b_dotfile_scratch_residue_is_caught(self):
+        """`.tmp_omo.md` sat untracked in the repo root while the old globs missed it:
+        fnmatch `tmp_*` never matches a leading-dot name. The dotfile globs must."""
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = Path(tmp)
+            _init_tc10_fixture_repo(repo)
+            (repo / "pricing.py").write_text(
+                "def apply_discount(subtotal: float, pct: float) -> float:\n"
+                "    return max(0.0, round(subtotal * (1 - pct / 100.0), 2))\n",
+                encoding="utf-8",
+            )
+            (repo / ".tmp_omo.md").write_text("scratch\n", encoding="utf-8")
+            (repo / ".scratch_notes.md").write_text("scratch\n", encoding="utf-8")
+
+            gate = self.eg.ExitGateEngine(
+                repo_dir=repo,
+                checks=[self.eg.CheckSpec("unit_tests", f"{sys.executable} -m unittest discover -s tests")],
+            )
+            d1 = gate.evaluate("全部测试已通过！", mutated_this_turn=True)
+            self.assertFalse(d1.passed)
+            self.assertEqual(d1.residue_files, [".scratch_notes.md", ".tmp_omo.md"])
+
+            (repo / ".tmp_omo.md").unlink()
+            (repo / ".scratch_notes.md").unlink()
+            d2 = gate.evaluate("已清理。", mutated_this_turn=True)
+            self.assertTrue(d2.passed)
+
     def test_04_circuit_breaker_escalates_on_same_fingerprint_and_halts_at_cap(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = Path(tmp)

@@ -1,0 +1,181 @@
+{
+  "runner": "evals/memory_effectiveness/run_experiment.py",
+  "generated_at": "2026-11-22T07:03:49+00:00",
+  "trials_per_cell": 5,
+  "basis": "arXiv:2611.22179 (read 2026-11-21): score what memory enables, not what it retrieves",
+  "results": [
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1303,
+      "trial": 1
+    },
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1178,
+      "trial": 2
+    },
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": false,
+      "tools_used": [],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1171,
+      "trial": 3
+    },
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1259,
+      "trial": 4
+    },
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "no_memory",
+      "recall_used": false,
+      "tools_used": [],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1155,
+      "trial": 5
+    },
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "query_l5",
+        "recall_l3",
+        "recall_memory",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1769,
+      "trial": 1
+    },
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "recall_l3",
+        "register_l4_input",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1436,
+      "trial": 2
+    },
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1613,
+      "trial": 3
+    },
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": false,
+      "tools_used": [
+        "bash",
+        "codemode"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1429,
+      "trial": 4
+    },
+    {
+      "scenario": "ME-02",
+      "model": "zhipu-glm-5.3",
+      "mode": "with_memory",
+      "recall_used": true,
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "fact_used": true,
+      "tier_honest": true,
+      "reply_chars": 1732,
+      "trial": 5
+    }
+  ]
+}

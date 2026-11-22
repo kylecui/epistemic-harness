@@ -11,6 +11,8 @@ Normative content (rules, contracts, skills) is English-only; a Chinese auxiliar
 | [execution-runner.md](execution-runner.md) | Docker-first verification: why, measured numbers, the POSIX-alignment preconditions |
 | [browser-runner.md](browser-runner.md) | Browser/CDP placement policy: container vs host, evidence, Windows constraints |
 | [research-capability.md](research-capability.md) | External retrieval before design answers: research MCP servers, fallbacks, grounding check |
+| [ecosystem-comparison.md](ecosystem-comparison.md) | Evidence-gap remediation: README-level scan of OmO/aider/SWE-agent/OpenHands for claim-to-evidence governance (2026-11-22, with stated limits) |
+| [UPGRADE.md](UPGRADE.md) | In-place upgrade for existing installs: protected state, idempotent migrations, rollback, support tiers |
 | [install-evidence.md](install-evidence.md) | Real install tests (WSL + remote) with transcripts and the 7 defects they exposed |
 | [skills-inventory.md](skills-inventory.md) | Skill registry inventory and disposition |
 | [language-gravity-anti-jargon-report.md](language-gravity-anti-jargon-report.md) | Style A/B evaluation report (buzzword leakage) |

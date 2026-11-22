@@ -2,8 +2,8 @@
 
 **面向 LLM 编码 agent 的治理层：证据绑定的完成声明、分层认知，以及把问题耗尽而不是来回踢皮球的回环。**
 
-[![version](https://img.shields.io/badge/version-v0.4.0-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-206%20green-brightgreen)](scripts/verify.py)
+[![version](https://img.shields.io/badge/version-v0.5.0-blue)](docs/workplan-v0.4.md)
+[![tests](https://img.shields.io/badge/tests-254%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *本文是 [README.md](README.md) 的中文辅助翻译；规范内容一律以英文版与 AGENTS.md 为准（思考语言约束见契约）。*
@@ -77,18 +77,35 @@ python scripts/install.py
 - [docs/execution-runner.md](docs/execution-runner.md) — 为什么验证默认跑在容器里（英文）
 - [docs/browser-runner.md](docs/browser-runner.md) — CDP/浏览器放置策略（英文）
 - [docs/workplan-v0.4.md](docs/workplan-v0.4.md) — v0.4 交付日志（双语，顶部有英文摘要）
+- [docs/UPGRADE.md](docs/UPGRADE.md) — 既有安装升级（幂等迁移 + 回退）
 
 ## 开发
 
 ```bash
 git clone https://github.com/kylecui/epistemic-harness.git
 cd epistemic-harness
-./scripts/hvx                                # 206 项测试
-python evals/run_evals.py --mock             # 黄金用例回归 12/12
+./scripts/hvx                                # 254 项测试
+python evals/run_evals.py --mock             # 夹具自测 12/12（测的是断言机, 不是模型）
+python evals/run_real_matrix.py              # 真模型黄金矩阵, 报告落 evals/reports/
+python evals/false_completion/run_experiment.py    # 虚假完成诱导实验（baseline vs harness）
+python evals/memory_effectiveness/run_experiment.py # 记忆有效性：行为指标, 非检索命中率
 python scripts/check_eol.py                  # 换行符纪律
-python scripts/check_docs.py                 # 文档/代码同步闸门
+python scripts/check_docs.py                 # 文档/代码同步闸门（含测试计数徽章对齐）
 python scripts/analyze_dispatches.py         # 派发了什么、给了哪个模型、什么强度
-python scripts/capability_matrix.py          # （模型 × 强度）可调度空间
+python scripts/capability_matrix.py          # （模型 × 强度）可调度空间（estimate_only）
+python scripts/controller_metrics.py         # 主 agent 直写率 vs 派发率（实测, 非宣称）
+python scripts/traces_panel.py               # traces/ -> 单文件 HTML 面板
 ```
+
+## v0.5 质量计划（2026-11-22）
+
+针对深度评审发现的自欺通道做的硬修复，全部带对抗测试：
+
+- **L5 反洗钱**：引用必须出现在本会话检索痕迹里（GROUNDING_VIOLATION 硬错误）；
+  文本命中未申报的 L3 启发式时强制继承为隐式依赖并封顶 L3（13/13 攻击拦截、0/7 误报）。
+- **契约实质化**：样板词（"适用: 各种情况"）不再算数；验收必须可证伪、回退必须命名机制；
+  提供 ```harness-claim JSON 结构化通道（10/10 空洞回复双端拦截）。
+- **真模型测量**：mock 12/12 降级为夹具自测；黄金矩阵/虚假完成/记忆有效性的真模型报告
+  全部落盘 evals/reports/ 并入库，README 只引用可追溯到提交的报告。
 
 MIT 协议，见 [LICENSE](LICENSE)。

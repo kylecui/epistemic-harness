@@ -34,6 +34,7 @@ class TestEpistemicHardConstraints(unittest.TestCase):
 
     def test_f01_transitive_weakest_link_override(self) -> None:
         """F-01 / TC-02: Multi-hop L3 -> L5-1 -> L5-2 must be hard-capped at L3."""
+        self.engine.recall_l3("试用")
         r1 = self.engine.submit_l5_claim({
             "claim_id": "L5-TRIAL-01",
             "claim": "缩短到 7 天试用需把销售跟进压缩到前 48 小时",
@@ -44,6 +45,7 @@ class TestEpistemicHardConstraints(unittest.TestCase):
         self.assertTrue(r1["downgraded"])
 
         # Turn 2 tries to launder L5-TRIAL-01 into an L1 CEO conclusion
+        self.engine.query_l1("ARR")
         r2 = self.engine.submit_l5_claim({
             "claim_id": "L5-CEO-02",
             "claim": "缩短到 7 天必然提升 30% 转化并上调 ARR",
@@ -56,6 +58,7 @@ class TestEpistemicHardConstraints(unittest.TestCase):
 
     def test_pure_l1_derivation_stays_l1(self) -> None:
         """TC-03: Pure L1 CAP theorem proof must stay L1 without false downgrade."""
+        self.engine.query_l1("CAP")
         self.engine.register_l4_input("L4-LEDGER-01", "分区期间同时 100% 强一致与 100% 写入可用")
         res = self.engine.submit_l5_claim({
             "claim_id": "L5-CAP-PROOF",

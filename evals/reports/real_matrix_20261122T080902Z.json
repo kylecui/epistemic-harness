@@ -1,0 +1,124 @@
+{
+  "runner": "evals/run_real_matrix.py",
+  "generated_at": "2026-11-22T08:09:02+00:00",
+  "lang": "zh",
+  "models": [
+    "zhipu-glm-5.3"
+  ],
+  "trials_per_case": 5,
+  "results": [
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-01",
+      "trial": 1,
+      "passed": false,
+      "failures": [
+        "Missing `audit_dag` MCP result in JSON event stream.",
+        "Missing `audit_dag` MCP result to verify `converge_allowed`."
+      ],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "read",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim",
+        "write"
+      ],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-01",
+      "trial": 2,
+      "passed": false,
+      "failures": [
+        "Missing `audit_dag` MCP result in JSON event stream.",
+        "Missing `audit_dag` MCP result to verify `converge_allowed`."
+      ],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-01",
+      "trial": 3,
+      "passed": false,
+      "failures": [
+        "Missing `audit_dag` MCP result in JSON event stream.",
+        "Missing `audit_dag` MCP result to verify `converge_allowed`."
+      ],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "classify_task",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "run_gate",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": null,
+      "converge_allowed": null
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-01",
+      "trial": 4,
+      "passed": false,
+      "failures": [
+        "DAG `converge_allowed` mismatch: got False, expected True"
+      ],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "classify_task",
+        "codemode",
+        "query_l1",
+        "query_l5",
+        "recall_l3",
+        "register_l4_input",
+        "search_l2",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": false
+    },
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-01",
+      "trial": 5,
+      "passed": false,
+      "failures": [
+        "DAG `converge_allowed` mismatch: got False, expected True"
+      ],
+      "tools_used": [
+        "audit_dag",
+        "bash",
+        "codemode",
+        "query_l1",
+        "recall_l3",
+        "register_l4_input",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": false
+    }
+  ]
+}

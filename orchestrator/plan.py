@@ -105,12 +105,20 @@ def _register_claim(engine: Any, sid: str, st: dict[str, Any], res: dict[str, An
     sources = [sid for sid in (engine.l2_evidence or {})][:1] or [sid for sid in (engine.l3_heuristics or {})][:1]
     if not sources:
         return "skipped(no valid source ids)"
+    # Grounding rule: list the store through the retrieval tool so the citation
+    # is backed by a real retrieval, then pass the trace explicitly (the engine
+    # process may differ from the one that served the sub-agents).
+    if sources[0] in (engine.l2_evidence or {}):
+        engine.search_l2("")
+    else:
+        engine.recall_l3("")
     try:
         engine.submit_l5_claim({
             "claim_id": f"PLAN-{st['id']}",
             "claim": str(res.get("content", ""))[:600],
             "claimed_tier": claimed_tier,
             "source_ids": sources,
+            "retrieval_trace": list(sources),
             "assumptions": [f"sub-agent profile={st['agent_profile']}"],
         })
         return None

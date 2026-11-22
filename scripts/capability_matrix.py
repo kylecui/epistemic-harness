@@ -85,6 +85,11 @@ def build_matrix(policy_path: Path = POLICY, env: dict[str, str] | None = None) 
         })
     return {
         "policy": str(policy_path),
+        # Honest drift marker (workplan §三.6): everything in this matrix is a
+        # LOCAL estimate (policy + credential presence). The gateway's quota
+        # ledger only counts traffic it routed; upstream-side quota/limits are
+        # never observed. Never present these numbers as upstream truth.
+        "estimate_only": True,
         "models": rows,
         "rules": {
             "free_combination": "any (model, effort <= max_effort) is schedulable; efforts above "

@@ -20,8 +20,9 @@ Both are pure, deterministic and mirrored by `orchestrator/exit_gate.py`.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
 import re
+from dataclasses import dataclass
 from typing import Any
 
 TIER_LABELS: dict[str, str] = {
@@ -56,19 +57,122 @@ SECTION_GAPS_RE = re.compile(r"(证据缺口|evidence gap)", re.I)
 HEADER_CAP_RE = re.compile(r"Confidence Cap:\s*(L[1-5])", re.I)
 BODY_LAYER_RE = re.compile(r"\[L([1-5])\b")
 L3_TAG_RE = re.compile(r"\[L3\b")
-L3_SCOPE_RE = re.compile(r"(适用|scope|适用范围)", re.I)
-L3_COUNTER_RE = re.compile(r"(反例|counter[- ]?example|失效)", re.I)
+L3_SCOPE_RE = re.compile(r"(适用|scope|适用范围|適用|スコープ|適用範囲|적용(?:범위)?|범위)", re.I)
+L3_COUNTER_RE = re.compile(r"(反例|counter[- ]?example|失效|失敗例|例外ケース|想定外|예외|반례|실패 사례)", re.I)
 
 # Declared-defect item anchors. Deliberately specific (requires an item
 # number) so the compliant "证据缺口 & Complete Remediation Plan" section
 # header alone never triggers the check.
 DEFECT_ITEM_RE = re.compile(
-    r"(?:\bP[1-9]\d?\b|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
+    # Mirror of exit_gate: 'P1' must not fire on version/milestone numbers
+    # ('P1.6' progress header false positive, 2026-11-22).
+    r"(?:\bP[1-9]\d?(?![.\d])\b|缺陷\s*#?[1-9]\d?|缺口\s*#?[1-9]\d?|问题\s*#?[1-9]\d?|"
     r"\bdefect\s*#?[1-9]\d?|\bissue\s*#?[1-9]\d?)",
     re.I,
 )
 ACCEPTANCE_RE = re.compile(r"(验收|acceptance)", re.I)
-ROLLBACK_RE = re.compile(r"(回退|回滚|rollback|恢复路径)", re.I)
+ROLLBACK_RE = re.compile(r"(回退|回滚|rollback|恢复路径|ロールバック|復旧|롤백|복원)", re.I)
+
+# --- Substance checks (2026-11-22 review, defect #2) -----------------------
+# Anchor-word matching alone is a keyword game: "适用: 各种情况。反例: 有时不适用"
+# passes the old checks while saying nothing. These patterns require the text
+# around each anchor to carry non-boilerplate content.
+_FILLER_RE = re.compile(
+    r"(各种情况|视情况(?:而定)?|具体情况|都有可能|某些情况|有时候|部分情况|"
+    r"因情况而异|都有可能|不好说|不一定|不适用|not applicable|\bn/?a\b|"
+    r"場合による|ケースバイケース|状況次第|상황에 따라|경우에 따라)",
+    re.I,
+)
+# A falsifiable acceptance names a measurable outcome: a number, a concrete
+# test command, an assertion, or a zero-count predicate.
+_FALSIFIABLE_RE = re.compile(
+    r"(\d|exit\s*0|assert|断言|单测|单元测试|集成测试|unittest|pytest|green|"
+    r"为零|0\s*条|不通过|相等|一致|match|curl|命令|复现失败|计数|"
+    r"テストコマンド|単体テスト|結合テスト|"
+    r"단위 테스트|통합 테스트|테스트 명령어)",
+    re.I,
+)
+# A concrete rollback names the mechanism, not the word itself ("回退: 可以回退"
+# is a tautology).
+_ROLLBACK_CONCRETE_RE = re.compile(
+    r"(git|快照|备份|开关|feature flag|revert|镜像|上一版本|恢复原|回滚到|"
+    r"回滚迁移|迁移回滚|命令|脚本|备份文件|重新部署|ロールバック|スナップショット|"
+    r"バックアップ|フラグ|以前のバージョン|コマンド|復旧|"
+    r"롤백|백업|스냅샷|플래그|이전 버전|명령어|복원)",
+    re.I,
+)
+_CJK_RUN = re.compile(r"[一-鿿]+")
+
+# Structured output path: instead of scattering anchors in prose, the model may
+# emit one fenced ```harness-claim JSON block. Fields are validated in code and
+# the prose anchor checks are waived for structured items — an honest easy path
+# that beats keyword stuffing.
+_STRUCTURED_BLOCK_RE = re.compile(r"```harness-claim\s*\n(.*?)```", re.S)
+_STRUCT_REQUIRED_FIELDS = ("defect", "fix_points", "rollback", "acceptance")
+
+
+def _substantive(text: str, min_cjk_chars: int = 3) -> bool:
+    """Text carries real content after boilerplate phrases are removed."""
+    cleaned = _FILLER_RE.sub(" ", text or "")
+    return sum(len(m.group(0)) for m in _CJK_RUN.finditer(cleaned)) >= min_cjk_chars
+
+
+def _substantive(text: str, min_cjk_chars: int = 3) -> bool:
+    """Text carries real content after boilerplate phrases are removed."""
+    cleaned = _FILLER_RE.sub(" ", text or "")
+    return sum(len(m.group(0)) for m in _CJK_RUN.finditer(cleaned)) >= min_cjk_chars
+
+
+def _anchor_substantive(window: str, anchor_re: "re.Pattern[str]") -> bool:
+    """The anchor's own line carries non-boilerplate content after the word.
+
+    Scoped to the anchor's LINE, not the whole window: the neighbouring
+    section (e.g. the counter-example line) must not lend substance to a
+    filler scope phrase like '适用: 各种情况'.
+    """
+    m = anchor_re.search(window or "")
+    if not m:
+        return False
+    rest = window[m.end():].split("\n", 1)[0]
+    return _substantive(rest[:60])
+
+
+def _validate_structured_claims(text: str) -> tuple[list[dict], list[str]]:
+    """Parse and validate ```harness-claim JSON blocks.
+
+    Returns (valid_claims, violations). Blocks must be a JSON list of objects
+    (or a single object) with the required fields; each field must be
+    substantive and acceptance/rollback must clear the same bars as prose.
+    """
+    claims: list[dict] = []
+    violations: list[str] = []
+    for block_idx, m in enumerate(_STRUCTURED_BLOCK_RE.finditer(text or "")):
+        raw = m.group(1).strip()
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            violations.append(f"harness-claim 块 #{block_idx + 1}: JSON 解析失败 ({exc})")
+            continue
+        items = data if isinstance(data, list) else [data]
+        for item_idx, item in enumerate(items):
+            label = f"harness-claim #{block_idx + 1}.{item_idx + 1}"
+            if not isinstance(item, dict):
+                violations.append(f"{label}: 必须是 JSON object")
+                continue
+            for field in _STRUCT_REQUIRED_FIELDS:
+                value = str(item.get(field, "") or "")
+                if not value.strip():
+                    violations.append(f"{label}: 字段 '{field}' 为空")
+                elif field == "acceptance" and not _FALSIFIABLE_RE.search(value):
+                    violations.append(f"{label}: acceptance 缺少可证伪判据 (数字/测试命令/断言)")
+                elif field == "rollback" and not (
+                    _ROLLBACK_CONCRETE_RE.search(value) and _substantive(value, min_cjk_chars=2)
+                ):
+                    violations.append(f"{label}: rollback 缺少具体机制 (git/快照/开关/命令)")
+                elif field in ("defect", "fix_points") and not _substantive(value, min_cjk_chars=4):
+                    violations.append(f"{label}: 字段 '{field}' 内容过短或为样板话")
+            claims.append(item)
+    return claims, violations
 DOWNGRADE_RE = re.compile(
     r"(最小后续动作|minimal next (?:actions|steps)|补一段文档|补充文档|写进已知问题|"
     r"记为已知问题|记入已知问题|留待观察|defer(?:red)? to)",
@@ -221,6 +325,29 @@ def weakest_body_layer(text: str) -> int | None:
     return max(layers) if layers else None
 
 
+def _l3_proximity_violations(text: str) -> list[str]:
+    """L3 proximity rule: within 3 lines after each `[L3` label there must be a
+    substantive scope anchor AND a substantive counter-example anchor (filler
+    phrases like '适用: 各种情况' do not count)."""
+    violations: list[str] = []
+    lines = (text or "").splitlines()
+    for idx, line in enumerate(lines):
+        for m in L3_TAG_RE.finditer(line):
+            window = "\n".join(lines[idx:idx + 3])
+            has_scope = _anchor_substantive(window, L3_SCOPE_RE)
+            has_counter = _anchor_substantive(window, L3_COUNTER_RE)
+            if not (has_scope and has_counter):
+                missing_bits = []
+                if not has_scope:
+                    missing_bits.append("适用/scope")
+                if not has_counter:
+                    missing_bits.append("反例/counter-example")
+                violations.append(
+                    f"[L3] 标签(第{idx + 1}行)后 3 行内缺少: {', '.join(missing_bits)}"
+                )
+    return violations
+
+
 def check_output_structure(text: str, tier: str, mode: str) -> list[str]:
     """Three-part structure, silent-promotion and L3 scope/counter-example checks.
 
@@ -231,20 +358,29 @@ def check_output_structure(text: str, tier: str, mode: str) -> list[str]:
     if not text or not text.strip():
         return []
     if len(text.strip()) < MIN_STRUCTURED_LEN:
-        return []  # short acknowledgement: no deliverable structure to validate
+        # Short acknowledgement: no deliverable structure to validate — but a
+        # deliberate [L3] epistemic label still answers for its scope/counter
+        # anchors (filler scope on a short reply is still hollow).
+        return _l3_proximity_violations(text)
     if tier not in STRUCTURED_TIERS and mode != "Converge":
-        return []  # Tier 0/1 and non-converged turns carry no structure requirement
+        return _l3_proximity_violations(text)  # Tier 0/1: only L3 labels are checked
 
     violations: list[str] = []
+    structured_claims, structured_violations = _validate_structured_claims(text)
     missing = []
-    if not SECTION_CORE_RE.search(text):
-        missing.append("Core Conclusion/核心结论")
-    if not SECTION_BREAKDOWN_RE.search(text):
-        missing.append("Epistemic Breakdown/认识论分解")
-    if not SECTION_GAPS_RE.search(text):
-        missing.append("Evidence Gaps/证据缺口")
-    if missing:
-        violations.append("缺少三段式锚点: " + ", ".join(missing))
+    if not structured_claims:
+        # Structured path: the model answered with machine-validable fields; the
+        # prose three-section anchors are waived (silent-promotion and L3 checks
+        # below still run).
+        if not SECTION_CORE_RE.search(text):
+            missing.append("Core Conclusion/核心结论")
+        if not SECTION_BREAKDOWN_RE.search(text):
+            missing.append("Epistemic Breakdown/认识论分解")
+        if not SECTION_GAPS_RE.search(text):
+            missing.append("Evidence Gaps/证据缺口")
+        if missing:
+            violations.append("缺少三段式锚点: " + ", ".join(missing))
+    violations.extend(structured_violations)
 
     # Silent promotion: a declared header cap weaker than the body's weakest
     # layer is only allowed; a stronger header over L3-derived body labels is not.
@@ -256,23 +392,8 @@ def check_output_structure(text: str, tier: str, mode: str) -> list[str]:
             f"(代码推演/经验判断封顶 L{body})"
         )
 
-    # L3 proximity rule: within 3 lines after each `[L3` label there must be a
-    # scope anchor AND a counter-example anchor.
-    lines = text.splitlines()
-    for idx, line in enumerate(lines):
-        for m in L3_TAG_RE.finditer(line):
-            window = "\n".join(lines[idx:idx + 3])
-            has_scope = bool(L3_SCOPE_RE.search(window))
-            has_counter = bool(L3_COUNTER_RE.search(window))
-            if not (has_scope and has_counter):
-                missing_bits = []
-                if not has_scope:
-                    missing_bits.append("适用/scope")
-                if not has_counter:
-                    missing_bits.append("反例/counter-example")
-                violations.append(
-                    f"[L3] 标签(第{idx + 1}行)后 3 行内缺少: {', '.join(missing_bits)}"
-                )
+    # L3 proximity rule (helper above; runs for short/Tier0-1 texts too).
+    violations.extend(_l3_proximity_violations(text))
     return violations
 
 
@@ -298,17 +419,41 @@ def check_remediation_completeness(text: str) -> list[str]:
     if not text or not text.strip():
         return []
     items = _defect_items(text)
+    structured_claims, structured_violations = _validate_structured_claims(text)
+    if structured_claims:
+        # Structured path chosen: prose anchor checks are waived (the model gave
+        # machine-validable fields instead); only schema violations surface.
+        return structured_violations
     if not items:
-        return []
+        return structured_violations
     if L4_TRADEOFF_RE.search(text):
         return []  # user explicitly scoped this turn to review-only (L4)
 
-    violations: list[str] = []
+    violations: list[str] = list(structured_violations)
     for label, segment in items:
-        if not ACCEPTANCE_RE.search(segment):
+        acc_match = ACCEPTANCE_RE.search(segment)
+        if not acc_match:
             violations.append(f"{label}: 已声明缺陷但缺少验收判据 (验收/acceptance)")
-        if not ROLLBACK_RE.search(segment):
+        else:
+            # Scope to the criterion itself: the segment starts with the item
+            # label ("缺陷1") whose digit would satisfy any falsifiability scan.
+            acc_rest = segment[acc_match.end():acc_match.end() + 80]
+            if not _FALSIFIABLE_RE.search(acc_rest):
+                violations.append(
+                    f"{label}: 验收判据不可证伪 (需数字/测试命令/断言, 而非 '测试通过即可')"
+                )
+        rb_match = ROLLBACK_RE.search(segment)
+        if not rb_match:
             violations.append(f"{label}: 已声明缺陷但缺少回退路径 (回退/rollback)")
+        else:
+            rb_rest = segment[rb_match.end():rb_match.end() + 80]
+            if not (
+                _ROLLBACK_CONCRETE_RE.search(rb_rest)
+                and _substantive(rb_rest, min_cjk_chars=2)
+            ):
+                violations.append(
+                    f"{label}: 回退路径不具体 (需命名机制: git/快照/开关/命令, 而非 '可回退')"
+                )
     downgrade = DOWNGRADE_RE.search(text)
     if downgrade:
         violations.append(

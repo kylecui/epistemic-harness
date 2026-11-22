@@ -90,6 +90,31 @@ class TestDispatch(unittest.TestCase):
         self.assertIn("[Attached Skill: root-cause-triage]", system_msg)
         self.assertIn("controller context here", captured["payload"]["messages"][1]["content"])
 
+    def test_empty_response_retries_respect_profile_effort_floors(self) -> None:
+        cases = {
+            "coder": ("low", "low"),
+            "deep": ("medium", "medium"),
+            "critic": ("medium", "medium"),
+        }
+        for profile, retry_efforts in cases.items():
+            with self.subTest(profile=profile):
+                seen_efforts: list[str | None] = []
+
+                def handler(request: httpx.Request) -> httpx.Response:
+                    seen_efforts.append(request.headers.get("x-harness-effort"))
+                    content = "ok" if len(seen_efforts) == 3 else ""
+                    return sse_response(content)
+
+                result = dispatch_subtask(
+                    agent_profile=profile,
+                    task_text="retry test",
+                    task_id=f"retry-{profile}",
+                    gateway_url="http://mock.local",
+                    transport=httpx.MockTransport(handler),
+                )
+                self.assertEqual(result["content"], "ok")
+                self.assertEqual(seen_efforts, [None, *retry_efforts])
+
 
 class TestOrchestratorMCP(unittest.TestCase):
     def setUp(self) -> None:
@@ -109,6 +134,7 @@ class TestOrchestratorMCP(unittest.TestCase):
         self.assertEqual(res["agent_profile"], "deep")
 
     def test_submit_and_audit_shared_engine(self) -> None:
+        self.orch.engine.query_l1("CAP")
         self._call("submit_l5_claim", {
             "claim_id": "L5-ORCH-1",
             "claim": "test claim",

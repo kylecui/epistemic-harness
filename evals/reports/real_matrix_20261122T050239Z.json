@@ -1,0 +1,27 @@
+{
+  "runner": "evals/run_real_matrix.py",
+  "generated_at": "2026-11-22T05:02:39+00:00",
+  "lang": "zh",
+  "models": [
+    "zhipu-glm-5.3"
+  ],
+  "results": [
+    {
+      "model": "zhipu-glm-5.3",
+      "case_id": "TC-03",
+      "passed": false,
+      "failures": [
+        "DAG confidence cap mismatch: got L3, expected L1",
+        "DAG `converge_allowed` mismatch: got True, expected False"
+      ],
+      "tools_used": [
+        "audit_dag",
+        "codemode",
+        "query_l1",
+        "submit_l5_claim"
+      ],
+      "audit_cap": "L3",
+      "converge_allowed": true
+    }
+  ]
+}

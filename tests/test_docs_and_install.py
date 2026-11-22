@@ -288,6 +288,8 @@ class DispatchDoctorTests(unittest.TestCase):
         reg = SkillRegistry(PACK_ROOT / "skills" / "registry.yaml", PACK_ROOT / "skill_queue" / "pending.yaml")
         self.assertEqual(reg.query("派发回顾 诊断", limit=1)[0]["name"], "harness-doctor")
         doc = self._load_doctor()
-        result = doc.doctor()
+        # Smoke-test the real doctor without making results depend on live traces.
+        with mock.patch.object(doc, "load_subagent_rows", return_value=[]):
+            result = doc.doctor()
         self.assertIn("recommendations", result)
         self.assertEqual(result["checks"]["C1_mapping_consistency"]["violations"], 0)

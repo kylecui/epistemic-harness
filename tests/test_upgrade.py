@@ -1,0 +1,73 @@
+"""Unit tests for scripts/upgrade.py (backup, idempotency, migration merge)."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+import tempfile
+import unittest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+import scripts.upgrade as up  # noqa: E402
+
+
+def _fake_repo(root: Path) -> Path:
+    (root / ".pi").mkdir(parents=True)
+    (root / ".pi" / "exit_gate.json").write_text(
+        json.dumps({"checks": [], "residue_globs": ["*.tmp"]}), encoding="utf-8")
+    (root / "knowledge").mkdir()
+    (root / "knowledge" / "keep.txt").write_text("user data", encoding="utf-8")
+    (root / ".env").write_text("KEY=x", encoding="utf-8")
+    (root / ".gitignore").write_text(".env\n", encoding="utf-8")
+    (root / "harness.yaml").write_text("version: 0.5.0\n", encoding="utf-8")
+    return root
+
+
+class UpgradeTests(unittest.TestCase):
+    def test_residue_glob_migration_merges_not_overwrites(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _fake_repo(Path(tmp))
+            note = up.migrate_exit_gate_residue_globs(repo)
+            cfg = json.loads((repo / ".pi" / "exit_gate.json").read_text(encoding="utf-8"))
+            self.assertIn("*.tmp", cfg["residue_globs"])  # user entry preserved
+            self.assertIn(".*tmp*", cfg["residue_globs"])  # new entries merged
+            # idempotent
+            note2 = up.migrate_exit_gate_residue_globs(repo)
+            self.assertIn("already current", note2)
+
+    def test_backup_copies_mutable_state(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _fake_repo(Path(tmp))
+            sink = repo / ".upgrade-backup-test"
+            backed = up.backup(repo, sink)
+            self.assertIn(".pi", backed)
+            self.assertIn("knowledge", backed)
+            self.assertEqual((sink / "knowledge" / "keep.txt").read_text(encoding="utf-8"), "user data")
+            self.assertTrue((sink / ".env").exists())
+
+    def test_state_makes_migrations_idempotent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _fake_repo(Path(tmp))
+            state = {"applied": ["v0.5-exit-gate-residue-globs"]}
+            pending = [m for m in up.MIGRATIONS if m[0] not in state["applied"]]
+            self.assertNotIn("v0.5-exit-gate-residue-globs", [m[0] for m in pending])
+
+    def test_installed_version_defaults_to_0_4_when_stamp_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = _fake_repo(Path(tmp))
+            orig = up.REPO_ROOT
+            up.REPO_ROOT = repo
+            try:
+                self.assertEqual(up.installed_version(), "0.4.0")
+                (repo / ".pi" / "installed_version").write_text("v0.5.0\n", encoding="utf-8")
+                self.assertEqual(up.installed_version(), "v0.5.0")
+            finally:
+                up.REPO_ROOT = orig
+
+
+if __name__ == "__main__":
+    unittest.main()
