@@ -1,5 +1,14 @@
 # Release notes
 
+## v0.5.3
+
+- Linux sandbox execution plane: the sandbox-shell pi extension brings up a per-worktree docker sandbox (`harness-sandbox:local`); the `sh` tool routes commands into it, with a declared host Git Bash fallback and `[runner=...]` evidence labels.
+- Per-release plane alignment: `upgrade.py` syncs the global install (extension + sandbox defs + compiled session contract + pi settings), builds the sandbox image, retries the backend health smoke, and runs the 10-plane report (`scripts/check_env.py`) before stamping.
+- `harness_version.py` triangulates the real session contract (`~/.pi/agent/AGENTS.md`) against the repo contract; a missing install stamp is explicit drift; no version guessing.
+- Gateway: `sanitize_openai_payload` strips client-only fields (`store`, `previous_response_id`, `prompt_cache_key`) for non-OpenAI upstreams — fixes Gemini 400 `Unknown name "store"`.
+- Public-language hard gate: unpushed commit messages must be English-first unless explicitly marked `[zh]` / `Lang: zh` (README convention).
+- Images moved to `:local` tags; version truth is `harness.yaml` + the upgrade stamp.
+
 ## v0.5.2
 
 - 全局架构：harness 不再要求以本仓库为工作目录。scripts/install_global.py

@@ -312,3 +312,19 @@ HARNESS_HOME 环境变量 → ~/.pi/harness → 当前仓库（开发回退）�
 （.pi/exit_gate.json、task_contract、traces、knowledge）保持 cwd 相对——
 它们本来就是项目级状态。pi 原生 skill 源移至 skills/pi-native，消除
 项目/用户双份发现的冲突告警；页脚版本号以网关 /version 为权威。
+
+## 十九、v0.5.3 运行时环境平面（2026-11-24）
+
+交付：Linux 沙箱执行平面（sandbox-shell 扩展 + harness-sandbox:local +
+per-worktree hbox-<hash> 项目，sh 工具 docker 优先、宿主 Git Bash 声明式
+退化、结果带 [runner=...] 记证）；upgrade.py 固定全链（install_global 同步
+全局契约/扩展/沙箱/pi 设置 + 冒烟重试 + check_env 十平面体检 + 打 stamp）；
+harness_version 真实会话契约三方对账（修复 false-green，issue #5 对应）；
+网关 sanitize_openai_payload 剥离 client-only 字段（修复 Gemini 400
+`Unknown name "store"`）；公共语言硬门禁（scripts/check_public_language.py
+入 exit_gate.json，未推送 commit message 默认英文、[zh] 显式豁免，约定见
+README）。镜像统一 :local tag，版本真相 = harness.yaml + upgrade stamp。
+实测：307 单测全绿；check_env 10/10 OK；tmp 测试工作区新会话 T1–T6 全过
+（probe-skill 发现、LF 保真、PROBE-OK uname=Linux、[runner=docker]）。
+上游 issue：badlogic/pi#9（bash 工具 cmd is not defined，英文提交+
+范围收窄评论）；epistemic-harness#6（门禁档位矛盾）。

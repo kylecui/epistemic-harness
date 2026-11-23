@@ -2,7 +2,7 @@
 
 **面向 LLM 编码 agent 的治理层：证据绑定的完成声明、分层认知，以及把问题耗尽而不是来回踢皮球的回环。**
 
-[![version](https://img.shields.io/badge/version-v0.5.2-blue)](docs/workplan-v0.4.md)
+[![version](https://img.shields.io/badge/version-v0.5.3-blue)](docs/workplan-v0.4.md)
 [![tests](https://img.shields.io/badge/tests-307%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 

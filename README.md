@@ -2,7 +2,7 @@
 
 **Governance for LLM coding agents: evidence-bound claims, tiered cognition, and loops that exhaust problems instead of ping-ponging them.**
 
-[![version](https://img.shields.io/badge/version-v0.5.2-blue)](docs/workplan-v0.4.md)
+[![version](https://img.shields.io/badge/version-v0.5.3-blue)](docs/workplan-v0.4.md)
 [![tests](https://img.shields.io/badge/tests-307%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
