@@ -38,19 +38,23 @@ def sync(check: bool = False) -> dict:
     copied: list[str] = []
     missing: list[str] = []
     if not SOURCE.exists():
-        return {"copied": [], "missing": ["(source .agents/skills absent)"], "target": str(target)}
+        return {"copied": [], "missing": ["(source skills absent — run install_global.py first)"], "target": str(target)}
+    home = str(user_skills_dir().parent.parent)  # ~/.pi/harness lives beside ~/.agents
+    harness_home = Path(home) / ".pi" / "harness"
     for skill_dir in sorted(SOURCE.iterdir()):
         if not skill_dir.is_dir() or not (skill_dir / "SKILL.md").exists():
             continue
         dest = target / skill_dir.name
         src_text = (skill_dir / "SKILL.md").read_text(encoding="utf-8")
+        # substitute the global-install path so wrappers work from any cwd
+        src_text = src_text.replace("{{HARNESS_HOME}}", str(harness_home))
         if dest.exists() and (dest / "SKILL.md").read_text(encoding="utf-8", errors="replace") == src_text:
             continue
         if check:
             missing.append(skill_dir.name)
             continue
         dest.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(skill_dir / "SKILL.md", dest / "SKILL.md")
+        (dest / "SKILL.md").write_text(src_text, encoding="utf-8")
         copied.append(skill_dir.name)
     return {"copied": copied, "missing": missing, "target": str(target)}
 
