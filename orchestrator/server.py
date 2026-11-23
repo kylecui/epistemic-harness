@@ -322,7 +322,7 @@ class Orchestrator:
             load_routing_config(),
             explicit_profile=args.get("agent_profile"),
         )
-        result = dispatch_subtask(
+        return dispatch_subtask(
             agent_profile=decision.profile,
             task_text=args["task_text"],
             context=args.get("context", ""),
@@ -334,14 +334,6 @@ class Orchestrator:
             max_tokens=decision.budget,
             category=decision.category,
         )
-        # structured interim output (research P1.5): additive field, backward compatible
-        try:
-            from orchestrator.subagent_report import build_report
-            raw_text = str(result.get("content") or result.get("text") or "")
-            result["report"] = build_report(str(args.get("task_id", "default")), decision.profile, raw_text)
-        except Exception:  # noqa: BLE001 - interim layer must never break dispatch
-            pass
-        return result
 
     def dispatch_tooled(self, args: dict[str, Any]) -> dict[str, Any]:
         return dispatch_tooled(
@@ -483,6 +475,16 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
                 res = orch.audit_reply(args)
             else:
                 return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": f"Unknown tool: {name}"}}
+            # structured interim output (research P1.5): every dispatch tier carries a
+            # SubagentReport next to its raw content; additive, backward compatible
+            if name in ("dispatch_subagent", "dispatch_readonly", "dispatch_tooled") and isinstance(res, dict):
+                try:
+                    from orchestrator.subagent_report import build_report
+                    raw_text = str(res.get("content") or res.get("text") or "")
+                    profile = str(res.get("agent_profile") or res.get("profile") or args.get("agent_profile") or args.get("profile") or "explorer")
+                    res["report"] = build_report(str(res.get("task_id") or args.get("task_id", "default")), profile, raw_text)
+                except Exception:  # noqa: BLE001 - interim layer must never break dispatch
+                    pass
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,

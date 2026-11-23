@@ -57,6 +57,11 @@ class SubagentReportTests(unittest.TestCase):
         report = build_report("t-4", "nonsense", "x")
         self.assertEqual(report["profile"], "explorer")
 
+    def test_readonly_profile_is_kept(self):
+        report = build_report("ro-1", "explorer-ro", "listed 3 files")
+        self.assertEqual(report["profile"], "explorer-ro")
+        self.assertEqual(validate_report(report), [])
+
 
 if __name__ == "__main__":
     unittest.main()
