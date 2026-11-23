@@ -119,7 +119,14 @@ function runCheck(cwd: string, check: ExitGateCheck, timeoutMs: number): { ok: b
     return { ok: true, tail: "" };
   } catch (err: any) {
     const combined = `${err?.stdout || ""}\n${err?.stderr || ""}`.trim();
-    const lines = combined.split(/\r?\n/).slice(-25).join("\n");
+    // Keep the test-identity header lines (FAIL:/ERROR:) even when the 25-line
+    // tail window cuts them off (issue #8): a bounce without the failing test
+    // name costs extra gate round-trips before the fix is even identifiable.
+    const all = combined.split(/\r?\n/);
+    const tailLines = all.slice(-25);
+    const inTail = new Set(tailLines);
+    const headers = all.filter((l) => /^(FAIL|ERROR): /.test(l) && !inTail.has(l));
+    const lines = [...headers, ...tailLines].join("\n");
     return { ok: false, tail: lines || String(err?.message || "non-zero exit") };
   }
 }

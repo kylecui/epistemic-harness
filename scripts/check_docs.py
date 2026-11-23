@@ -99,25 +99,25 @@ def _discover_test_count() -> int:
 def check_test_count_badge(problems: list[str]) -> None:
     """README's `tests-N green` badge must equal the real discovered count.
 
-    Catches exactly the drift found on 2026-11-22 (badge said 206, the suite
-    had grown to 222): version-string alignment alone never notices numeric
-    badges going stale.
+    Drift is FIXED, not just reported (issue #11, 2026-11-24): the badge is a
+    derived value, so this check rewrites it in both READMEs and reports the
+    sync. Only a failed rewrite is a problem.
     """
     badge_re = re.compile(r"tests-(\d+)%20green")
+    actual = _discover_test_count()
     for name in ("README.md", "README_ZH.md"):
         path = REPO_ROOT / name
         if not path.exists():
             continue
-        m = badge_re.search(path.read_text(encoding="utf-8"))
-        if not m:
+        text = path.read_text(encoding="utf-8")
+        m = badge_re.search(text)
+        if not m or int(m.group(1)) == actual:
             continue
-        actual = _discover_test_count()
-        if int(m.group(1)) != actual:
-            problems.append(
-                f"{name} badge says {m.group(1)} tests but discovery finds {actual} — "
-                "update the badge (or run the suite and sync the real number)"
-            )
-            return  # one report is enough; both badges are updated together
+        try:
+            path.write_text(badge_re.sub(f"tests-{actual}%20green", text, count=1), encoding="utf-8", newline="\n")
+            print(f"badge synced: {name} tests-{actual}")
+        except OSError as exc:
+            problems.append(f"{name} badge says {m.group(1)} tests but discovery finds {actual} and rewrite failed: {exc}")
 
 
 def main() -> int:

@@ -85,6 +85,7 @@ def normalize_declared_cap(text: str) -> tuple[str, str | None]:
     note = f"[Harness] 头部 Confidence Cap L{declared} 与正文最弱依据 L{body} 不一致, 已按代码计算归一为 L{body}"
     return fixed, note
 BODY_LAYER_RE = re.compile(r"\[L([1-5])\b")
+EVIDENCE_LAYER_RE = re.compile(r"\[L([1-3])\b")  # confidence inputs only (L4/L5 excluded, issue #10)
 # An epistemic label is BLOCK-LEVEL: it opens a line (optionally bolded).
 # Mid-sentence mentions like '我反复写 [L3] 依据配 L2 头' are discussing the
 # syntax, not labeling a claim (live FP class #7, 2026-11-22 — same lesson
@@ -355,8 +356,15 @@ def _header_cap(text: str) -> int | None:
 
 
 def weakest_body_layer(text: str) -> int | None:
-    """Weakest (highest-numbered) `[Lx]` epistemic label present in the body."""
-    layers = [int(n) for n in BODY_LAYER_RE.findall(text or "")]
+    """Weakest (highest-numbered) epistemic EVIDENCE label in the body.
+
+    Only L1-L3 are confidence inputs (issue #10, 2026-11-24): L4 is user
+    intent / resource constraints and L5 is the derivation marker itself —
+    neither is evidence, so citing an L4 goal must not drag a well-evidenced
+    conclusion down to L4. Intent dependency is surfaced separately by the
+    L4 trade-off detectors, not by the cap.
+    """
+    layers = [int(n) for n in EVIDENCE_LAYER_RE.findall(text or "")]
     return max(layers) if layers else None
 
 
@@ -439,8 +447,11 @@ def check_output_structure(text: str, tier: str, mode: str) -> list[str]:
         # deliberate [L3] epistemic label still answers for its scope/counter
         # anchors (filler scope on a short reply is still hollow).
         return _l3_proximity_violations(text)
-    if tier not in STRUCTURED_TIERS and mode != "Converge":
-        return _l3_proximity_violations(text)  # Tier 0/1: only L3 labels are checked
+    # Tier 0/1 keep the light output contract in BOTH modes (issue #6): the
+    # three-section anchors are a Tier >= 1.5 deliverable; Converge mode on a
+    # low tier only tightens L3 scope/counter checks, never adds anchors.
+    if tier not in STRUCTURED_TIERS:
+        return _l3_proximity_violations(text)
 
     violations: list[str] = []
     structured_claims, structured_violations = _validate_structured_claims(text)
@@ -580,7 +591,7 @@ def build_contract_intercept(violations: list[str], *, retry: bool) -> str:
 # Bumped whenever the contract-check code changes; written into every trace
 # record so a phantom violation can be tied to the exact code revision that
 # produced it (live incident 2026-11-22: could not tell which revision judged).
-CONTRACT_CODE_REV = "2026-11-22.r3"
+CONTRACT_CODE_REV = "2026-11-24.r1"
 
 
 def _trace_contract_violations(
