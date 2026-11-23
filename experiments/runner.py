@@ -49,7 +49,7 @@ RECORD_SYS = REPORT_SYS + (
 
 ARMS = {
     "A0": {"via_gateway": False, "system": VANILLA_SYS},
-    "A": {"via_gateway": True, "system": VANILLA_SYS},
+    "A": {"via_gateway": True, "system": VANILLA_SYS, "no_contract": True},
     "B": {"via_gateway": True, "system": REPORT_SYS, "interim_header": "subagent-report/v1"},
     "C": {"via_gateway": True, "system": RECORD_SYS, "interim_header": "subagent-report/v1"},
     "D": {"via_gateway": True, "system": RECORD_SYS, "interim_header": "subagent-report/v1", "json_mode": True},
@@ -84,7 +84,7 @@ def _post(url: str, payload: dict, headers: dict, timeout: int = 180) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def call_gateway(prompt: str, system: str, json_mode: bool, interim_header: str | None) -> dict:
+def call_gateway(prompt: str, system: str, json_mode: bool, interim_header: str | None, no_contract: bool = False) -> dict:
     payload = {"model": "kimi-for-coding", "stream": False,
                "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
     if json_mode:
@@ -92,6 +92,8 @@ def call_gateway(prompt: str, system: str, json_mode: bool, interim_header: str 
     headers = {"authorization": "Bearer experiment", "x-harness-tier": "system_1_5"}
     if interim_header:
         headers["x-harness-interim"] = interim_header
+    if no_contract:
+        headers["x-harness-no-contract"] = "1"
     data = _post("http://127.0.0.1:8787/v1/chat/completions", payload, headers)
     msg = (data.get("choices") or [{}])[0].get("message") or {}
     return {"text": msg.get("content") or "", "model": data.get("model"), "raw": data}
@@ -130,7 +132,8 @@ def main() -> int:
         t0 = time.time()
         try:
             if cfg["via_gateway"]:
-                r = call_gateway(task["prompt"], cfg["system"], cfg.get("json_mode", False), cfg.get("interim_header"))
+                r = call_gateway(task["prompt"], cfg["system"], cfg.get("json_mode", False),
+                                 cfg.get("interim_header"), cfg.get("no_contract", False))
             else:
                 r = call_direct(args.provider, task["prompt"], cfg["system"])
             err = None

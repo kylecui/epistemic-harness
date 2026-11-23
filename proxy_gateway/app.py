@@ -49,6 +49,14 @@ DEFAULT_QUOTA_POLICY = REPO_ROOT / "proxy_gateway" / "quota_policy.yaml"
 DEFAULT_QUOTA_DB = REPO_ROOT / "traces" / "quota_ledger.db"
 
 
+def _contract_check_enabled(request: Request) -> bool:
+    """Ablation switch (Paper 3 internal axis): env kills it globally; the
+    x-harness-no-contract header kills it per request (arm A runs clean)."""
+    if os.getenv("HARNESS_CONTRACT_CHECK", "on").strip().lower() in ("off", "0", "false"):
+        return False
+    return not request.headers.get("x-harness-no-contract")
+
+
 def _log_trace(entry: dict[str, Any]) -> None:
     TRACE_FILE.parent.mkdir(parents=True, exist_ok=True)
     with TRACE_FILE.open("a", encoding="utf-8") as fh:
@@ -363,7 +371,7 @@ def create_app(
                 _resp_text, _cap_note = normalize_declared_cap(_resp_text)
                 if _cap_note and isinstance(_msg.get("content"), str):
                     _msg["content"] = _resp_text
-                contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode)
+                contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode) if _contract_check_enabled(request) else []
             if contract_violations and isinstance(_msg.get("content"), str):
                 retry_payload = dict(rewritten)
                 _rmsgs = list(retry_payload.get("messages") or [])
@@ -385,8 +393,8 @@ def create_app(
                             _rmsg["content"] = _rtext
                         _still = (
                             check_response_contract(_rtext, decision.tier, resp_mode)
-                            if _rtext else list(contract_violations)
-                        )
+                            if _contract_check_enabled(request) else []
+                        ) if _rtext else list(contract_violations)
                         if _rtext and not _still:
                             data = rdata
                             contract_violations = []
@@ -523,8 +531,10 @@ def create_app(
                         # sees the bounce. Cap mismatches are normalized
                         # (computed), not bounced — surfaced as a note chunk.
                         cap_notes: list[str] = []
-                        contract_violations = check_response_contract(
-                            full_text, decision.tier, resp_mode, notes=cap_notes)
+                        contract_violations = (
+                            check_response_contract(full_text, decision.tier, resp_mode, notes=cap_notes)
+                            if _contract_check_enabled(request) else []
+                        )
                         if cap_notes:
                             yield _openai_contract_chunk(
                                 last_chunk_id, "\n\n" + cap_notes[0]
@@ -698,7 +708,7 @@ def create_app(
                 _resp_text, _cap_note = normalize_declared_cap(_resp_text)
                 if _cap_note and isinstance(_msg.get("content"), str):
                     _msg["content"] = _resp_text
-                contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode)
+                contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode) if _contract_check_enabled(request) else []
             if contract_violations:
                 retry_payload = dict(rewritten)
                 _existing_sys = retry_payload.get("system")
@@ -731,8 +741,8 @@ def create_app(
                                         break
                         _still = (
                             check_response_contract(_rtext, decision.tier, resp_mode)
-                            if _rtext else list(contract_violations)
-                        )
+                            if _contract_check_enabled(request) else []
+                        ) if _rtext else list(contract_violations)
                         if _rtext and not _still:
                             data = rdata
                             contract_violations = []
@@ -841,8 +851,11 @@ def create_app(
                     # once, before the held message_stop. Cap mismatches are
                     # normalized (computed), not bounced — surfaced as a note.
                     cap_notes = []
-                    contract_violations = check_response_contract(
-                        full_text, decision.tier, resp_mode, notes=cap_notes)
+                    contract_violations = (
+                        check_response_contract(
+                            full_text, decision.tier, resp_mode, notes=cap_notes)
+                        if _contract_check_enabled(request) else []
+                    )
                     if cap_notes:
                         yield (
                             "event: content_block_delta\n"
