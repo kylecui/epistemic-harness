@@ -51,6 +51,19 @@ skills:
       3. python scripts/memory_stats.py            # memory hit ratio + archive candidates
       Read the JSON variants with --json when composing reports.
 
+  - id: SKILL-HARNESS-VERSION
+    name: harness-version
+    description: "Check which harness version this pi session actually loaded: spec vs loaded contract vs installed stamp, with drift warnings."
+    tags: [harness, version, upgrade, diagnosis]
+    triggers: [version, 版本, which version, 什么版本, loaded version, drift, 版本漂移, harness 版本]
+    tier_hint: system_0
+    content: |
+      [Skill: harness-version]
+      Run: python scripts/harness_version.py
+      JSON: python scripts/harness_version.py --json
+      Exit code 1 = drift detected (spec != loaded contract, or installed stamp behind).
+      The startup banner in pi shows the same triangulation on session start.
+
   - id: SKILL-HARNESS-UPGRADE
     name: harness-upgrade
     description: "Upgrade an existing installation to the current repo version: preview migrations, backup, migrate, rebuild containers, verify, stamp."
