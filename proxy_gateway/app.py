@@ -122,7 +122,7 @@ def _parse_retry_after(resp: httpx.Response) -> int | None:
 
 
 def _is_failover_status(code: int) -> bool:
-    return code in (401, 403, 404, 408, 429, 529) or code >= 500
+    return code >= 400
 
 
 async def _record_upstream_failure(
@@ -312,6 +312,8 @@ def create_app(
                     headers={"X-Harness-Routed-Tier": decision.tier},
                 )
             data = last_resp.json()
+            if not isinstance(data, dict):
+                data = {"choices": []}
             # raw upstream text BEFORE gateway tag injection: the interim schema
             # polices the model's output, not the harness's own prefix
             _raw_msg = (data.get("choices") or [{}])[0].get("message") or {}

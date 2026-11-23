@@ -40,11 +40,11 @@ class LowTierLightOutputTests(unittest.TestCase):
     LONG = "x" * 1500 + " [L2] evidence"
 
     def test_tier1_converge_does_not_require_section_anchors(self):
-        violations = check_output_structure(LONG, "system_1", "Converge")
+        violations = check_output_structure(self.LONG, "system_1", "Converge")
         self.assertFalse(any("三段式锚点" in v for v in violations), violations)
 
     def test_tier15_still_requires_section_anchors(self):
-        violations = check_output_structure(LONG, "system_1_5", "Explore")
+        violations = check_output_structure(self.LONG, "system_1_5", "Explore")
         self.assertTrue(any("三段式锚点" in v for v in violations), violations)
 
 
