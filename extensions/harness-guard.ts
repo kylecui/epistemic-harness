@@ -263,7 +263,6 @@ export default function (pi: any) {
 
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     if (event.messageType !== "user") return undefined;
-    showVersionBanner(ctx);
     const prompt = String(event.prompt || "");
     // Preserve retry counters when the continuation turn was injected by our own gate
     const isGateBounce = prompt.startsWith("[HARNESS_EXIT_GATE_RETRY]") || prompt.startsWith("[HARNESS_REVIEW_GATE_RETRY]");
@@ -343,40 +342,31 @@ export default function (pi: any) {
   };
 
   // ---- startup version banner (2026-11-23): pilots could not tell which
-  // contract a pi session had loaded. Emitted on the first turn (ctx.ui is
-  // guaranteed there; the extension-init pi object carries no UI handle) —
-  // still before any harness-constrained work happens in the session.
-  let bannerShown = false;
-  const showVersionBanner = (ctx: any) => {
-    if (bannerShown) return;
-    bannerShown = true;
+  // contract a pi session had loaded, and wanted "what changed" the first
+  // time a version appears. session_start carries a UI handle (unlike
+  // extension init); the banner text comes from the tested python CLI so the
+  // once-per-version release-notes logic lives in one place.
+  pi.on("session_start", async (_event: any, sctx: any) => {
     try {
-      const bannerCwd = String(ctx?.cwd || process.cwd());
-      const agentsText = readFileSync(join(bannerCwd, "AGENTS.md"), "utf-8");
-      const loadedM = agentsText.match(/epistemic-dual-process-harness \(v(\d+\.\d+\.\d+)\)/);
-      let specV = "";
-      try {
-        const specM = readFileSync(join(bannerCwd, "harness.yaml"), "utf-8").match(/^version:\s*([\d.]+)/m);
-        specV = specM ? specM[1] : "";
-      } catch { /* spec unreadable: banner still shows the loaded version */ }
-      let sha = "";
-      try {
-        sha = execSync("git rev-parse --short HEAD", { cwd: bannerCwd, encoding: "utf-8", timeout: 5000, stdio: ["ignore", "pipe", "ignore"] }).trim();
-      } catch { /* not a git checkout */ }
-      const loadedV = loadedM ? loadedM[1] : "?";
-      ctx.ui?.notify(
-        `[harness] contract v${loadedV} loaded` +
-          (specV ? ` (spec v${specV}${sha ? ", " + sha : ""})` : ""),
-        "info",
-      );
-      if (specV && loadedM && loadedM[1] !== specV) {
-        ctx.ui?.notify(
-          `[harness] DRIFT: loaded contract v${loadedM[1]} != spec v${specV} — run scripts/compile_clients.py, then restart pi`,
-          "warn",
-        );
+      const cwd = String(sctx?.cwd || process.cwd());
+      const script = join(cwd, "scripts", "harness_version.py");
+      if (!existsSync(script)) return;
+      for (const py of ["python", "py", "python3"]) {
+        try {
+          const res = spawnSync(py, [script, "--banner"], {
+            cwd, encoding: "utf-8", timeout: 30000, stdio: ["ignore", "pipe", "pipe"],
+          });
+          if (res.status === 0 && res.stdout) {
+            const lines = String(res.stdout).split(/\r?\n/).filter((l: string) => l.trim());
+            for (const ln of lines) {
+              sctx.ui?.notify(ln, ln.includes("DRIFT") ? "warn" : "info");
+            }
+            return;
+          }
+        } catch { /* try next interpreter */ }
       }
-    } catch { /* banner must never break the extension */ }
-  };
+    } catch { /* banner must never break startup */ }
+  });
 
   // ---- controller metrics (P2.9, 2026-11-22): the controller contract is
   // enforced by thresholds above; these records let us MEASURE how the main
