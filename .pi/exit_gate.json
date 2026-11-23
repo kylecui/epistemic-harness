@@ -9,6 +9,11 @@
       "required": true
     },
     {
+      "name": "public_language",
+      "command": "python scripts/check_public_language.py",
+      "required": true
+    },
+    {
       "name": "eol_policy",
       "command": "python scripts/check_eol.py",
       "required": true
