@@ -18,3 +18,4 @@ __pycache__/
 .pi/upgrade_state.json
 .pi/installed_version
 .pi/last_banner_version
+.pi/upgrade-run*.log
