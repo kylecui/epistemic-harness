@@ -308,5 +308,18 @@ def main() -> int:
     return 0
 
 
+def sync_user_skills(repo: Path) -> str:
+    """Best-effort: make harness-* skills visible outside the repo (global mode)."""
+    try:
+        import subprocess
+        out = subprocess.run(
+            [sys.executable, str(repo / "scripts" / "install_user_skills.py")],
+            cwd=str(repo), capture_output=True, text=True, timeout=60,
+        )
+        return (out.stdout or out.stderr).strip() or "user skills sync: ok"
+    except Exception as exc:  # noqa: BLE001 - install must not fail on skill sync
+        return f"user skills sync skipped: {exc}"
+
+
 if __name__ == "__main__":
     raise SystemExit(main())

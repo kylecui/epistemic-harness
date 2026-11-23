@@ -102,3 +102,29 @@ class EnvSeedingTests(unittest.TestCase):
             self.assertTrue((repo / ".env").exists())
             self.assertIn("seeded", note)
             self.assertEqual(calls[0][:3], ["docker", "compose", "up"])
+
+class UserSkillsSyncTests(unittest.TestCase):
+    def test_sync_copies_and_is_idempotent(self):
+        import scripts.install_user_skills as ius
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            src = home / "repo" / ".agents" / "skills" / "harness-upgrade"
+            src.mkdir(parents=True)
+            (src / "SKILL.md").write_text("---\nname: harness-upgrade\n---\n", encoding="utf-8")
+            orig_src, orig_home = ius.SOURCE, ius.user_skills_dir
+            ius.SOURCE = home / "repo" / ".agents" / "skills"
+            ius.user_skills_dir = lambda: home / "user" / ".agents" / "skills"
+            try:
+                r1 = ius.sync()
+                self.assertEqual(r1["copied"], ["harness-upgrade"])
+                r2 = ius.sync()
+                self.assertEqual(r2["copied"], [])
+                r3 = ius.sync(check=True)
+                self.assertEqual(r3["missing"], [])
+                # drift detection
+                (home / "user" / ".agents" / "skills" / "harness-upgrade" / "SKILL.md").write_text(
+                    "old", encoding="utf-8")
+                r4 = ius.sync(check=True)
+                self.assertEqual(r4["missing"], ["harness-upgrade"])
+            finally:
+                ius.SOURCE, ius.user_skills_dir = orig_src, orig_home

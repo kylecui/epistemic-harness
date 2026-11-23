@@ -251,6 +251,18 @@ export default function (pi: any) {
     return false;
   };
 
+  // Persistent footer status with the loaded contract version
+  // (2026-11-23): transient notify only lasts a moment; pilots want the
+  // version glanceable at all times. Best-effort TS read, no python needed.
+  const setVersionFooter = (ctx: any) => {
+    try {
+      const cwd = String(ctx?.cwd || process.cwd());
+      const agentsText = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+      const loadedM = agentsText.match(/epistemic-dual-process-harness \(v(\d+\.\d+\.\d+)\)/);
+      if (loadedM) ctx.ui?.setStatus?.("harness", `harness v${loadedM[1]}`);
+    } catch { /* footer is best-effort */ }
+  };
+
   // ---- version banner + gateway health (2026-11-23). pi 1.6.0's TUI runtime
   // never dispatches "session_start" to extension handlers (verified in the
   // installed bundle: _emitExtensionEvent covers agent_start/agent_end/
@@ -313,6 +325,7 @@ export default function (pi: any) {
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     if (event.messageType !== "user") return undefined;
     showVersionBanner(ctx);
+    setVersionFooter(ctx);
     const prompt = String(event.prompt || "");
     // Preserve retry counters when the continuation turn was injected by our own gate
     const isGateBounce = prompt.startsWith("[HARNESS_EXIT_GATE_RETRY]") || prompt.startsWith("[HARNESS_REVIEW_GATE_RETRY]");
@@ -475,6 +488,11 @@ export default function (pi: any) {
   });
 
   // Deterministic Exit Gate + State-Coupled Anti-Shirking Guard
+  pi.on("agent_settled", async (_event: any, sctx: any) => {
+    setVersionFooter(sctx);
+    return undefined;
+  });
+
   pi.on("agent_end", async (event: any, ctx: any) => {
     metric({
       event: "turn_end",
