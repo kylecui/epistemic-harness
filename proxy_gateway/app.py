@@ -40,6 +40,7 @@ from proxy_gateway.response_guard import (
     StreamTagGuard,
 )
 from proxy_gateway.quota_manager import QuotaManager
+from proxy_gateway.interim_guard import interim_mode, requested_interim_schema, check_interim_response, interim_note
 from proxy_gateway.thrashing_guard import GuardState, RECOVERY_DIRECTIVE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -228,6 +229,16 @@ def create_app(
         lines = TRACE_FILE.read_text(encoding="utf-8").splitlines()[-limit:]
         return {"traces": [json.loads(line) for line in lines if line.strip()]}
 
+    def _interim_check(request: Request, text: str) -> str | None:
+        """Interim-schema guard (P1.5): header opt-in, env mode, warn-note only."""
+        if interim_mode() == "off" or not text.strip():
+            return None
+        schema_name = requested_interim_schema(request.headers.get("x-harness-interim"))
+        if not schema_name:
+            return None
+        ok, violations = check_interim_response(text, schema_name)
+        return None if ok else interim_note(schema_name, violations)
+
     def _resolve_agent(request: Request) -> tuple[str, dict[str, Any] | None]:
         """Resolve X-Harness-Agent-Id to its profile (tier + pinned model)."""
         agent_id = request.headers.get("x-harness-agent-id", "").strip().lower()
@@ -301,6 +312,10 @@ def create_app(
                     headers={"X-Harness-Routed-Tier": decision.tier},
                 )
             data = last_resp.json()
+            # raw upstream text BEFORE gateway tag injection: the interim schema
+            # polices the model's output, not the harness's own prefix
+            _raw_msg = (data.get("choices") or [{}])[0].get("message") or {}
+            _raw_text = _raw_msg.get("content") if isinstance(_raw_msg.get("content"), str) else ""
             tag_injected = guard_openai_message(data, tier_tag)
 
             # Review-turn output-contract check (issue #1): bounce exactly once
@@ -310,6 +325,9 @@ def create_app(
             contract_violations: list[str] = []
             _msg = (data.get("choices") or [{}])[0].get("message") or {}
             _resp_text = _msg.get("content") if isinstance(_msg.get("content"), str) else ""
+            _interim_note = _interim_check(request, _raw_text)
+            if _interim_note and isinstance(_msg.get("content"), str):
+                _msg["content"] = f"{_msg['content']}\n\n{_interim_note}"
             if _resp_text:
                 # Cap is computed, not self-declared: align the header before judging.
                 _resp_text, _cap_note = normalize_declared_cap(_resp_text)
@@ -374,6 +392,7 @@ def create_app(
                 "agent_id": agent_id or None,
                 "tag_injected": tag_injected,
                 "contract_violations": contract_violations or None,
+                "interim_violations": _interim_note or None,
             })
             return JSONResponse(
                 status_code=last_resp.status_code,
@@ -480,6 +499,9 @@ def create_app(
                             yield _openai_contract_chunk(
                                 last_chunk_id, "\n\n" + cap_notes[0]
                             ).encode("utf-8")
+                        _interim_note = _interim_check(request, full_text)
+                        if _interim_note:
+                            yield _openai_contract_chunk(last_chunk_id, "\n\n" + _interim_note).encode("utf-8")
                         if contract_violations:
                             yield _openai_contract_chunk(
                                 last_chunk_id, "\n\n" + build_contract_intercept(contract_violations, retry=True)

@@ -322,7 +322,7 @@ class Orchestrator:
             load_routing_config(),
             explicit_profile=args.get("agent_profile"),
         )
-        return dispatch_subtask(
+        result = dispatch_subtask(
             agent_profile=decision.profile,
             task_text=args["task_text"],
             context=args.get("context", ""),
@@ -334,6 +334,14 @@ class Orchestrator:
             max_tokens=decision.budget,
             category=decision.category,
         )
+        # structured interim output (research P1.5): additive field, backward compatible
+        try:
+            from orchestrator.subagent_report import build_report
+            raw_text = str(result.get("content") or result.get("text") or "")
+            result["report"] = build_report(str(args.get("task_id", "default")), decision.profile, raw_text)
+        except Exception:  # noqa: BLE001 - interim layer must never break dispatch
+            pass
+        return result
 
     def dispatch_tooled(self, args: dict[str, Any]) -> dict[str, Any]:
         return dispatch_tooled(
