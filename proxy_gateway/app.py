@@ -21,6 +21,7 @@ from proxy_gateway.policy import (
     inject_thinking_language_anthropic,
     inject_thinking_language_openai,
     rewrite_openai_payload,
+    sanitize_openai_payload,
     apply_effort_override,
     _extract_last_user_text,
 )
@@ -208,6 +209,10 @@ def create_app(
             mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
             info = mod.collect()
+            # effective contract: the session file wins, the repo copy is the
+            # fallback (containers / fresh installs have no ~/.pi/agent/AGENTS.md)
+            if not info.get("loaded_contract_version"):
+                info["loaded_contract_version"] = info.get("repo_contract_version")
             return {"status": "ok", **info}
         except Exception as exc:  # noqa: BLE001 - version must never 500
             return {"status": "error", "error": str(exc)[:200]}
@@ -272,6 +277,7 @@ def create_app(
                     rewritten = inject_thinking_language_openai(rewrite_openai_payload(body, decision), thinking_lang_mode)
                     rewritten["model"] = qm.models[mkey]["upstream_model"]
                     target_base = _resolve_base(qm, mkey, oa_fallback)
+                    rewritten = sanitize_openai_payload(rewritten, target_base)
                     resp = await client.post(
                         f"{target_base}/chat/completions",
                         json=rewritten,
@@ -401,6 +407,7 @@ def create_app(
                 rewritten = inject_thinking_language_openai(rewrite_openai_payload(body, decision), thinking_lang_mode)
                 rewritten["model"] = qm.models[mkey]["upstream_model"]
                 target_base = _resolve_base(qm, mkey, oa_fallback)
+                rewritten = sanitize_openai_payload(rewritten, target_base)
                 saw_done = False
                 saw_finish = False
                 try:

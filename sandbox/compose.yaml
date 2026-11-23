@@ -1,0 +1,14 @@
+# Harness sandbox — global Linux execution plane. Installed to
+# ~/.pi/harness/sandbox/ by scripts/install_global.py, brought up per worktree
+# by the sandbox-shell pi extension (project hbox-<hash(cwd)>, worktree mounted
+# at /workspace via $SANDBOX_WORKTREE).
+# Tag stays :local on purpose: scripts/upgrade.py rebuilds it on every upgrade.
+# Version truth is harness.yaml + the upgrade stamp, not the image tag.
+services:
+  sandbox:
+    build: .
+    image: harness-sandbox:local
+    working_dir: /workspace
+    volumes:
+      - ${SANDBOX_WORKTREE:?SANDBOX_WORKTREE is set by the sandbox-shell extension}:/workspace
+    command: ["sleep", "infinity"]

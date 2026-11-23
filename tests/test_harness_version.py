@@ -30,8 +30,13 @@ class VersionTriangulationTests(unittest.TestCase):
             def __enter__(self):
                 self.orig = hv.REPO_ROOT
                 hv.REPO_ROOT = repo
+                # isolate from the real ~/.pi/agent/AGENTS.md (its version
+                # differs per machine and would leak into assertions)
+                self.orig_home = hv.HOME_DIR
+                hv.HOME_DIR = repo / ".no-home"
             def __exit__(self, *a):
                 hv.REPO_ROOT = self.orig
+                hv.HOME_DIR = self.orig_home
         return Guard()
 
     def test_aligned_report(self):
@@ -71,6 +76,15 @@ if __name__ == "__main__":
 class BannerModeTests(unittest.TestCase):
     """--banner: version line always; release notes exactly once per version."""
 
+    def _guard_home(self):
+        class Guard:
+            def __enter__(self):
+                self.orig = hv.HOME_DIR
+                hv.HOME_DIR = Path(tempfile.mkdtemp())  # empty → no session contract
+            def __exit__(self, *a):
+                hv.HOME_DIR = self.orig
+        return Guard()
+
     def _repo(self, tmp: str, version: str) -> Path:
         repo = Path(tmp)
         (repo / "harness.yaml").write_text(f"version: {version}\nname: x\n", encoding="utf-8")
@@ -86,7 +100,8 @@ class BannerModeTests(unittest.TestCase):
     def test_first_banner_shows_notes_and_stamps(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self._repo(tmp, "0.5.1")
-            lines, stamped = hv.banner_text(repo)
+            with self._guard_home():
+                lines, stamped = hv.banner_text(repo)
             self.assertTrue(any("contract v0.5.1 loaded" in l for l in lines))
             self.assertTrue(any("first note" in l for l in lines))
             self.assertTrue(stamped)
@@ -95,21 +110,23 @@ class BannerModeTests(unittest.TestCase):
     def test_second_banner_is_quiet(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self._repo(tmp, "0.5.1")
-            hv.banner_text(repo)
-            lines, stamped = hv.banner_text(repo)
+            with self._guard_home():
+                hv.banner_text(repo)
+                lines, stamped = hv.banner_text(repo)
             self.assertFalse(any("first note" in l for l in lines))
             self.assertFalse(stamped)
 
     def test_new_version_shows_its_own_notes(self):
         with tempfile.TemporaryDirectory() as tmp:
             repo = self._repo(tmp, "0.5.1")
-            hv.banner_text(repo)
-            (repo / "harness.yaml").write_text("version: 0.5.2\nname: x\n", encoding="utf-8")
-            (repo / "AGENTS.md").write_text(
-                "# epistemic-dual-process-harness (v0.5.2) — Agent Runtime Contract\n", encoding="utf-8")
-            (repo / "docs" / "RELEASE-NOTES.md").write_text(
-                "# Release notes\n\n## v0.5.2\n\n- brand new thing\n", encoding="utf-8")
-            lines, stamped = hv.banner_text(repo)
+            with self._guard_home():
+                hv.banner_text(repo)
+                (repo / "harness.yaml").write_text("version: 0.5.2\nname: x\n", encoding="utf-8")
+                (repo / "AGENTS.md").write_text(
+                    "# epistemic-dual-process-harness (v0.5.2) — Agent Runtime Contract\n", encoding="utf-8")
+                (repo / "docs" / "RELEASE-NOTES.md").write_text(
+                    "# Release notes\n\n## v0.5.2\n\n- brand new thing\n", encoding="utf-8")
+                lines, stamped = hv.banner_text(repo)
             self.assertTrue(any("brand new thing" in l for l in lines))
             self.assertFalse(any("old note" in l for l in lines))
             self.assertTrue(stamped)

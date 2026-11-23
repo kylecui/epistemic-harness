@@ -25,6 +25,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import shutil
 import sys
@@ -32,6 +33,11 @@ import sys
 REPO_ROOT = Path(__file__).resolve().parent.parent
 GLOBAL_EXT = Path.home() / ".pi" / "agent" / "extensions" / "harness-guard.ts"
 HARNESS_HOME = Path.home() / ".pi" / "harness"
+AGENT_DIR = Path.home() / ".pi" / "agent"
+GLOBAL_SANDBOX_EXT = AGENT_DIR / "extensions" / "sandbox-shell.ts"
+SETTINGS_JSON = AGENT_DIR / "settings.json"
+REQUIRED_DEFAULT_TOOLS = ["+sh", "+powershell", "+grep", "+find", "+ls"]
+DEFAULT_SHELL_PATH = r"C:\Program Files\Git\bin\bash.exe"
 
 
 def _copy(src: Path, dest: Path, check: bool, copied: list[str], drift: list[str]) -> None:
@@ -48,13 +54,35 @@ def _copy(src: Path, dest: Path, check: bool, copied: list[str], drift: list[str
     copied.append(str(dest))
 
 
+def merge_pi_settings(existing: dict) -> dict:
+    """Additive, idempotent pi settings merge (pure function, testable).
+
+    shellPath is only set when absent (a user override wins); defaultTools
+    gains the sandbox + fallback tools without touching existing entries.
+    """
+    merged = dict(existing)
+    tools = list(merged.get("defaultTools") or [])
+    for token in REQUIRED_DEFAULT_TOOLS:
+        if token not in tools:
+            tools.append(token)
+    merged["defaultTools"] = tools
+    merged.setdefault("shellPath", DEFAULT_SHELL_PATH)
+    return merged
+
+
 def sync(check: bool = False) -> dict:
     copied: list[str] = []
     drift: list[str] = []
     jobs = [
         (REPO_ROOT / "extensions" / "harness-guard.ts", GLOBAL_EXT),
+        (REPO_ROOT / "extensions" / "sandbox-shell.ts", GLOBAL_SANDBOX_EXT),
         (REPO_ROOT / "harness.yaml", HARNESS_HOME / "harness.yaml"),
+        # compiled contract -> the file pi actually injects into every session;
+        # must run AFTER compile_clients (upgrade orders it that way)
+        (REPO_ROOT / "AGENTS.md", AGENT_DIR / "AGENTS.md"),
         (REPO_ROOT / "docs" / "RELEASE-NOTES.md", HARNESS_HOME / "RELEASE-NOTES.md"),
+        (REPO_ROOT / "sandbox" / "Dockerfile", HARNESS_HOME / "sandbox" / "Dockerfile"),
+        (REPO_ROOT / "sandbox" / "compose.yaml", HARNESS_HOME / "sandbox" / "compose.yaml"),
     ]
     for script in ("harness_version.py", "install_user_skills.py", "upgrade.py"):
         jobs.append((REPO_ROOT / "scripts" / script, HARNESS_HOME / "scripts" / script))
@@ -67,6 +95,23 @@ def sync(check: bool = False) -> dict:
             if skill_dir.is_dir() and (skill_dir / "SKILL.md").exists():
                 _copy(skill_dir / "SKILL.md", HARNESS_HOME / "skills" / skill_dir.name / "SKILL.md",
                       check, copied, drift)
+    # pi settings: additive merge (sandbox tool + fallback channels + shell)
+    existing = None
+    if SETTINGS_JSON.exists():
+        try:
+            existing = json.loads(SETTINGS_JSON.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            drift.append(f"{SETTINGS_JSON} (unparseable JSON — fix or delete)")
+    if isinstance(existing, dict):
+        desired = json.dumps(merge_pi_settings(existing), ensure_ascii=False, indent=2) + "\n"
+        current = SETTINGS_JSON.read_text(encoding="utf-8") if SETTINGS_JSON.exists() else ""
+        if current != desired:
+            if check:
+                drift.append(str(SETTINGS_JSON))
+            else:
+                SETTINGS_JSON.parent.mkdir(parents=True, exist_ok=True)
+                SETTINGS_JSON.write_text(desired, encoding="utf-8")
+                copied.append(str(SETTINGS_JSON))
     return {"copied": copied, "drift": drift, "harness_home": str(HARNESS_HOME)}
 
 

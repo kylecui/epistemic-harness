@@ -27,6 +27,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 
 import yaml
@@ -160,12 +161,20 @@ def docker_rebuild() -> str:
     )
     if out.returncode != 0:
         raise RuntimeError(f"docker compose rebuild failed: {out.stderr[-400:]}")
-    health = subprocess.run(
-        ["curl", "-s", "-m", "10", "http://127.0.0.1:8787/health"],
-        capture_output=True, text=True, timeout=20,
-    )
-    if health.returncode != 0 or '"status"' not in health.stdout:
-        raise RuntimeError(f"backend smoke test failed: {health.stdout[-200:]}")
+    # smoke test with startup grace: compose up returns before uvicorn is
+    # listening (live race 2026-11-24); --noproxy guards host proxy envs.
+    health = None
+    for _attempt in range(6):
+        time.sleep(5)
+        health = subprocess.run(
+            ["curl", "-s", "--noproxy", "*", "-m", "5", "http://127.0.0.1:8787/health"],
+            capture_output=True, text=True, timeout=20,
+        )
+        if health.returncode == 0 and '"status"' in health.stdout:
+            break
+    if health is None or health.returncode != 0 or '"status"' not in health.stdout:
+        raise RuntimeError(
+            f"backend smoke test failed after retries: {(health.stdout if health else '')[-200:]}")
     note = "containers rebuilt, /health ok"
     if seeded:
         note += " (.env seeded from .env.example — no keys, set them in .env)"
@@ -181,6 +190,46 @@ def verify() -> str:
         raise RuntimeError(f"unit tests red after upgrade: {out.stderr[-500:]}")
     tail = [l for l in out.stderr.splitlines() if l.strip()][-1]
     return f"unit tests green ({tail})"
+
+
+def step_install_global() -> str:
+    """Refresh the global install: extensions, sandbox def, session contract, pi settings."""
+    out = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "install_global.py")],
+        cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=120,
+    )
+    if out.returncode != 0:
+        raise RuntimeError(f"install_global failed: {out.stderr[-400:]}")
+    return "global install synced (extension + sandbox + session contract + pi settings)"
+
+
+def sandbox_build() -> str:
+    """Build the global sandbox image so first use needs no build."""
+    compose = Path.home() / ".pi" / "harness" / "sandbox" / "compose.yaml"
+    if not compose.exists():
+        raise RuntimeError("sandbox compose missing — install_global did not sync it")
+    out = subprocess.run(
+        ["docker", "compose", "-f", str(compose), "build"],
+        cwd=str(compose.parent), capture_output=True, text=True, timeout=900,
+        # compose interpolates volumes even for `build`; the extension-owned
+        # $SANDBOX_WORKTREE guard would abort — feed a build-only placeholder
+        env={**os.environ, "SANDBOX_WORKTREE": str(compose.parent)},
+    )
+    if out.returncode != 0:
+        raise RuntimeError(f"sandbox build failed: {out.stderr[-400:]}")
+    return "harness-sandbox:local built"
+
+
+def plane_report(skip_docker: bool) -> str:
+    """Every plane checked by scripts/check_env.py (--skip-stamp: stamped below)."""
+    cmd = [sys.executable, str(REPO_ROOT / "scripts" / "check_env.py"), "--skip-stamp"]
+    if skip_docker:
+        cmd.append("--no-docker")
+    out = subprocess.run(cmd, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=120)
+    lines = [l for l in out.stdout.splitlines() if l.strip()]
+    if out.returncode != 0:
+        raise RuntimeError("plane alignment failed:\n" + "\n".join(lines[-12:]))
+    return f"all planes aligned ({len(lines)} rows)"
 
 
 def main() -> int:
@@ -221,9 +270,13 @@ def main() -> int:
             print(f"  {note}")
         _save_state(state)
 
+        print("sync global install ...")
+        print(f"  {step_install_global()}")
         if not args.no_docker:
             print("rebuild containers ...")
             print(f"  {docker_rebuild()}")
+            print("build sandbox image ...")
+            print(f"  {sandbox_build()}")
         print("sync user-level skills ...")
         out = subprocess.run(
             [sys.executable, str(REPO_ROOT / "scripts" / "install_user_skills.py")],
@@ -232,6 +285,8 @@ def main() -> int:
         print(f"  {out.stdout.strip() or out.stderr.strip()}")
         print("verify ...")
         print(f"  {verify()}")
+        print("plane alignment ...")
+        print(f"  {plane_report(args.no_docker)}")
 
         INSTALLED_VERSION_PATH.write_text(f"v{new}\n", encoding="utf-8")
         if not args.keep_backup:

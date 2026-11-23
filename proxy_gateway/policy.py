@@ -132,6 +132,25 @@ def rewrite_openai_payload(payload: dict[str, Any], decision: RoutingDecision) -
     return updated
 
 
+CLIENT_ONLY_OPENAI_FIELDS = ("store", "previous_response_id", "prompt_cache_key")
+
+
+def sanitize_openai_payload(payload: dict[str, Any], upstream_base: str) -> dict[str, Any]:
+    """Drop client-only OpenAI params that non-OpenAI endpoints reject (2026-11-24).
+
+    Incident: pi sends `store` on chat.completions; Gemini's OpenAI-compat
+    endpoint strict-validates and 400s with `Unknown name "store"`. api.openai.com
+    keeps its fields untouched. Derived retry/recovery payloads inherit the
+    sanitized dict, so call sites only sanitize once per candidate.
+    """
+    if "api.openai.com" in upstream_base:
+        return payload
+    updated = dict(payload)
+    for field in CLIENT_ONLY_OPENAI_FIELDS:
+        updated.pop(field, None)
+    return updated
+
+
 def rewrite_anthropic_payload(payload: dict[str, Any], decision: RoutingDecision) -> dict[str, Any]:
     updated = dict(payload)
     if decision.anthropic_budget <= 0:
