@@ -40,6 +40,11 @@ machine validation via contracts/schemas.
 
 ## Known limitations (to state in the paper)
 
+- **Execution plane (harness gap, tracked as issue #13)**: the campaign currently
+  runs host-side (Windows Python) against containerized endpoints; the intended
+  home is the per-worktree sandbox container once keys/gateway-addressing gaps
+  close. Host execution here is a declared fallback, not the policy state.
+
 - A0 approximates "vanilla pi" by a direct API call with a plain system prompt;
   the pi-CLI nuance (tooling defaults) is out of scope for this campaign.
 - N=20 per cell is the default; power analysis deferred to first results.
