@@ -12,8 +12,14 @@ Normative content (rules, contracts, skills) is English-only; a Chinese auxiliar
 | [browser-runner.md](browser-runner.md) | Browser/CDP placement policy: container vs host, evidence, Windows constraints |
 | [research-capability.md](research-capability.md) | External retrieval before design answers: research MCP servers, fallbacks, grounding check |
 | [ecosystem-comparison.md](ecosystem-comparison.md) | Evidence-gap remediation: README-level scan of OmO/aider/SWE-agent/OpenHands for claim-to-evidence governance (2026-11-22, with stated limits) |
+
 | [paper/](paper/) | Paper package (research branch only): outline, experiment record, related work, draft abstract |
 | [RELEASE-NOTES.md](RELEASE-NOTES.md) | Per-version user-facing changes; the startup banner prints the current version's section once |
+
+
+
+
+
 | [UPGRADE.md](UPGRADE.md) | In-place upgrade for existing installs: protected state, idempotent migrations, rollback, support tiers |
 | [install-evidence.md](install-evidence.md) | Real install tests (WSL + remote) with transcripts and the 7 defects they exposed |
 | [skills-inventory.md](skills-inventory.md) | Skill registry inventory and disposition |
@@ -21,8 +27,6 @@ Normative content (rules, contracts, skills) is English-only; a Chinese auxiliar
 
 ## Design records (v0.4 cycle)
 
-| Doc | What it covers |
-|---|---|
 | [workplan-v0.4.md](workplan-v0.4.md) | v0.4 delivery log §7–§13: every change with its test and measured evidence; final acceptance table |
 | [exit-gate-anti-shirking-design.md](exit-gate-anti-shirking-design.md) | Exit gate and anti-shirking design (v0.4.0) |
 | [review-remediation-plan.md](review-remediation-plan.md) | Review findings → fixes mapping (P0/P1/P2 cycle) |
@@ -30,8 +34,6 @@ Normative content (rules, contracts, skills) is English-only; a Chinese auxiliar
 
 ## Historical (Phase 0–3, kept for provenance — not updated)
 
-| Doc | What it covers |
-|---|---|
 | [phase0-gem-poc-spec-and-tests.md](phase0-gem-poc-spec-and-tests.md) | Phase 0 Gem PoC spec |
 | [phase1-pi-scaffold-guide.md](phase1-pi-scaffold-guide.md) | Phase 1 Pi scaffold guide |
 | [phase2-proxy-quota-routing-guide.md](phase2-proxy-quota-routing-guide.md) | Phase 2 proxy + quota routing |
