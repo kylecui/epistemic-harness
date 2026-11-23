@@ -14,6 +14,11 @@
       "required": true
     },
     {
+      "name": "experiment_runner_declared",
+      "command": "python scripts/check_experiment_runner_declared.py",
+      "required": true
+    },
+    {
       "name": "eol_policy",
       "command": "python scripts/check_eol.py",
       "required": true

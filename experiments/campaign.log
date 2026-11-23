@@ -1,0 +1,23 @@
++ C:\Python312\python.exe experiments/runner.py --arm A0 --task traceback-triage --samples 20 --provider kimi
+[A0/traceback-triage] sample 0: ok, 371 chars
+[A0/traceback-triage] sample 1: ok, 743 chars
+[A0/traceback-triage] sample 2: ok, 372 chars
+[A0/traceback-triage] sample 3: ok, 512 chars
+[A0/traceback-triage] sample 4: ok, 364 chars
+[A0/traceback-triage] sample 5: ok, 424 chars
+[A0/traceback-triage] sample 6: ok, 385 chars
+[A0/traceback-triage] sample 7: ok, 364 chars
+[A0/traceback-triage] sample 8: ok, 391 chars
+[A0/traceback-triage] sample 9: ok, 413 chars
+[A0/traceback-triage] sample 10: ok, 1150 chars
+[A0/traceback-triage] sample 11: ok, 980 chars
+[A0/traceback-triage] sample 12: ok, 367 chars
+[A0/traceback-triage] sample 13: ok, 323 chars
+[A0/traceback-triage] sample 14: ok, 369 chars
+[A0/traceback-triage] sample 15: ok, 406 chars
+[A0/traceback-triage] sample 16: ok, 707 chars
+[A0/traceback-triage] sample 17: ok, 429 chars
+[A0/traceback-triage] sample 18: ok, 295 chars
+[A0/traceback-triage] sample 19: ok, 346 chars
+-> D:\MyWorkSpaces\epistemic-harness\experiments\runs\A0__traceback-triage.jsonl
++ C:\Python312\python.exe experiments/runner.py --arm A0 --task version-drift --samples 20 --provider kimi

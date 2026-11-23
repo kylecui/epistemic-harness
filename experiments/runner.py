@@ -141,7 +141,10 @@ def main() -> int:
             r, err = {"text": "", "model": None, "raw": None}, f"{type(exc).__name__}: {exc}"
         rec = {"arm": args.arm, "task": args.task, "sample": i, "ts": time.time(),
                "elapsed": round(time.time() - t0, 2), "model": r["model"], "text": r["text"],
-               "error": err, "check": task.get("check"), "judge_focus": task.get("judge_focus")}
+               "error": err, "check": task.get("check"), "judge_focus": task.get("judge_focus"),
+               # execution-plane declaration (issue #13 anti-recurrence): every run
+               # record must name its runner; the exit gate enforces the field.
+               "runner": os.environ.get("HARNESS_RUNNER", "host")}
         with out.open("a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
         print(f"[{args.arm}/{args.task}] sample {i}: {err or ('ok, ' + str(len(r['text'])) + ' chars')}", flush=True)
