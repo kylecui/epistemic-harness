@@ -144,8 +144,8 @@ def main() -> int:
                "error": err, "check": task.get("check"), "judge_focus": task.get("judge_focus")}
         with out.open("a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
-        print(f"[{args.arm}/{args.task}] sample {i}: {err or ('ok, ' + str(len(r['text'])) + ' chars')}")
-    print(f"-> {out}")
+        print(f"[{args.arm}/{args.task}] sample {i}: {err or ('ok, ' + str(len(r['text'])) + ' chars')}", flush=True)
+    print(f"-> {out}", flush=True)
     return 0
 
 
