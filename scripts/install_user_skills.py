@@ -22,7 +22,11 @@ import shutil
 import sys
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-SOURCE = REPO_ROOT / ".agents" / "skills"
+HARNESS_HOME = Path.home() / ".pi" / "harness"
+SOURCE = Path(__import__("os").environ.get("HARNESS_HOME") or HARNESS_HOME) / "skills"
+# Fallback for development checkouts without a global install:
+if not SOURCE.exists():
+    SOURCE = REPO_ROOT / "skills" / "pi-native"
 
 
 def user_skills_dir() -> Path:
