@@ -19,3 +19,5 @@ __pycache__/
 .pi/installed_version
 .pi/last_banner_version
 .pi/upgrade-run*.log
+
+experiments/campaign*.log
