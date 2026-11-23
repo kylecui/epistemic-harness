@@ -2,7 +2,7 @@ version: "2.0"
 description: "共享套餐池（Shared Pools）5h / 周 / 月三窗口配额 + 2026-11 官方计费系数与最优旗舰兜底"
 
 default_cooldown_seconds: 300
-soft_limit_ratio: 0.95
+soft_limit_ratio: 0.995   # 2026-11-24: 0.95 在 OpenCode 周额度 $47.57/$50 时就提前封死，全部模型 429 时错过兜底
 # 全局主动避峰：任何处于 peak_windows_utc 的主力池自动退让给 off-peak 或无高峰窗口的主力池
 active_peak_avoidance: true
 
