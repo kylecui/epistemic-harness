@@ -14,6 +14,9 @@ Three sources, three meanings:
 Usage:
     python scripts/harness_version.py          # human report, exit 1 on drift
     python scripts/harness_version.py --json   # machine-readable
+    python scripts/harness_version.py --banner # startup banner text; first
+        # display of a version appends its release notes (docs/RELEASE-NOTES.md)
+        # and stamps .pi/last_banner_version so notes show only once per version
 """
 
 from __future__ import annotations
@@ -85,10 +88,76 @@ def collect() -> dict:
     }
 
 
+RELEASE_NOTES = REPO_ROOT / "docs" / "RELEASE-NOTES.md"
+BANNER_STAMP = REPO_ROOT / ".pi" / "last_banner_version"
+
+
+def banner_text(repo_root: Path = REPO_ROOT) -> tuple[list[str], bool]:
+    """Startup banner lines. Returns (lines, stamped_new_version).
+
+    First time a loaded contract version is displayed, its release-notes
+    section is appended and the stamp updated — so "what changed" appears
+    exactly once per version, at the first session that loads it.
+    """
+    global REPO_ROOT
+    orig = REPO_ROOT
+    REPO_ROOT = repo_root
+    try:
+        info = collect()
+        loaded = info["loaded_contract_version"] or "?"
+        sha = info["git_sha"] or "?"
+        lines = [f"[harness] contract v{loaded} loaded (git {sha})"]
+        for d in info["drift"]:
+            lines.append(f"[harness] DRIFT: {d}")
+        stamp_path = repo_root / ".pi" / "last_banner_version"
+        prev = stamp_path.read_text(encoding="utf-8").strip() if stamp_path.exists() else ""
+        stamped = False
+        if loaded != "?" and prev != loaded:
+            notes = _release_notes_section(loaded, repo_root)
+            if notes:
+                lines.append(f"[harness] new in v{loaded}:")
+                lines.extend("  " + ln for ln in notes)
+            try:
+                stamp_path.parent.mkdir(parents=True, exist_ok=True)
+                stamp_path.write_text(loaded + "\n", encoding="utf-8")
+                stamped = True
+            except OSError:
+                pass
+        return lines, stamped
+    finally:
+        REPO_ROOT = orig
+
+
+def _release_notes_section(version: str, repo_root: Path) -> list[str]:
+    path = repo_root / "docs" / "RELEASE-NOTES.md"
+    if not path.exists():
+        return []
+    out: list[str] = []
+    in_section = False
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        if raw.startswith("## v"):
+            in_section = raw.startswith(f"## v{version}")
+            continue
+        if in_section:
+            if raw.strip():
+                out.append(raw.strip())
+            if len(out) >= 8:  # keep the startup banner readable
+                out.append("… (docs/RELEASE-NOTES.md)")
+                break
+    return out
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--banner", action="store_true", help="startup banner (with once-per-version release notes)")
     args = ap.parse_args()
+
+    if args.banner:
+        lines, _ = banner_text()
+        for ln in lines:
+            print(ln)
+        return 0
 
     info = collect()
     if args.json:
