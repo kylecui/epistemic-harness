@@ -40,12 +40,13 @@ skills:
 
   - id: SKILL-HARNESS-STATUS
     name: harness-status
-    description: "Operational status at a glance: dispatch observability, model capability matrix, memory reuse stats."
+    description: "Operational status at a glance: VERSION DRIFT check first, then dispatch observability, model capability matrix, memory reuse stats."
     tags: [harness, observability, status]
-    triggers: [status, 状态, dispatch, 派发, quota, 配额, 观测, 模型矩阵]
+    triggers: [status, 状态, dispatch, 派发, quota, 配额, 观测, 模型矩阵, 版本, drift, 漂移]
     tier_hint: system_1
     content: |
       [Skill: harness-status]
+      0. python scripts/harness_version.py       # FIRST: spec/loaded-contract/installed-stamp drift; a drifting session invalidates every other number below
       1. python scripts/analyze_dispatches.py      # what was delegated, to which model/tier/effort; default_share routing feedback
       2. python scripts/capability_matrix.py       # per-model credentials / max_effort / peak-avoid
       3. python scripts/memory_stats.py            # memory hit ratio + archive candidates
