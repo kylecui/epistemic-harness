@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "SubagentReport",
+  "description": "Structured interim output for sub-agent -> controller communication (research branch: structured-interim-contracts). Epistemic fields carry provenance; free text lives inside findings/gaps entries.",
+  "type": "object",
+  "required": ["schema", "task_id", "profile", "findings", "evidence", "confidence_cap", "gaps", "recommendation"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "subagent-report/v1" },
+    "task_id": { "type": "string", "minLength": 1 },
+    "profile": { "type": "string", "enum": ["explorer", "explorer-ro", "coder", "deep", "critic"] },
+    "findings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "text", "layer"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 },
+          "layer": { "enum": ["L1", "L2", "L3", "L4", "L5"] },
+          "source_ids": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["tool_output", "file", "mcp_record", "ledger"] },
+          "ref": { "type": "string" }
+        }
+      }
+    },
+    "confidence_cap": { "enum": ["L1", "L2", "L3", "L4"] },
+    "gaps": { "type": "array", "items": { "type": "string" } },
+    "recommendation": { "type": "string" },
+    "residue_risks": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ReasoningRecord",
+  "description": "Append-only structured reasoning segment (research branch: structured-interim-contracts). Once submitted, records are immutable; claims may only cite evidence executed before the record timestamp.",
+  "type": "object",
+  "required": ["schema", "record_id", "tier", "mode", "claims", "evidence_refs", "open_gaps", "ts"],
+  "additionalProperties": true,
+  "properties": {
+    "schema": { "const": "reasoning-record/v1" },
+    "record_id": { "type": "string", "minLength": 1 },
+    "tier": { "type": "string", "enum": ["Tier 0", "Tier 1", "Tier 1.5", "Tier 2", "Tier 2+"] },
+    "mode": { "enum": ["explore", "converge"] },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["text", "layer", "confidence_cap"],
+        "properties": {
+          "text": { "type": "string", "minLength": 1 },
+          "layer": { "enum": ["L1", "L2", "L3", "L4", "L5"] },
+          "source_ids": { "type": "array", "items": { "type": "string" } },
+          "confidence_cap": { "enum": ["L1", "L2", "L3", "L4", "L5"] }
+        }
+      }
+    },
+    "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "open_gaps": { "type": "array", "items": { "type": "string" } },
+    "ts": { "type": "string", "minLength": 8 }
+  }
+}
