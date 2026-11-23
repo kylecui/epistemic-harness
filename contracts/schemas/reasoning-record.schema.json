@@ -26,6 +26,6 @@
     },
     "evidence_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
     "open_gaps": { "type": "array", "items": { "type": "string" } },
-    "ts": { "type": "string", "minLength": 8 }
+    "ts": { "type": ["string", "number"], "minLength": 8 }
   }
 }

@@ -42,7 +42,11 @@ def validate(schema: dict[str, Any], payload: Any, path: str = "$") -> list[str]
         violations.append(f"{path}: {payload!r} not in enum {schema['enum']}")
 
     expected_type = schema.get("type")
-    if expected_type and expected_type in _TYPE_CHECKS:
+    if isinstance(expected_type, list):
+        if not any(_TYPE_CHECKS.get(t, lambda v: False)(payload) for t in expected_type):
+            violations.append(f"{path}: expected type {'/'.join(expected_type)}, got {type(payload).__name__}")
+            return violations
+    elif expected_type and expected_type in _TYPE_CHECKS:
         if not _TYPE_CHECKS[expected_type](payload):
             violations.append(f"{path}: expected type {expected_type}, got {type(payload).__name__}")
             return violations  # downstream checks would be noise

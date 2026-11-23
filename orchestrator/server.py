@@ -286,6 +286,34 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Audit the shared-session L5 DAG: overall confidence cap, converge_allowed, L1 conflicts.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "submit_reasoning_record",
+        "description": "Append a structured ReasoningRecord to the immutable ledger (structured-interim research). Claims may only cite evidence registered BEFORE the record timestamp; forward references are rejected (information-flow closure).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"record": {"type": "object", "description": "ReasoningRecord per contracts/schemas/reasoning-record.schema.json"}},
+            "required": ["record"],
+        },
+    },
+    {
+        "name": "register_evidence",
+        "description": "Register an executed-evidence timestamp in the reasoning ledger (tool output / file / mcp_record). Ids must be unique; the ledger is append-only.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "evidence_id": {"type": "string"},
+                "ts": {"description": "epoch seconds or ISO-8601"},
+                "kind": {"type": "string", "enum": ["tool_output", "file", "mcp_record", "ledger"]},
+                "ref": {"type": "string"},
+            },
+            "required": ["evidence_id", "ts"],
+        },
+    },
+    {
+        "name": "reasoning_ledger_status",
+        "description": "Report reasoning-ledger size and storage path.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 
@@ -471,6 +499,18 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
                 )
             elif name == "run_gate":
                 res = orch.run_gate(args)
+            elif name == "submit_reasoning_record":
+                from orchestrator.reasoning_ledger import submit_record
+                res = submit_record(args["record"])
+            elif name == "register_evidence":
+                from orchestrator.reasoning_ledger import register_evidence
+                res = register_evidence(
+                    str(args["evidence_id"]), args["ts"],
+                    str(args.get("kind", "tool_output")), args.get("ref"),
+                )
+            elif name == "reasoning_ledger_status":
+                from orchestrator.reasoning_ledger import ledger_status
+                res = ledger_status()
             elif name == "audit_reply":
                 res = orch.audit_reply(args)
             else:

@@ -45,3 +45,12 @@ def check_interim_response(text: str, schema_name: str) -> tuple[bool, list[str]
 
 def interim_note(schema_name: str, violations: list[str]) -> str:
     return f"[HARNESS_INTERIM] schema {schema_name} violations: " + "; ".join(violations[:5])
+
+
+def enforce_directive(schema_name: str, violations: list[str]) -> str:
+    """Corrective system directive for the enforce-mode bounce (retry once)."""
+    return (
+        f"[HARNESS_INTERIM_ENFORCE] Your previous response violated schema '{schema_name}': "
+        + "; ".join(violations[:5])
+        + ". Respond with ONE JSON object validating against that schema — no prose, no code fences, no prefix."
+    )

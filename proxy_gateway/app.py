@@ -40,7 +40,7 @@ from proxy_gateway.response_guard import (
     StreamTagGuard,
 )
 from proxy_gateway.quota_manager import QuotaManager
-from proxy_gateway.interim_guard import interim_mode, requested_interim_schema, check_interim_response, interim_note
+from proxy_gateway.interim_guard import interim_mode, requested_interim_schema, check_interim_response, interim_note, enforce_directive
 from proxy_gateway.thrashing_guard import GuardState, RECOVERY_DIRECTIVE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -328,6 +328,34 @@ def create_app(
             _msg = (data.get("choices") or [{}])[0].get("message") or {}
             _resp_text = _msg.get("content") if isinstance(_msg.get("content"), str) else ""
             _interim_note = _interim_check(request, _raw_text)
+            if _interim_note and interim_mode() == "enforce":
+                # bounce once: retry upstream with a corrective directive, then degrade
+                _schema_name = requested_interim_schema(request.headers.get("x-harness-interim"))
+                _ok0, _viol0 = check_interim_response(_raw_text, _schema_name)
+                _retry = dict(rewritten)
+                _rmsgs = list(_retry.get("messages") or [])
+                _rmsgs.append({"role": "system", "content": enforce_directive(_schema_name, _viol0)})
+                _retry["messages"] = _rmsgs
+                try:
+                    async with httpx.AsyncClient(transport=transport, timeout=upstream_timeout) as rclient:
+                        rresp = await rclient.post(
+                            f"{target_base}/chat/completions",
+                            json=_retry,
+                            headers=_build_upstream_headers(request, qm, chosen_key, "openai", _retry),
+                        )
+                    if rresp.status_code < 400:
+                        rdata = rresp.json()
+                        _rmsg0 = (rdata.get("choices") or [{}])[0].get("message") or {}
+                        _rtext0 = _rmsg0.get("content") if isinstance(_rmsg0.get("content"), str) else ""
+                        _ok_retry, _ = check_interim_response(_rtext0, _schema_name)
+                        if _ok_retry:
+                            data = rdata
+                            _msg = (data.get("choices") or [{}])[0].get("message") or {}
+                            _resp_text = _msg.get("content") if isinstance(_msg.get("content"), str) else ""
+                            _interim_note = None
+                            tag_injected = guard_openai_message(data, tier_tag)
+                except httpx.HTTPError:
+                    pass
             if _interim_note and isinstance(_msg.get("content"), str):
                 _msg["content"] = f"{_msg['content']}\n\n{_interim_note}"
             if _resp_text:

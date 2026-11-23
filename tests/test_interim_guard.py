@@ -87,5 +87,47 @@ class InterimGuardAppTests(unittest.TestCase):
             os.environ.pop("HARNESS_INTERIM_SCHEMA", None)
 
 
+class EnforceModeTests(unittest.TestCase):
+    """enforce: bounce once with a corrective directive, then degrade."""
+
+    def _stateful_app(self, bodies: list[str]):
+        calls = {"n": 0}
+        def handler(req: httpx.Request) -> httpx.Response:
+            i = min(calls["n"], len(bodies) - 1)
+            calls["n"] += 1
+            return httpx.Response(200, json={
+                "id": "x", "object": "chat.completion", "model": "m",
+                "choices": [{"index": 0, "message": {"role": "assistant", "content": bodies[i]}, "finish_reason": "stop"}],
+                "usage": {},
+            })
+        return create_app(openai_upstream="https://mock.openai.local/v1", transport=httpx.MockTransport(handler)), calls
+
+    def test_enforce_retry_success_replaces_body(self):
+        valid = json.dumps(build_report("t-1", "coder", "finding"), ensure_ascii=False)
+        app, calls = self._stateful_app(["not json at all", valid])
+        os.environ["HARNESS_INTERIM_SCHEMA"] = "enforce"
+        try:
+            client = TestClient(app)
+            resp = client.post("/v1/chat/completions", headers={"X-Harness-Interim": "subagent-report/v1"},
+                               json={"model": "m", "messages": [{"role": "user", "content": "hi"}]})
+            self.assertNotIn("HARNESS_INTERIM", resp.text)
+            self.assertEqual(calls["n"], 2)
+            self.assertIn("subagent-report", resp.text)
+        finally:
+            os.environ.pop("HARNESS_INTERIM_SCHEMA", None)
+
+    def test_enforce_retry_fail_degrades_with_note(self):
+        app, calls = self._stateful_app(["bad one", "still bad"])
+        os.environ["HARNESS_INTERIM_SCHEMA"] = "enforce"
+        try:
+            client = TestClient(app)
+            resp = client.post("/v1/chat/completions", headers={"X-Harness-Interim": "subagent-report/v1"},
+                               json={"model": "m", "messages": [{"role": "user", "content": "hi"}]})
+            self.assertIn("HARNESS_INTERIM", resp.text)
+            self.assertEqual(calls["n"], 2)  # bounced exactly once
+        finally:
+            os.environ.pop("HARNESS_INTERIM_SCHEMA", None)
+
+
 if __name__ == "__main__":
     unittest.main()
