@@ -80,6 +80,12 @@ class L5ClaimInput(BaseModel):
     )
     assumptions: list[str] = Field(default_factory=list)
     conflicts_with_l1: list[str] = Field(default_factory=list)
+    # Issue #4 (2026-11-23): soft-warning support for the minimum sufficient
+    # cause check. True = this claim introduces an external/unknown actor.
+    # audit_dag surfaces such claims as a soft checklist prompt (downgrade
+    # only, never a hard block — legitimate external-cause investigations
+    # must pass; see harness.yaml counter-examples).
+    external_cause_required: bool = Field(default=False)
 
 
 class L5ClaimRecord(BaseModel):
@@ -96,6 +102,7 @@ class L5ClaimRecord(BaseModel):
     # L3 heuristics whose text matches the claim but were NOT cited by the model;
     # detected in code and force-inherited as dependencies (anti-laundering).
     implicit_dependencies: list[str] = Field(default_factory=list)
+    external_cause_required: bool = Field(default=False)
     status: Literal["provisional", "blocked_l1_conflict"] = "provisional"
 
 
@@ -378,6 +385,7 @@ class EpistemicEngine:
             assumptions=data.assumptions,
             conflicts_with_l1=data.conflicts_with_l1,
             implicit_dependencies=implicit,
+            external_cause_required=data.external_cause_required,
             status=status,
         )
         self.l5_claims[record.claim_id] = record
@@ -412,6 +420,10 @@ class EpistemicEngine:
             min_score = min(TIER_STRENGTH[c.effective_tier] for c in claims)
             overall_cap = STRENGTH_TO_TIER[min_score]
 
+        # Issue #4 soft warning: claims that introduce an external/unknown
+        # actor. Prompt-only — the analyst must show the closed first-party
+        # mapping; audit never blocks on this.
+        external_cause_claims = [c.claim_id for c in claims if c.external_cause_required]
         return {
             "total_l5_claims": len(claims),
             "persisted_claims_available": len(self.l5_claims) - len(claims),
@@ -419,6 +431,15 @@ class EpistemicEngine:
             "converge_allowed": len(blocked) == 0,
             "blocked_l1_conflicts": blocked,
             "downgraded_claims": downgraded,
+            "external_cause_claims": external_cause_claims,
+            "external_cause_soft_warning": (
+                "以下 claim 引入了外部/未知行动者假设: "
+                f"{external_cause_claims}. 契约要求: 出示已闭合的第一方机制映射"
+                " (每个观测都映射到带 L2 证据的机制), 未闭合前该假设留在 backlog。"
+                " 例外(安全入侵/供应链/共享凭据环境): 若第一方映射已快速失败,"
+                " 该假设可合法通过本闸。"
+                if external_cause_claims else ""
+            ),
             "claims": [c.model_dump() if hasattr(c, 'model_dump') else c.dict() for c in claims],
         }
 

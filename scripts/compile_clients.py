@@ -53,6 +53,15 @@ def _render_core_protocol(spec: dict, include_mcp: bool) -> str:
         "",
         "### Anti-Thrashing & Stop-Loss Discipline",
         f"- {spec['anti_thrashing']['directive']}",
+    ])
+    mscc = spec["anti_thrashing"].get("minimum_sufficient_cause_check")
+    if mscc:
+        lines.extend([
+            f"- **{mscc['title']}** ({mscc['applies_to']}): {mscc['rule']}",
+            f"  Epistemic class: {mscc['epistemic_class']}",
+            f"  Enforcement: {mscc['enforcement']}",
+        ])
+    lines.extend([
         "",
         "## 3. Explore vs. Converge Modes & Output Contract",
         "- **Explore Mode**: Allow broad L3 heuristic ideation, clearly tagged `[L3 | provisional]`.",

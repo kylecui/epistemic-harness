@@ -153,3 +153,48 @@ class TestEpistemicHardConstraints(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class MinimumSufficientCauseTests(unittest.TestCase):
+    """Issue #4: external_cause_required flag + audit_dag soft warning.
+    Soft by design: legitimate external-cause investigations must pass."""
+
+    def setUp(self) -> None:
+        self.engine = EpistemicEngine(REPO_ROOT)
+
+    def test_external_cause_claim_is_flagged_not_blocked(self):
+        self.engine.query_l1("可靠")
+        record = self.engine.submit_l5_claim({
+            "claim_id": "L5-EXT-1",
+            "claim": "该观测必须由 sniffd 之外的进程解释",
+            "claimed_tier": "L2",
+            "source_ids": ["L1-REL-001"],
+            "external_cause_required": True,
+        })
+        self.assertTrue(record["external_cause_required"])
+        audit = self.engine.audit_dag()
+        self.assertIn("L5-EXT-1", audit["external_cause_claims"])
+        self.assertIn("L5-EXT-1", audit["external_cause_soft_warning"])
+        self.assertTrue(audit["converge_allowed"])  # soft warning, never blocks
+
+    def test_no_flag_no_warning(self):
+        self.engine.query_l1("CAP")
+        self.engine.submit_l5_claim({
+            "claim_id": "L5-NORMAL-1",
+            "claim": "纯第一方机制解释的观测",
+            "claimed_tier": "L1",
+            "source_ids": ["L1-CAP-001"],
+        })
+        audit = self.engine.audit_dag()
+        self.assertEqual(audit["external_cause_claims"], [])
+        self.assertEqual(audit["external_cause_soft_warning"], "")
+
+    def test_legacy_records_default_false(self):
+        import json as _json
+        from mcp_server.dag_engine import L5ClaimRecord
+        rec = L5ClaimRecord(**_json.loads(_json.dumps({
+            "claim_id": "L5-OLD", "claim": "x", "claimed_tier": "L3",
+            "effective_tier": "L3", "downgraded": False, "source_ids": ["L3-ARCH-001"],
+            "resolved_ancestor_tiers": {}, "assumptions": [], "conflicts_with_l1": [],
+            "status": "provisional",
+        })))
+        self.assertFalse(rec.external_cause_required)
