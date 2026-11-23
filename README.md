@@ -8,6 +8,14 @@
 
 *中文介绍见 [README_ZH.md](README_ZH.md)。 All normative content (rules, contracts, skills) is English-only; Chinese exists only as auxiliary translation.*
 
+## Communication language
+
+Public-facing content — upstream issues and comments, this repo's issues/PRs,
+commit messages, and documentation — is written in **English by default**,
+unless explicitly stated otherwise for a specific piece. Chinese is kept as
+supplementary/private reference (e.g. README_ZH.md and internal notes).
+Existing content stays as-is; the convention applies going forward.
+
 ## What it does
 
 An LLM agent inside this harness cannot silently:
