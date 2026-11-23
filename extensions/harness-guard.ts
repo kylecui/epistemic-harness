@@ -251,18 +251,68 @@ export default function (pi: any) {
     return false;
   };
 
-  pi.on("session_start", async (_event: any, ctx: any) => {
-    audit("[session] harness-guard v0.4.1 loaded");
+  // ---- version banner + gateway health (2026-11-23). pi 1.6.0's TUI runtime
+  // never dispatches "session_start" to extension handlers (verified in the
+  // installed bundle: _emitExtensionEvent covers agent_start/agent_end/
+  // turn_*/message_*/tool_execution_* only), so the earliest reachable moment
+  // is the first user turn. Banner text comes from the tested python CLI
+  // (release notes shown once per version); the health check below was
+  // previously hooked to session_start and therefore never ran.
+  let bannerShown = false;
+  const showVersionBanner = (ctx: any) => {
+    if (bannerShown) return;
+    bannerShown = true;
     try {
-      const res = await fetch("http://127.0.0.1:8787/health");
-      if (!res.ok) ctx.ui.notify("harness-guard: gateway unhealthy (127.0.0.1:8787)", "warn");
-    } catch {
-      ctx.ui.notify("harness-guard: gateway unreachable (127.0.0.1:8787) - run start_harness", "warn");
+      const cwd = String(ctx?.cwd || process.cwd());
+      const script = join(cwd, "scripts", "harness_version.py");
+      if (existsSync(script)) {
+        for (const py of ["python", "py", "python3"]) {
+          try {
+            const res = spawnSync(py, [script, "--banner"], {
+              cwd, encoding: "utf-8", timeout: 30000, stdio: ["ignore", "pipe", "pipe"],
+            });
+            if (res.status === 0 && res.stdout) {
+              for (const ln of String(res.stdout).split(/\r?\n/).filter((l: string) => l.trim())) {
+                ctx.ui?.notify(ln, ln.includes("DRIFT") ? "warn" : "info");
+              }
+              audit(`[banner] shown via ${py}`);
+              break;
+            }
+            audit(`[banner] ${py} unavailable (status=${res.status})`);
+          } catch (e) {
+            audit(`[banner] ${py} failed: ${e}`);
+          }
+        }
+      }
+      if (!bannerShown) { /* unreachable */ }
+    } catch (e) {
+      audit(`[banner] python path failed: ${e}`);
     }
-  });
+    // TS fallback: minimal banner (no release notes) if no python answered
+    try {
+      const cwd = String(ctx?.cwd || process.cwd());
+      const agentsText = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+      const loadedM = agentsText.match(/epistemic-dual-process-harness \(v(\d+\.\d+\.\d+)\)/);
+      if (loadedM) {
+        ctx.ui?.notify(`[harness] contract v${loadedM[1]} loaded (release notes need python on PATH)`, "info");
+        audit("[banner] fallback shown");
+      }
+    } catch (e) {
+      audit(`[banner] fallback failed: ${e}`);
+    }
+    // gateway health (moved from the dead session_start hook)
+    try {
+      fetch("http://127.0.0.1:8787/health").then((res) => {
+        if (!res.ok) ctx.ui?.notify("harness-guard: gateway unhealthy (127.0.0.1:8787)", "warn");
+      }).catch(() => {
+        ctx.ui?.notify("harness-guard: gateway unreachable (127.0.0.1:8787) - run start_harness", "warn");
+      });
+    } catch { /* health check must never break the turn */ }
+  };
 
   pi.on("before_agent_start", async (event: any, ctx: any) => {
     if (event.messageType !== "user") return undefined;
+    showVersionBanner(ctx);
     const prompt = String(event.prompt || "");
     // Preserve retry counters when the continuation turn was injected by our own gate
     const isGateBounce = prompt.startsWith("[HARNESS_EXIT_GATE_RETRY]") || prompt.startsWith("[HARNESS_REVIEW_GATE_RETRY]");
@@ -341,32 +391,8 @@ export default function (pi: any) {
     }
   };
 
-  // ---- startup version banner (2026-11-23): pilots could not tell which
-  // contract a pi session had loaded, and wanted "what changed" the first
-  // time a version appears. session_start carries a UI handle (unlike
-  // extension init); the banner text comes from the tested python CLI so the
-  // once-per-version release-notes logic lives in one place.
-  pi.on("session_start", async (_event: any, sctx: any) => {
-    try {
-      const cwd = String(sctx?.cwd || process.cwd());
-      const script = join(cwd, "scripts", "harness_version.py");
-      if (!existsSync(script)) return;
-      for (const py of ["python", "py", "python3"]) {
-        try {
-          const res = spawnSync(py, [script, "--banner"], {
-            cwd, encoding: "utf-8", timeout: 30000, stdio: ["ignore", "pipe", "pipe"],
-          });
-          if (res.status === 0 && res.stdout) {
-            const lines = String(res.stdout).split(/\r?\n/).filter((l: string) => l.trim());
-            for (const ln of lines) {
-              sctx.ui?.notify(ln, ln.includes("DRIFT") ? "warn" : "info");
-            }
-            return;
-          }
-        } catch { /* try next interpreter */ }
-      }
-    } catch { /* banner must never break startup */ }
-  });
+  // (the version banner moved to showVersionBanner above, called from
+  // before_agent_start — the earliest UI-reachable moment in pi 1.6.0)
 
   // ---- controller metrics (P2.9, 2026-11-22): the controller contract is
   // enforced by thresholds above; these records let us MEASURE how the main
