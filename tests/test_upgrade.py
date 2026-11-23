@@ -157,3 +157,33 @@ class GlobalInstallTests(unittest.TestCase):
                 self.assertEqual(r2["drift"], [])
             finally:
                 ig.REPO_ROOT, ig.GLOBAL_EXT, ig.HARNESS_HOME = orig_repo, orig_ext, orig_home
+
+class SkillWrapperTemplateTests(unittest.TestCase):
+    def test_wrappers_have_precheck_and_substitution(self):
+        import scripts.install_user_skills as ius
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            src = home / "h" / "skills"
+            d = src / "harness-version"
+            d.mkdir(parents=True)
+            (d / "SKILL.md").write_text(
+                'precheck {{HARNESS_HOME}}/scripts/x\n', encoding="utf-8")
+            orig_src, orig_home = ius.SOURCE, ius.user_skills_dir
+            ius.SOURCE = src
+            ius.user_skills_dir = lambda: home / ".agents" / "skills"
+            try:
+                r = ius.sync()
+                self.assertEqual(r["copied"], ["harness-version"])
+                text = (home / ".agents" / "skills" / "harness-version" / "SKILL.md").read_text(encoding="utf-8")
+                self.assertIn(str(home / ".pi" / "harness"), text)
+                self.assertNotIn("{{HARNESS_HOME}}", text)
+            finally:
+                ius.SOURCE, ius.user_skills_dir = orig_src, orig_home
+
+    def test_all_wrappers_have_fail_loud_precheck(self):
+        base = REPO_ROOT / "skills" / "pi-native"
+        for skill_md in sorted(base.glob("*/SKILL.md")):
+            text = skill_md.read_text(encoding="utf-8")
+            self.assertIn("test -f", text, f"{skill_md}: missing precheck")
+            self.assertIn("exit 1", text, f"{skill_md}: precheck must fail loudly")
+            self.assertIn("{{HARNESS_HOME}}", text, f"{skill_md}: missing path template")
