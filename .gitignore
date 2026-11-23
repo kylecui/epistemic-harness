@@ -17,3 +17,4 @@ __pycache__/
 .pi/hollow_audit.jsonl
 .pi/upgrade_state.json
 .pi/installed_version
+.pi/last_banner_version
