@@ -16,6 +16,12 @@ unless explicitly stated otherwise for a specific piece. Chinese is kept as
 supplementary/private reference (e.g. README_ZH.md and internal notes).
 Existing content stays as-is; the convention applies going forward.
 
+### Harness issues
+
+Any harness problem encountered during work — including self-inflicted ones — is
+filed as a GitHub issue in this repo at the time it is observed, so it can be
+resolved later instead of being lost in a session transcript.
+
 ## What it does
 
 An LLM agent inside this harness cannot silently:
