@@ -224,6 +224,12 @@ def main() -> int:
         if not args.no_docker:
             print("rebuild containers ...")
             print(f"  {docker_rebuild()}")
+        print("sync user-level skills ...")
+        out = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "install_user_skills.py")],
+            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=60,
+        )
+        print(f"  {out.stdout.strip() or out.stderr.strip()}")
         print("verify ...")
         print(f"  {verify()}")
 
