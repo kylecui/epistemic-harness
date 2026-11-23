@@ -1,5 +1,15 @@
 # Release notes
 
+## v0.5.2
+
+- 全局架构：harness 不再要求以本仓库为工作目录。scripts/install_global.py
+  安装到 ~/.pi/harness + ~/.pi/agent/extensions；扩展按 HARNESS_HOME 解析
+  全局资源，项目目录只保留项目自己的状态（.pi/exit_gate.json、traces 等）。
+- 页脚版本号改为网关 /version 优先（任意 cwd 正确），网关不可达时读
+  HARNESS_HOME 的 AGENTS.md；页脚/banner 全链路带审计日志。
+- pi 原生 skill 源移到 skills/pi-native（消除项目级与用户级双份冲突告警），
+  安装器同步用户级 ~/.agents/skills。
+
 > Read by `scripts/harness_version.py --banner`: the section for the loaded
 > contract version is shown once, at the first session that loads it.
 

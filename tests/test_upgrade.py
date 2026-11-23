@@ -128,3 +128,32 @@ class UserSkillsSyncTests(unittest.TestCase):
                 self.assertEqual(r4["missing"], ["harness-upgrade"])
             finally:
                 ius.SOURCE, ius.user_skills_dir = orig_src, orig_home
+
+class GlobalInstallTests(unittest.TestCase):
+    def test_global_sync_idempotent_and_check(self):
+        import scripts.install_global as ig
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp)
+            repo = home / "repo"
+            (repo / "extensions").mkdir(parents=True)
+            (repo / "extensions" / "harness-guard.ts").write_text("// v-test\n", encoding="utf-8")
+            (repo / "harness.yaml").write_text("version: 0.5.2\n", encoding="utf-8")
+            (repo / "docs").mkdir(exist_ok=True)
+            (repo / "docs" / "RELEASE-NOTES.md").write_text("# notes\n", encoding="utf-8")
+            (repo / "scripts").mkdir(exist_ok=True)
+            (repo / "scripts" / "harness_version.py").write_text("# x\n", encoding="utf-8")
+            (repo / "skills" / "pi-native" / "harness-upgrade").mkdir(parents=True)
+            (repo / "skills" / "pi-native" / "harness-upgrade" / "SKILL.md").write_text("---\nname: x\n---\n", encoding="utf-8")
+            orig_repo, orig_ext, orig_home = ig.REPO_ROOT, ig.GLOBAL_EXT, ig.HARNESS_HOME
+            ig.REPO_ROOT = repo
+            ig.GLOBAL_EXT = home / ".pi" / "agent" / "extensions" / "harness-guard.ts"
+            ig.HARNESS_HOME = home / ".pi" / "harness"
+            try:
+                r1 = ig.sync()
+                self.assertTrue(any("harness-guard.ts" in c for c in r1["copied"]))
+                self.assertTrue((ig.HARNESS_HOME / "scripts" / "harness_version.py").exists())
+                self.assertTrue((ig.HARNESS_HOME / "skills" / "harness-upgrade" / "SKILL.md").exists())
+                r2 = ig.sync(check=True)
+                self.assertEqual(r2["drift"], [])
+            finally:
+                ig.REPO_ROOT, ig.GLOBAL_EXT, ig.HARNESS_HOME = orig_repo, orig_ext, orig_home

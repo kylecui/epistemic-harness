@@ -292,3 +292,14 @@ v0.5.0 之后的契约层热修复合集，合并线已全部入 master。发版
 追踪（code_rev + 文本指纹）。新增 harness-upgrade skill（docs/UPGRADE.md 的
 快捷入口）。升级路径：git pull → python scripts/upgrade.py --check →
 python scripts/upgrade.py（幂等，含备份与回退）。
+
+## 十八、v0.5.2 全局架构（2026-11-23，pilot 架构反馈）
+
+原则：**harness 是全局安装的_RUNTIME，不要求以本仓库为工作目录**。
+全局资产：~/.pi/agent/extensions/harness-guard.ts（pi 全局扩展槽）+
+~/.pi/harness/{scripts,skills,harness.yaml,RELEASE-NOTES.md}，由
+scripts/install_global.py 幂等同步（--check 可查漂移）。扩展解析顺序：
+HARNESS_HOME 环境变量 → ~/.pi/harness → 当前仓库（开发回退）；项目文件
+（.pi/exit_gate.json、task_contract、traces、knowledge）保持 cwd 相对——
+它们本来就是项目级状态。pi 原生 skill 源移至 skills/pi-native，消除
+项目/用户双份发现的冲突告警；页脚版本号以网关 /version 为权威。

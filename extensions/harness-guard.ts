@@ -251,6 +251,20 @@ export default function (pi: any) {
     return false;
   };
 
+  // ---- global install resolution (2026-11-23): the harness must work from
+  // ANY working directory. Global assets resolve HARNESS_HOME (env) or the
+  // default global install ~/.pi/harness; development sessions fall back to
+  // the current repo. PROJECT files (.pi/exit_gate.json, task_contract,
+  // traces) stay cwd-relative BY DESIGN — they are per-project state.
+  const HARNESS_HOME = process.env.HARNESS_HOME || join(homedir(), ".pi", "harness");
+  const harnessFile = (...segments: string[]): string | null => {
+    const globalPath = join(HARNESS_HOME, ...segments);
+    if (existsSync(globalPath)) return globalPath;
+    const devPath = join(process.cwd(), ...segments);
+    if (existsSync(devPath)) return devPath;
+    return null;
+  };
+
   // Persistent footer status with the loaded contract version
   // (2026-11-23): transient notify only lasts a moment; pilots want the
   // version glanceable at all times. Source of truth: the gateway's /version
@@ -261,11 +275,21 @@ export default function (pi: any) {
   const setVersionFooter = (ctx: any) => {
     const applyLocal = () => {
       try {
-        const cwd = String(ctx?.cwd || process.cwd());
-        const agentsText = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+        // Global mode: version from the installed HARNESS_HOME (or dev repo),
+        // never from the client's cwd — the cwd project is not the harness.
+        const agentsPath = harnessFile("AGENTS.md");
+        if (!agentsPath) return;
+        const agentsText = readFileSync(agentsPath, "utf-8");
         const loadedM = agentsText.match(/epistemic-dual-process-harness \(v(\d+\.\d+\.\d+)\)/);
-        if (loadedM) ctx.ui?.setStatus?.("harness", `harness v${loadedM[1]}`);
-      } catch { /* footer is best-effort */ }
+        if (loadedM) {
+          ctx.ui?.setStatus?.("harness", `harness v${loadedM[1]}`);
+          audit(`[footer] setStatus harness v${loadedM[1]} (from ${agentsPath})`);
+        } else {
+          audit("[footer] AGENTS.md found but no version header");
+        }
+      } catch (e) {
+        audit(`[footer] local fallback failed: ${e}`);
+      }
     };
     try {
       fetch("http://127.0.0.1:8787/version")
@@ -292,13 +316,13 @@ export default function (pi: any) {
     if (bannerShown) return;
     bannerShown = true;
     try {
-      const cwd = String(ctx?.cwd || process.cwd());
-      const script = join(cwd, "scripts", "harness_version.py");
-      if (existsSync(script)) {
+      const script = harnessFile("scripts", "harness_version.py");
+      if (script) {
+        const cwd = String(ctx?.cwd || process.cwd());
         for (const py of ["python", "py", "python3"]) {
           try {
             const res = spawnSync(py, [script, "--banner"], {
-              cwd, encoding: "utf-8", timeout: 30000, stdio: ["ignore", "pipe", "pipe"],
+              cwd: dirname(script), encoding: "utf-8", timeout: 30000, stdio: ["ignore", "pipe", "pipe"],
             });
             if (res.status === 0 && res.stdout) {
               for (const ln of String(res.stdout).split(/\r?\n/).filter((l: string) => l.trim())) {
@@ -319,8 +343,9 @@ export default function (pi: any) {
     }
     // TS fallback: minimal banner (no release notes) if no python answered
     try {
-      const cwd = String(ctx?.cwd || process.cwd());
-      const agentsText = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+      const agentsPath = harnessFile("AGENTS.md");
+      if (!agentsPath) { audit("[banner] no AGENTS.md in HARNESS_HOME or repo"); return; }
+      const agentsText = readFileSync(agentsPath, "utf-8");
       const loadedM = agentsText.match(/epistemic-dual-process-harness \(v(\d+\.\d+\.\d+)\)/);
       if (loadedM) {
         ctx.ui?.notify(`[harness] contract v${loadedM[1]} loaded (release notes need python on PATH)`, "info");
