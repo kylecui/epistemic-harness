@@ -18,12 +18,19 @@ Paper 2 引用 Paper 1 作为动机与基线；Paper 3 引用两者。三篇 cla
 Paper 1 讲「外部义务」，Paper 2 讲「中间产物的结构与方向」，Paper 3 讲「约束的
 计量经济学」。
 
+**系列全景（含更早规划）**：若把此前全部规划计入，论文版图是四轴——
+Paper 1 contracts（study repo，已有）；**候选 Paper 1.5：epistemic governance
+harness 方法论**（L1-L5 认知分层、weakest-link confidence cap、exit gate 验证
+回路、双过程路由——本仓库主体，从未正式立项，是潜在第三轴）；Paper 2 / Paper 3
+即本文档两计划。是否将 harness 方法论立为独立论文 = 独立决策（见 §4.5）。
+
 ## 1. Paper 2（主论文，推荐优先）
 
 **Working title**: *Structured Interim Outputs: Schema-Constrained Reasoning Records and Information-Flow Direction for Controllable Stability in LLM-Agent Systems*
 
-**目标 venue**（投稿时按截稿窗口定，顺序为偏好）：ICLR / NeurIPS 主会
-（position: agent reliability）；备选 ACL findings / EMNLP、AAAI。
+**目标 venue**（投稿时按截稿窗口定，顺序为偏好）：ICLR / NeurIPS 主会；备选
+ACL findings / EMNLP、AAAI。**定位：方法论论文**——机制贡献（协议 +
+分层保证理论）为主权重，测量为辅助权重（由 Paper 3 承接测量学）。
 
 ### 结构（section 级）
 
@@ -132,14 +139,30 @@ workshop-first：NeurIPS Datasets & Benchmarks 亦可选）。
 | P2b | A–D 消融 + N=20 采样 | Paper 3 数据集 + 初稿 | P1，可与 P2a 并行 |
 | P3 | 投稿（先 Paper 2） | 两篇稿 | P2a/P2b |
 
-## 4. 待你 review 的决策点
+## 4. 决策记录（2026-11-24 拍板）
 
-1. **一篇还是两篇**：推荐两篇（Paper 3 也适合 workshop 先行抢时间戳）；若
-   合并，Paper 3 的 §2/§5 并入 Paper 2 作 Evaluation 与 Discussion。
-2. **venue 优先级**：是否以 agent-reliability 会（ICLR/NeurIPS）为第一目标
-   决定写作口吻（机制贡献 vs 测量贡献的权重）。
-3. **实验数字的来源**：P2a 的机制实验用本 harness 真实任务即可；Paper 3 的
-   N=20 采样需要预算估算（每任务 20 采样 × 任务数 × 4 组），确认后我出
-   具体预算表。
-4. **与 Paper 1 的自引边界**：Paper 2 的 motivation 引用 Paper 1 的现象学
-   发现是否足够，还是需要在 Paper 2 中重放部分偷看检测实验（影响工期）。
+1. **两篇** ✅。若计入更早规划，系列全景见 §0——harness 方法论是潜在第三轴，
+   另行决策。
+2. **机制 > 测量，方法论定位** ✅——venue 与写作权重按此调整（见 §1）。
+3. **预算** ✅ 简估见 §5，非主要矛盾。
+4. **Paper 2 是 Paper 1 的延续，同时允许多元 motivation** ✅——Abstract 已按
+   双动机写（机器消费缺口的结构性问题 + Paper 1 偷看现象学作为实例），动笔时
+   Introduction 按此结构展开。
+
+## 4.5 独立决策：harness 方法论是否立为 Paper 1.5
+
+素材齐备度：本仓库即完整实例（五层认识论 taxonomy、weakest-link cap 的代码
+强算、exit gate 的 claims-bind-to-evidence、双过程 tier 路由、traces 账本），
+claims 与 Paper 1/2/3 均不撞（治理框架 vs 外部义务 vs interim 协议 vs 测量）。
+立项收益：系列里最早可被引用的「总框架」论文；成本：写作 + 一套跨任务评测。
+默认不动，等拍板。
+
+## 5. 预算简估（N=20 采样，数量级参考）
+
+| 项 | 估算 |
+|---|---|
+| Paper 3 消融 | 8 fixtures × 4 组 × 20 采样 = **640 runs** |
+| 单 run token | 3–8k（interim 结构化后偏下限）→ 总量 **2–5M tokens** |
+| Paper 2 机制实验（P2a） | ~100 runs，可忽略 |
+| 模型策略 | 主跑 flash/GLM 级（与 Paper 1 基线可比、便宜）；关键结论用强模型复核 20% |
+| 结论 | 成本为「几十元级」数量级，非主要矛盾 ✅ |
