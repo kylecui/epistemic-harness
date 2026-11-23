@@ -192,6 +192,26 @@ def create_app(
     async def health() -> dict[str, Any]:
         return {"status": "ok", "models_configured": len(qm.models)}
 
+    @app.get("/version")
+    async def version() -> dict[str, Any]:
+        """Harness version triangulation, served by the repo that built this
+        container — authoritative even when the client's cwd is NOT the
+        harness repo (global mode, 2026-11-23)."""
+        try:
+            import importlib.util
+            import sys
+            repo_root = Path(__file__).resolve().parent.parent
+            script = repo_root / "scripts" / "harness_version.py"
+            spec = importlib.util.spec_from_file_location("harness_version_srv", script)
+            if spec is None or spec.loader is None:
+                return {"status": "error", "error": f"script not found: {script}"}
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+            info = mod.collect()
+            return {"status": "ok", **info}
+        except Exception as exc:  # noqa: BLE001 - version must never 500
+            return {"status": "error", "error": str(exc)[:200]}
+
     @app.get("/quota")
     async def quota_status() -> dict[str, Any]:
         return qm.status_snapshot(get_now())

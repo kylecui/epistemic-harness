@@ -119,3 +119,18 @@ class TestProxyGateway(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+class VersionEndpointTests(unittest.TestCase):
+    """GET /version: version triangulation served from the repo (global mode)."""
+
+    def test_version_endpoint_reports_triangulation(self):
+        import httpx
+        app = create_app(openai_upstream="https://mock.openai.local/v1",
+                         transport=httpx.MockTransport(lambda req: httpx.Response(200, json={})))
+        client = TestClient(app)
+        resp = client.get("/version")
+        self.assertEqual(resp.status_code, 200)
+        data = resp.json()
+        self.assertEqual(data["status"], "ok")
+        self.assertRegex(data["loaded_contract_version"], r"^\d+\.\d+\.\d+$")
+        self.assertIn("drift", data)

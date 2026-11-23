@@ -31,6 +31,8 @@ services:
       HARNESS_REPO_ROOT: /app
     volumes:
       - ./harness.yaml:/app/harness.yaml:ro
+      - ./AGENTS.md:/app/AGENTS.md:ro
+      - ./scripts/harness_version.py:/app/scripts/harness_version.py:ro
       - ./proxy_gateway/quota_policy.yaml:/app/proxy_gateway/quota_policy.yaml:ro
       - ./.env:/app/.env:ro
       - ./traces:/app/traces
