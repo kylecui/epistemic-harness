@@ -1,0 +1,65 @@
+version: "2.0-lab"
+description: "LAB ONLY (SiliconFlow, pay-per-token). Isolated from the working gateway: own container (:8788), own ledger (traces-lab/), hard budget caps. Never mounted into harness-backend."
+
+default_cooldown_seconds: 120
+soft_limit_ratio: 0.98
+active_peak_avoidance: false
+
+pools:
+  # Hard caps in CNY (units = CNY via cost_per_1m below). Wallet ~125 CNY on 2026-11-24.
+  # Borrowed from tokenplus: per-project budget envelope + expiry semantics.
+  siliconflow_lab:
+    unit: "cny"
+    last_option: false
+    rolling_5h_limit: 25.0
+    rolling_week_limit: 60.0
+    rolling_month_limit: 60.0
+    peak_cost_multiplier: 1.0
+    peak_windows_utc: []
+
+models:
+  lab-deepseek-v4-flash:
+    pool: siliconflow_lab
+    protocol: openai
+    upstream_base_url_env: SILICONFLOW_API_URL
+    default_base_url: https://api.siliconflow.cn/v1
+    api_key_env: SILICONFLOW_API_KEY
+    upstream_model: deepseek-ai/DeepSeek-V4-Flash
+    # official pricing (siliconflow.cn/pricing, read 2026-11-24), peak hours, CNY per 1M tok
+    cost_per_1m:
+      input: 1.5
+      cached_input: 0.15
+      output: 4.5
+  lab-deepseek-v3-2:
+    pool: siliconflow_lab
+    protocol: openai
+    upstream_base_url_env: SILICONFLOW_API_URL
+    default_base_url: https://api.siliconflow.cn/v1
+    api_key_env: SILICONFLOW_API_KEY
+    upstream_model: deepseek-ai/DeepSeek-V3.2
+    cost_per_1m:
+      input: 4.0
+      cached_input: 0.4
+      output: 6.0
+
+routing_chains:
+  system_0: [lab-deepseek-v4-flash]
+  system_1: [lab-deepseek-v4-flash]
+  system_1_5: [lab-deepseek-v4-flash]
+  system_2: [lab-deepseek-v4-flash, lab-deepseek-v3-2]
+  system_2_plus: [lab-deepseek-v4-flash, lab-deepseek-v3-2]
+
+agent_profiles:
+  explorer:
+    description: "lab explorer"
+    tier: system_1
+  coder:
+    description: "lab coder"
+    tier: system_1_5
+  deep:
+    description: "lab deep"
+    tier: system_2
+  critic:
+    description: "lab judge (cross-check with DeepSeek-V3.2)"
+    tier: system_2
+    model: lab-deepseek-v3-2

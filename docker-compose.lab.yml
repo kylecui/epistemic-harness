@@ -1,0 +1,27 @@
+# LAB instance — experiments ONLY. Never touches the working stack:
+#   - separate container (harness-backend-lab), separate host port (8788 vs 8787)
+#   - separate quota ledger / traces (traces-lab/), separate policy (quota_policy.lab.yaml)
+#   - reuses the already-built image (no rebuild), capped CPU/memory so it cannot
+#     starve harness-backend / sandbox on the same Docker VM
+#   - pi's ~/.pi/agent/mcp.json still points at 8787: untouched
+#
+#   docker compose -f docker-compose.lab.yml up -d
+#   curl http://127.0.0.1:8788/health
+#   docker compose -f docker-compose.lab.yml down
+services:
+  harness-backend-lab:
+    image: epistemic-harness-backend:local
+    container_name: harness-backend-lab
+    ports:
+      - "127.0.0.1:8788:8787"
+    env_file: .lab.env
+    environment:
+      HARNESS_REPO_ROOT: /app
+      HARNESS_CONTRACT_CHECK: "on"
+    volumes:
+      - ./proxy_gateway/quota_policy.lab.yaml:/app/proxy_gateway/quota_policy.yaml:ro
+      - ./traces-lab:/app/traces
+      - ./contracts:/app/contracts:ro
+    cpus: 1.0
+    mem_limit: 1g
+    restart: "no"

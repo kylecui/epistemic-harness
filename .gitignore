@@ -1,6 +1,7 @@
 
 .env
 traces/
+traces-lab/
 promotions/
 .venv/
 __pycache__/

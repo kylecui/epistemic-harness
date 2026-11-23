@@ -58,21 +58,25 @@ ARMS = {
 DIRECT_PROVIDERS = {
     "kimi": {"base_env": "KIMI_BASE_URL", "key_env": "KIMI_API_KEY", "model": "kimi-for-coding"},
     "zhipu": {"base_env": "ZHIPU_BASE_URL", "key_env": "ZHIPU_API_KEY", "model": "glm-5.3-flash"},
+    "siliconflow": {"base_env": "SILICONFLOW_API_URL", "key_env": "SILICONFLOW_API_KEY", "model": "deepseek-ai/DeepSeek-V4-Flash"},
 }
+WORKING_GATEWAY = "http://127.0.0.1:8787"
+LAB_GATEWAY = "http://127.0.0.1:8788"
 
 
 def _env(key: str) -> str:
-    # fall back to repo .env (simple KEY=VALUE lines, quotes stripped)
+    # fall back to repo .env / .lab.env (simple KEY=VALUE lines, quotes stripped)
     val = os.environ.get(key)
     if val:
         return val.strip().strip('"').strip("'")
-    env_file = REPO_ROOT / ".env"
-    if env_file.exists():
-        for line in env_file.read_text(encoding="utf-8").splitlines():
-            k, _, v = line.partition("=")
-            if k.strip() == key:
-                return v.strip().strip('"').strip("'")
-    raise RuntimeError(f"missing key {key} (env or .env)")
+    for name in (".lab.env", ".env"):
+        env_file = REPO_ROOT / name
+        if env_file.exists():
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                k, _, v = line.partition("=")
+                if k.strip() == key:
+                    return v.strip().strip('"').strip("'")
+    raise RuntimeError(f"missing key {key} (env, .lab.env or .env)")
 
 
 def _post(url: str, payload: dict, headers: dict, timeout: int = 180) -> dict:
@@ -84,8 +88,11 @@ def _post(url: str, payload: dict, headers: dict, timeout: int = 180) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def call_gateway(prompt: str, system: str, json_mode: bool, interim_header: str | None, no_contract: bool = False) -> dict:
-    payload = {"model": "kimi-for-coding", "stream": False,
+def call_gateway(prompt: str, system: str, json_mode: bool, interim_header: str | None,
+                  no_contract: bool = False, gateway_url: str = WORKING_GATEWAY, model: str = "kimi-for-coding") -> dict:
+    if gateway_url.rstrip("/") == LAB_GATEWAY and not model.startswith("lab-"):
+        raise RuntimeError("lab gateway requires lab-* models (refusing to touch working models)")
+    payload = {"model": model, "stream": False,
                "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
     if json_mode:
         payload["response_format"] = {"type": "json_object"}
@@ -94,7 +101,7 @@ def call_gateway(prompt: str, system: str, json_mode: bool, interim_header: str 
         headers["x-harness-interim"] = interim_header
     if no_contract:
         headers["x-harness-no-contract"] = "1"
-    data = _post("http://127.0.0.1:8787/v1/chat/completions", payload, headers)
+    data = _post(f"{gateway_url.rstrip('/')}/v1/chat/completions", payload, headers)
     msg = (data.get("choices") or [{}])[0].get("message") or {}
     return {"text": msg.get("content") or "", "model": data.get("model"), "raw": data}
 
@@ -117,6 +124,8 @@ def main() -> int:
     ap.add_argument("--samples", type=int, default=1)
     ap.add_argument("--provider", default="kimi", choices=sorted(DIRECT_PROVIDERS))
     ap.add_argument("--delay", type=float, default=0.0, help="seconds between samples (pacing for direct-API arms without failover)")
+    ap.add_argument("--gateway-url", default=WORKING_GATEWAY, help="lab runs must pass http://127.0.0.1:8788")
+    ap.add_argument("--model", default="kimi-for-coding", help="gateway model key (lab-* on the lab gateway)")
     args = ap.parse_args()
 
     tasks = yaml.safe_load(FIXTURES.read_text(encoding="utf-8"))
@@ -128,13 +137,17 @@ def main() -> int:
     cfg = ARMS[args.arm]
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
     out = RUNS_DIR / f"{args.arm}__{args.task}.jsonl"
+    is_lab = args.gateway_url.rstrip("/") == LAB_GATEWAY or args.provider == "siliconflow"
+    if is_lab:
+        out = RUNS_DIR / f"lab__{args.arm}__{args.task}.jsonl"
 
     for i in range(args.samples):
         t0 = time.time()
         try:
             if cfg["via_gateway"]:
                 r = call_gateway(task["prompt"], cfg["system"], cfg.get("json_mode", False),
-                                 cfg.get("interim_header"), cfg.get("no_contract", False))
+                                 cfg.get("interim_header"), cfg.get("no_contract", False),
+                                 args.gateway_url, args.model)
             else:
                 r = call_direct(args.provider, task["prompt"], cfg["system"])
             err = None
@@ -145,7 +158,8 @@ def main() -> int:
                "error": err, "check": task.get("check"), "judge_focus": task.get("judge_focus"),
                # execution-plane declaration (issue #13 anti-recurrence): every run
                # record must name its runner; the exit gate enforces the field.
-               "runner": os.environ.get("HARNESS_RUNNER", "host")}
+               "runner": os.environ.get("HARNESS_RUNNER", "host"),
+               "gateway": args.gateway_url if cfg["via_gateway"] else f"direct:{args.provider}"}
         with out.open("a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
         print(f"[{args.arm}/{args.task}] sample {i}: {err or ('ok, ' + str(len(r['text'])) + ' chars')}", flush=True)

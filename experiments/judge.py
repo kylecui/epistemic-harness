@@ -44,14 +44,21 @@ def _post(url: str, payload: dict, headers: dict, timeout: int = 180) -> dict:
         return json.loads(resp.read().decode("utf-8"))
 
 
-def judge_text(text: str, focus: str, patterns: list[str]) -> dict:
+WORKING_GATEWAY = "http://127.0.0.1:8787"
+LAB_GATEWAY = "http://127.0.0.1:8788"
+
+
+def judge_text(text: str, focus: str, patterns: list[str],
+               gateway_url: str = WORKING_GATEWAY, model: str = "copilot-claude-sonnet-5.5") -> dict:
+    if gateway_url.rstrip("/") == LAB_GATEWAY and not model.startswith("lab-"):
+        raise RuntimeError("lab gateway requires lab-* models")
     prompt = (RUBRIC
               .replace("{focus}", focus or "general quality")
               .replace("{patterns}", ", ".join(patterns))
               .replace("{text}", text[:6000]))
-    payload = {"model": "copilot-claude-sonnet-5.5", "stream": False,
+    payload = {"model": model, "stream": False,
                "messages": [{"role": "user", "content": prompt}]}
-    data = _post("http://127.0.0.1:8787/v1/chat/completions", payload,
+    data = _post(f"{gateway_url.rstrip('/')}/v1/chat/completions", payload,
                  {"authorization": "Bearer judge", "x-harness-tier": "system_2", "x-harness-agent-id": "critic"})
     msg = (data.get("choices") or [{}])[0].get("message") or {}
     raw = msg.get("content") or ""
@@ -75,8 +82,11 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--arm", required=True)
     ap.add_argument("--task", required=True)
+    ap.add_argument("--gateway-url", default=WORKING_GATEWAY)
+    ap.add_argument("--model", default="copilot-claude-sonnet-5.5")
     args = ap.parse_args()
-    path = RUNS_DIR / f"{args.arm}__{args.task}.jsonl"
+    prefix = "lab__" if args.gateway_url.rstrip("/") == LAB_GATEWAY else ""
+    path = RUNS_DIR / f"{prefix}{args.arm}__{args.task}.jsonl"
     if not path.exists():
         print(f"no runs at {path}", file=sys.stderr)
         return 2
@@ -89,7 +99,8 @@ def main() -> int:
             if not r.get("error"):
                 try:
                     judged = judge_text(r.get("text") or "", r.get("judge_focus") or "",
-                                        (r.get("check") or {}).get("patterns") or [])
+                                        (r.get("check") or {}).get("patterns") or [],
+                                        args.gateway_url, args.model)
                 except Exception as exc:  # noqa: BLE001
                     judged = {"error": str(exc)}
             r["mechanical_pass"] = mech
