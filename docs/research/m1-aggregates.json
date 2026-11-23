@@ -1,0 +1,220 @@
+{
+  "generated_utc": "2026-11-23T12:52:40.232391+00:00",
+  "violations": {
+    "records": 116,
+    "per_day": {
+      "2026-11-22": 83,
+      "2026-11-23": 33
+    },
+    "per_class_top15": [
+      [
+        "缺陷N",
+        69
+      ],
+      [
+        "缺少三段式锚点",
+        64
+      ],
+      [
+        "[LN] 标签(第N行)后 N 行内缺少",
+        34
+      ],
+      [
+        "缺陷降级",
+        27
+      ],
+      [
+        "silent promotion",
+        8
+      ],
+      [
+        "缺陷 N",
+        3
+      ],
+      [
+        "伪决策点(第N行) '需要你来拍板'",
+        2
+      ],
+      [
+        "伪决策点(第N行) '决策点'",
+        2
+      ],
+      [
+        "伪决策点(第N行) '待你决策'",
+        1
+      ]
+    ],
+    "per_code_rev": {
+      "2026-11-22.r3": {
+        "turns": 114,
+        "n_violations": 208
+      },
+      "2026-11-24.r1": {
+        "turns": 2,
+        "n_violations": 2
+      }
+    }
+  },
+  "thrash": {
+    "entries": 37,
+    "unique_fingerprints": 7,
+    "repeat_fingerprints": {
+      "?": 31
+    }
+  },
+  "controller": {
+    "entries": 91,
+    "by_kind": {
+      "turn_end": 41,
+      "direct_write": 50
+    }
+  },
+  "usage": {
+    "per_pool": [
+      [
+        "github_copilot_pro_plus",
+        14,
+        4109587,
+        14,
+        12.33
+      ],
+      [
+        "google_ai_pro",
+        11,
+        66866,
+        111,
+        0.2
+      ],
+      [
+        "kimi_allegretto",
+        2947,
+        855597041,
+        154751,
+        2174.97
+      ],
+      [
+        "opencode_go_basic",
+        877,
+        184698662,
+        40611,
+        49.77
+      ],
+      [
+        "zhipu_v2_max",
+        1672,
+        127172128,
+        122094,
+        880.5
+      ]
+    ],
+    "calls_per_day_pool": [
+      [
+        "2026-11-19",
+        "github_copilot_pro_plus",
+        8
+      ],
+      [
+        "2026-11-19",
+        "google_ai_pro",
+        1
+      ],
+      [
+        "2026-11-19",
+        "kimi_allegretto",
+        209
+      ],
+      [
+        "2026-11-19",
+        "opencode_go_basic",
+        124
+      ],
+      [
+        "2026-11-19",
+        "zhipu_v2_max",
+        188
+      ],
+      [
+        "2026-11-20",
+        "kimi_allegretto",
+        379
+      ],
+      [
+        "2026-11-20",
+        "opencode_go_basic",
+        351
+      ],
+      [
+        "2026-11-20",
+        "zhipu_v2_max",
+        76
+      ],
+      [
+        "2026-11-21",
+        "kimi_allegretto",
+        308
+      ],
+      [
+        "2026-11-21",
+        "opencode_go_basic",
+        315
+      ],
+      [
+        "2026-11-21",
+        "zhipu_v2_max",
+        98
+      ],
+      [
+        "2026-11-22",
+        "kimi_allegretto",
+        1468
+      ],
+      [
+        "2026-11-22",
+        "zhipu_v2_max",
+        1147
+      ],
+      [
+        "2026-11-23",
+        "github_copilot_pro_plus",
+        6
+      ],
+      [
+        "2026-11-23",
+        "google_ai_pro",
+        10
+      ],
+      [
+        "2026-11-23",
+        "kimi_allegretto",
+        583
+      ],
+      [
+        "2026-11-23",
+        "opencode_go_basic",
+        87
+      ],
+      [
+        "2026-11-23",
+        "zhipu_v2_max",
+        163
+      ]
+    ]
+  },
+  "gateway": {
+    "requests": 11865,
+    "thinking_tripped": 800,
+    "auto_recovered": 0,
+    "by_tier": {
+      "system_1_5": 8189,
+      "system_2": 2328,
+      "system_1": 837,
+      "system_2_plus": 492,
+      "system_0": 19
+    }
+  },
+  "reasoning_ledger": {
+    "entries": 4,
+    "records": 1,
+    "evidence": 3
+  }
+}
