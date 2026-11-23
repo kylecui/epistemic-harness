@@ -276,6 +276,7 @@ TOOLS: list[dict[str, Any]] = [
                 "retrieval_trace": {"type": "array", "items": {"type": "string"}},
                 "assumptions": {"type": "array", "items": {"type": "string"}},
                 "conflicts_with_l1": {"type": "array", "items": {"type": "string"}},
+                "external_cause_required": {"type": "boolean", "default": False},
             },
             "required": ["claim_id", "claim", "claimed_tier", "source_ids"],
         },

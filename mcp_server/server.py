@@ -81,6 +81,7 @@ TOOLS: list[dict[str, Any]] = [
                                      "description": "IDs actually returned by query_l1/search_l2/recall_l3"},
                 "assumptions": {"type": "array", "items": {"type": "string"}},
                 "conflicts_with_l1": {"type": "array", "items": {"type": "string"}},
+                "external_cause_required": {"type": "boolean", "default": False},
             },
             "required": ["claim_id", "claim", "claimed_tier", "source_ids"],
         },
