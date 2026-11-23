@@ -116,6 +116,7 @@ def main() -> int:
     ap.add_argument("--task", required=True)
     ap.add_argument("--samples", type=int, default=1)
     ap.add_argument("--provider", default="kimi", choices=sorted(DIRECT_PROVIDERS))
+    ap.add_argument("--delay", type=float, default=0.0, help="seconds between samples (pacing for direct-API arms without failover)")
     args = ap.parse_args()
 
     tasks = yaml.safe_load(FIXTURES.read_text(encoding="utf-8"))
@@ -148,6 +149,8 @@ def main() -> int:
         with out.open("a", encoding="utf-8", newline="\n") as fh:
             fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
         print(f"[{args.arm}/{args.task}] sample {i}: {err or ('ok, ' + str(len(r['text'])) + ' chars')}", flush=True)
+        if args.delay:
+            time.sleep(args.delay)
     print(f"-> {out}", flush=True)
     return 0
 
