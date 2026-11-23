@@ -253,14 +253,31 @@ export default function (pi: any) {
 
   // Persistent footer status with the loaded contract version
   // (2026-11-23): transient notify only lasts a moment; pilots want the
-  // version glanceable at all times. Best-effort TS read, no python needed.
+  // version glanceable at all times. Source of truth: the gateway's /version
+  // endpoint — it answers from the repo that BUILT the running container, so
+  // it is correct even in global mode where the client's cwd is not the
+  // harness repo (cwd AGENTS.md parsing fails there). Falls back to the
+  // cwd parse when the gateway is unreachable.
   const setVersionFooter = (ctx: any) => {
+    const applyLocal = () => {
+      try {
+        const cwd = String(ctx?.cwd || process.cwd());
+        const agentsText = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
+        const loadedM = agentsText.match(/epistemic-dual-process-harness \(v(\d+\.\d+\.\d+)\)/);
+        if (loadedM) ctx.ui?.setStatus?.("harness", `harness v${loadedM[1]}`);
+      } catch { /* footer is best-effort */ }
+    };
     try {
-      const cwd = String(ctx?.cwd || process.cwd());
-      const agentsText = readFileSync(join(cwd, "AGENTS.md"), "utf-8");
-      const loadedM = agentsText.match(/epistemic-dual-process-harness \(v(\d+\.\d+\.\d+)\)/);
-      if (loadedM) ctx.ui?.setStatus?.("harness", `harness v${loadedM[1]}`);
-    } catch { /* footer is best-effort */ }
+      fetch("http://127.0.0.1:8787/version")
+        .then(async (res) => {
+          if (!res.ok) { applyLocal(); return; }
+          const data = await res.json().catch(() => null);
+          const v = data?.loaded_contract_version || data?.spec_version;
+          if (v) ctx.ui?.setStatus?.("harness", `harness v${v}`);
+          else applyLocal();
+        })
+        .catch(() => applyLocal());
+    } catch { applyLocal(); }
   };
 
   // ---- version banner + gateway health (2026-11-23). pi 1.6.0's TUI runtime
