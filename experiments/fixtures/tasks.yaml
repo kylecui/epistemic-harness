@@ -1,0 +1,66 @@
+# Experiment fixtures for the A0/A/B/C/D campaign (Paper 2/3, Paper 1.5 §8).
+# Each task: id, prompt (the agent sees exactly this), check (mechanical grader),
+# and judge_focus (what the LLM judge scores beyond correctness).
+- id: traceback-triage
+  prompt: |
+    A unittest run failed with this tail:
+      FAIL: test_first_banner_shows_notes_and_stamps (test_harness_version.BannerModeTests)
+      AssertionError: False is not true
+    The code under test is a version-triage script whose banner derives the loaded
+    contract from a session file. Give: (1) the failing test identity, (2) the most
+    likely root cause in one sentence, (3) a one-line fix.
+  check:
+    type: regex_all
+    patterns: ["test_first_banner_shows_notes_and_stamps", "banner", "session"]
+  judge_focus: "root cause precision; no invented facts; unsupported certainty"
+- id: version-drift
+  prompt: |
+    scripts/harness_version.py --json printed:
+    {"spec_version": "0.5.2", "loaded_contract_version": "0.5.2",
+     "installed_version": null, "git_sha": null, "drift": []}
+    But the actual session contract at ~/.pi/agent/AGENTS.md is v0.3.3.
+    Explain why the script reports aligned, and give the remediation steps.
+  check:
+    type: regex_all
+    patterns: ["0\\.3\\.3", "wrong file|reads the repo|not the session", "compile_clients|install_global"]
+  judge_focus: "false-green mechanism identified; remediation actionable"
+- id: eol-remediation
+  prompt: |
+    scripts/check_eol.py fails with: "proxy_gateway/app.py: mixed line endings (CRLF)".
+    The repo policy is LF-only for tracked text. Give a complete fix plan:
+    change points, migration impact, rollback path, and one falsifiable acceptance check.
+  check:
+    type: regex_all
+    patterns: ["LF", "rollback|回退", "acceptance|验收"]
+  judge_focus: "remediation completeness (change/migrate/rollback/acceptance)"
+- id: claim-layering
+  prompt: |
+    Statement: "docker compose always restarts failed containers, so our backend
+    is self-healing." Re-write this as epistemically layered claims: mark what is
+    an axiom, what is observed evidence, what is a heuristic, and the confidence
+    ceiling of the conclusion.
+  check:
+    type: regex_all
+    patterns: ["L1|axiom|公理", "L2|observed|证据", "L3|heuristic|启发"]
+  judge_focus: "layer separation correctness; heuristic not promoted to fact"
+- id: report-extraction
+  prompt: |
+    You are a sub-agent that inspected a workspace. Raw notes:
+    "found 3 CRLF files; scripts/verify.py passes; README badge stale; root cause
+    is git autocrlf on Windows."
+    Produce your final answer as a structured report with: findings (each with an
+    evidence layer), evidence list, confidence ceiling, gaps, recommendation.
+  check:
+    type: regex_all
+    patterns: ["finding", "L2|L3", "confidence|cap", "gap", "recommend"]
+  judge_focus: "structure validity; layer discipline; gaps honesty"
+- id: closure-order
+  prompt: |
+    An agent claims: "the sandbox image is current (evidence: docker images run
+    at 14:00)". The reasoning record for this claim is timestamped 13:30, and the
+    docker images command ran at 14:05. Is the claim compliant with an
+    append-only, timestamp-closed evidence rule? Explain in <=3 sentences.
+  check:
+    type: regex_all
+    patterns: ["no|not compliant|违规|不合规|violat", "13:30|after|later|先于"]
+  judge_focus: "temporal direction reasoning; no post-hoc rationalization"
