@@ -60,15 +60,31 @@ class BadgeAutoSyncTests(unittest.TestCase):
             (Path(tmp) / "README_ZH.md").write_text("badge tests-1%20green ok\n", encoding="utf-8")
             orig_root, orig_count = mod.REPO_ROOT, mod._discover_test_count
             mod.REPO_ROOT = Path(tmp)
-            mod._discover_test_count = lambda: 7
+            mod._discover_test_count = lambda: (7, 0)
             try:
                 problems: list[str] = []
                 mod.check_test_count_badge(problems)
             finally:
                 mod.REPO_ROOT, mod._discover_test_count = orig_root, orig_count
-            self.assertEqual(problems, [])
-            self.assertIn("tests-7%20green", (Path(tmp) / "README.md").read_text(encoding="utf-8"))
-            self.assertIn("tests-7%20green", (Path(tmp) / "README_ZH.md").read_text(encoding="utf-8"))
+            self.assertTrue(problems, "implausibly low count must be reported, not synced")
+            self.assertIn("tests-1%20green", (Path(tmp) / "README.md").read_text(encoding="utf-8"))
+
+    def test_failed_imports_block_sync(self):
+        spec = importlib.util.spec_from_file_location("check_docs_guard", REPO_ROOT / "scripts" / "check_docs.py")
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "README.md").write_text("badge tests-1%20green\n", encoding="utf-8")
+            orig_root, orig_count = mod.REPO_ROOT, mod._discover_test_count
+            mod.REPO_ROOT = Path(tmp)
+            mod._discover_test_count = lambda: (500, 3)  # partial discovery
+            try:
+                problems: list[str] = []
+                mod.check_test_count_badge(problems)
+            finally:
+                mod.REPO_ROOT, mod._discover_test_count = orig_root, orig_count
+            self.assertTrue(any("not synced" in p for p in problems), problems)
+            self.assertIn("tests-1%20green", (Path(tmp) / "README.md").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

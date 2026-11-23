@@ -1,0 +1,20 @@
+installed: v0.5.3
+repo spec : v0.5.3
+no pending migrations
+
+backup -> .upgrade-backup-20261123T122208Z
+  backed up: .pi, knowledge, .env, promotions
+sync global install ...
+  global install synced (extension + sandbox + session contract + pi settings)
+rebuild containers ...
+  containers rebuilt, /health ok
+build sandbox image ...
+  harness-sandbox:local built
+sync user-level skills ...
+  user skills in sync
+verify ...
+  unit tests green (OK (skipped=1))
+plane alignment ...
+  all planes aligned (10 rows)
+
+upgrade complete: v0.5.3 -> v0.5.3 (backup removed; --keep-backup to retain)

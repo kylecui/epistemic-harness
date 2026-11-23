@@ -77,21 +77,33 @@ def check_docs_index(problems: list[str]) -> None:
             problems.append(f"docs/{doc.name} is not listed in docs/README.md")
 
 
-def _discover_test_count() -> int:
-    """Count unittest cases under tests/ without executing them (discovery imports only)."""
+def _discover_test_count() -> tuple[int, int]:
+    """(case_count, failed_import_modules) under tests/ without executing them.
+
+    A partial environment (missing deps in a slim container) makes discovery
+    emit one _FailedTest placeholder per unimportable module — counting those
+    as 'tests' is what corrupted the badge once (2026-11-24: container run
+    reported 7). Callers must not trust a count with failures.
+    """
     import unittest
+    from unittest.loader import _FailedTest
 
     loader = unittest.TestLoader()
     suite = loader.discover(str(REPO_ROOT / "tests"), top_level_dir=str(REPO_ROOT))
 
-    def count(s: unittest.TestSuite) -> int:
+    def count(s: unittest.TestSuite) -> tuple[int, int]:
         n = 0
+        failed = 0
         for item in s:
             if isinstance(item, unittest.TestSuite):
-                n += count(item)
+                a, b = count(item)
+                n += a
+                failed += b
             else:
                 n += 1
-        return n
+                if isinstance(item, _FailedTest):
+                    failed += 1
+        return n, failed
 
     return count(suite)
 
@@ -104,7 +116,16 @@ def check_test_count_badge(problems: list[str]) -> None:
     sync. Only a failed rewrite is a problem.
     """
     badge_re = re.compile(r"tests-(\d+)%20green")
-    actual = _discover_test_count()
+    actual, failed_imports = _discover_test_count()
+    if failed_imports:
+        problems.append(
+            f"badge not synced: discovery in this runner hit {failed_imports} unimportable module(s) "
+            f"(count {actual}); fix the runner environment and re-run"
+        )
+        return
+    if actual < 50:
+        problems.append(f"badge not synced: discovered count {actual} is implausibly low (floor 50)")
+        return
     for name in ("README.md", "README_ZH.md"):
         path = REPO_ROOT / name
         if not path.exists():
