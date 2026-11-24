@@ -382,6 +382,34 @@ def _strip_noise(text: str) -> list[str]:
     return [ln for ln in text.splitlines() if not ln.lstrip().startswith(">")]
 
 
+_INLINE_QUOTES: tuple[tuple[str, str], ...] = (("`", "`"), ("“", "”"), ("「", "」"), ('"', '"'))
+
+
+def _mask_inline_quotes(text: str) -> str:
+    """Blank spans inside inline quotes, keeping line numbers and columns intact.
+
+    Quoting a phrase (for example the gate's own previous verdict) is not asking the
+    user to decide anything (#15). Trade-off: a real ask wrapped in quotes is not
+    caught. Fail-open rules: a line with an unbalanced delimiter is left alone, and
+    a curly-quote span is only treated as one quotation when it covers at most
+    four lines.
+    """
+    lines: list[str] = []
+    for line in text.split("\n"):
+        for opener, closer in _INLINE_QUOTES:  # backticks first so a quote inside code cannot re-pair
+            if opener not in line or line.count(opener) != line.count(closer):
+                continue
+            pattern = re.escape(opener) + r"[^" + re.escape(closer) + r"]*" + re.escape(closer)
+            line = re.sub(pattern, lambda m: opener + " " * (len(m.group(0)) - 2) + closer, line)
+        lines.append(line)
+    return re.sub(
+        r"“[^”]*”",
+        lambda m: m.group(0) if m.group(0).count("\n") > 3
+        else "“" + re.sub(r"[^\n]", " ", m.group(0)[1:-1]) + "”",
+        "\n".join(lines),
+    )
+
+
 def check_underdetermination(text: str) -> list[str]:
     """A raised decision point must be genuinely underdetermined (issue #3).
 
@@ -390,7 +418,7 @@ def check_underdetermination(text: str) -> list[str]:
     or a missing-L2 anchor. Otherwise the reply is asking the user to decide
     something already closed by definition or by evidence.
     """
-    lines = _strip_noise(text)
+    lines = _mask_inline_quotes("\n".join(_strip_noise(text))).splitlines()
     violations: list[str] = []
     for idx, line in enumerate(lines):
         for m in _DECISION_ASK_RE.finditer(line):
