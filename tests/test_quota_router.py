@@ -35,11 +35,11 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
         """Exhausting zhipu_v2_max via glm-5.3 immediately skips glm-5.3-flash too!"""
         now = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
         # Verify exact Zhipu official credit math: 1M input (6.9) + 1M output (24.0) = 30.9 credits
-        units = self.qm.compute_units("zhipu-glm-5.3", prompt_tokens=1_000_000, completion_tokens=1_000_000, now_utc=now)
+        units = self.qm.compute_units("zhipu-glm-5.4", prompt_tokens=1_000_000, completion_tokens=1_000_000, now_utc=now)
         self.assertAlmostEqual(units, 30.9, places=3)
 
         # Spend full 5h Zhipu Max shared pool (28,000 credits) on glm-5.3
-        self.qm.record_usage("zhipu-glm-5.3", units_override=28000.0, now_utc=now)
+        self.qm.record_usage("zhipu-glm-5.4", units_override=28000.0, now_utc=now)
 
         # Now system_0 (which wants zhipu-glm-5.3-flash first) MUST skip flash because shared pool is full!
         sel = self.qm.select_candidates("system_0", "openai", now_utc=now)
@@ -64,7 +64,7 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
         now = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
         # Exhaust all 3 primary shared pools (kimi_allegretto, zhipu_v2_max, opencode_go_basic)
         self.qm.record_usage("kimi-k3.1-pro", units_override=1500.0, now_utc=now)
-        self.qm.record_usage("zhipu-glm-5.3", units_override=28000.0, now_utc=now)
+        self.qm.record_usage("zhipu-glm-5.4", units_override=28000.0, now_utc=now)
         self.qm.record_usage("opencode-deepseek-v4.1-flash", units_override=20.0, now_utc=now)
 
         sel = self.qm.select_candidates("system_2", "openai", now_utc=now)
@@ -145,7 +145,7 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
         )
         self.assertEqual(sel_critic.pool_id, "opencode_go_basic")
         self.assertEqual(sel_critic.model_key, "opencode-deepseek-v4.1-flash")
-        self.assertIn("cross_family_critic_excluded", sel_critic.skipped_reasons["zhipu-glm-5.3"])
+        self.assertIn("cross_family_critic_excluded", sel_critic.skipped_reasons["zhipu-glm-5.4"])
 
 if __name__ == "__main__":
     unittest.main()
@@ -164,7 +164,7 @@ class TestUpstreamFailureHandling(unittest.TestCase):
 
     def test_429_body_reset_timestamp_sets_pool_cooldown(self) -> None:
         body = '{"error":{"code":"1308","message":"已达到 5 小时的使用上限。您的限额将在 2026-11-19 23:31:23 重置。"}}'
-        info = self.qm.mark_upstream_failure("zhipu-glm-5.3", 429, body, None, now_utc=self.now)
+        info = self.qm.mark_upstream_failure("zhipu-glm-5.4", 429, body, None, now_utc=self.now)
         self.assertEqual(info["scope"], "pool")
         # 23:31:23 at UTC+8 == 15:31:23 UTC
         self.assertEqual(info["until"], datetime(2026, 11, 19, 15, 31, 23, tzinfo=timezone.utc))
@@ -187,7 +187,7 @@ class TestUpstreamFailureHandling(unittest.TestCase):
         self.assertNotIn("kimi-for-coding", sel.skipped_reasons)
 
     def test_all_unavailable_probes_only_soonest_recovering_candidate(self) -> None:
-        for mk in ("zhipu-glm-5.3", "kimi-for-coding", "opencode-deepseek-v4.1-flash",
+        for mk in ("zhipu-glm-5.4", "kimi-for-coding", "opencode-deepseek-v4.1-flash",
                    "copilot-claude-sonnet-5.5", "google-ai-gemini-4-neon", "google-ai-gemini-4-hydrogen"):
             self.qm.mark_upstream_failure(mk, 404, "Not Found", None, now_utc=self.now)
         self.qm.mark_upstream_failure("kimi-for-coding", 429, "", 120, now_utc=self.now)  # recovers in 120s
@@ -331,4 +331,4 @@ class TestModelEffortCeiling(unittest.TestCase):
         self.assertEqual(clamped.tier, d.tier)          # tier unchanged
         self.assertEqual(clamped.openai_effort, "low")  # effort clamped by evidence
         # models without a ceiling are untouched
-        self.assertEqual(clamp_effort_for_model(qm, "zhipu-glm-5.3", d).openai_effort, d.openai_effort)
+        self.assertEqual(clamp_effort_for_model(qm, "zhipu-glm-5.4", d).openai_effort, d.openai_effort)

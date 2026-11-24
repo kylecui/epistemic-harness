@@ -24,3 +24,4 @@ __pycache__/
 
 experiments/campaign*.log
 experiments/campaign.status
+.pi/extensions/

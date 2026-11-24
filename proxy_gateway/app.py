@@ -91,6 +91,15 @@ def _build_upstream_headers(
                 hdrs["x-api-key"] = key
             else:
                 hdrs["authorization"] = f"Bearer {key}"
+    # Provider agent-client fingerprint (issue: vendor-agent quotas). Applied
+    # AFTER auth so it can override SDK-generic defaults. Enable per model only
+    # with a VERIFIED fingerprint — an incorrect one may break auth or violate
+    # the provider's ToS (subscription-agent quota is meant for that agent).
+    fp = mcfg.get("client_fingerprint") or {}
+    if fp.get("user_agent"):
+        hdrs["user-agent"] = str(fp["user_agent"])
+    for _name, _value in (fp.get("extra_headers") or {}).items():
+        hdrs[str(_name).lower()] = str(_value)
     # Per-model provider-required headers (e.g. OpenCode Go demands x-opencode-session for session affinity).
     sid = getattr(req.state, "harness_sid", None) or "default"
     for name, tmpl in (qm.models.get(model_key, {}).get("upstream_headers") or {}).items():

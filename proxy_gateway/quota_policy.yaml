@@ -77,20 +77,28 @@ pools:
 # 二、模型映射与精确单位消耗系数（每 1M Tokens 消耗的所属 Pool 单位数）
 # ==============================================================================
 models:
-  zhipu-glm-5.3:
+  zhipu-glm-5.4:
     pool: zhipu_v2_max
     protocol: openai
     upstream_base_url_env: ZHIPU_BASE_URL
     default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
     api_key_env: ZHIPU_API_KEY
-    upstream_model: glm-5.3
+    upstream_model: glm-5.4
     cost_per_1m:
+      # GLM-5.4 coding-plan rates UNVERIFIED — provisionally 5.3's (6.9/1.7/24.0) pending official pricing
       input: 6.9
       cached_input: 1.7
       output: 24.0
     avoid_in_peak_for_tiers:
     - system_0
     - system_1
+    # Vendor-agent quota harvesting (zcode etc.): the mechanism (client_fingerprint)
+    # is implemented in the gateway, but a VERIFIED fingerprint is required before
+    # enabling — see the tracking issue. ToS risk: subscription-agent quotas may be
+    # restricted to the vendor's own client; misidentification can suspend the plan.
+    # client_fingerprint:
+    #   user_agent: "<captured-from-real-zcode-traffic>"
+    #   extra_headers: {}
   zhipu-glm-5.3-flash:
     pool: zhipu_v2_max
     protocol: openai
@@ -219,14 +227,14 @@ routing_chains:
   - opencode-deepseek-v4.1-flash
   - zhipu-glm-5.3-flash
   - kimi-for-coding
-  - zhipu-glm-5.3
+  - zhipu-glm-5.4
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
   - copilot-claude-sonnet-5.5
   system_1_5:
   - opencode-deepseek-v4.1-flash
   - kimi-for-coding
-  - zhipu-glm-5.3
+  - zhipu-glm-5.4
   - kimi-k3.1-pro
   - zhipu-glm-5.3-flash
   - google-ai-gemini-4-neon
@@ -235,7 +243,7 @@ routing_chains:
   system_2:
   - opencode-deepseek-v4.1-flash
   - kimi-k3.1-pro
-  - zhipu-glm-5.3
+  - zhipu-glm-5.4
   - kimi-for-coding
   - copilot-claude-fable-5.2
   - google-ai-gemini-4-neon
@@ -243,7 +251,7 @@ routing_chains:
   - copilot-claude-sonnet-5.5
   system_2_plus:
   - opencode-deepseek-v4.1-flash
-  - zhipu-glm-5.3
+  - zhipu-glm-5.4
   - kimi-k3.1-pro
   - copilot-claude-fable-5.2
   - google-ai-gemini-4-neon

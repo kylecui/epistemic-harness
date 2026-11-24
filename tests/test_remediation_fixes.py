@@ -78,15 +78,15 @@ class TestRemediationFixes(unittest.TestCase):
             task_text="Evaluate microservices",
             task_id="S1",
             transport=httpx.MockTransport(mock_handler),
-            exclude_model="zhipu-glm-5.3",
+            exclude_model="zhipu-glm-5.4",
         )
         self.assertEqual(seen_streams, [True])  # P0-3: SSE streaming enabled!
-        self.assertEqual(seen_headers[0]["x-harness-exclude-model"], "zhipu-glm-5.3")  # P0-1!
+        self.assertEqual(seen_headers[0]["x-harness-exclude-model"], "zhipu-glm-5.4")  # P0-1!
         self.assertIn("L3-ARCH-001", res["content"])
 
         # Verify gateway helper maps excluded model -> its shared pool
         class _DummyQM:
-            models = {"zhipu-glm-5.3": {"pool": "zhipu_v2_max"}}
+            models = {"zhipu-glm-5.4": {"pool": "zhipu_v2_max"}}
             def pool_for_model(self, mk):
                 return ("zhipu_v2_max", {})
 
@@ -117,7 +117,7 @@ class TestRemediationFixes(unittest.TestCase):
             )
             return httpx.Response(
                 200,
-                headers={"content-type": "text/event-stream", "X-Harness-Selected-Model": "zhipu-glm-5.3"},
+                headers={"content-type": "text/event-stream", "X-Harness-Selected-Model": "zhipu-glm-5.4"},
                 content=sse.encode("utf-8"),
             )
 

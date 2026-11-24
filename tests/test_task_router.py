@@ -29,7 +29,7 @@ TEST_CONFIG = {
         "quick-fix": {"match": ["rename"], "decision": {"profile": "coder", "effort": "low", "budget": 2048}},
         "deep-analysis": {
             "match": ["证明"],
-            "decision": {"profile": "deep", "effort": "high", "budget": 8192, "model": "zhipu-glm-5.3"},
+            "decision": {"profile": "deep", "effort": "high", "budget": 8192, "model": "zhipu-glm-5.4"},
         },
     },
     "default": {"decision": {"profile": "coder", "effort": "medium", "budget": 4096}},
@@ -37,7 +37,7 @@ TEST_CONFIG = {
 
 CAPABILITY = {
     "models": [
-        {"model": "zhipu-glm-5.3", "efforts_allowed": ["minimal", "low", "medium", "high"], "efforts_clamped": []},
+        {"model": "zhipu-glm-5.4", "efforts_allowed": ["minimal", "low", "medium", "high"], "efforts_clamped": []},
         {"model": "m-clamped", "efforts_allowed": ["minimal", "low"], "efforts_clamped": ["medium", "high"]},
     ]
 }
@@ -124,7 +124,7 @@ class DispatchParamTests(unittest.TestCase):
             return httpx.Response(200, headers={
                 "Content-Type": "text/event-stream",
                 "X-Harness-Routed-Tier": "system_2",
-                "X-Harness-Selected-Model": "zhipu-glm-5.3",
+                "X-Harness-Selected-Model": "zhipu-glm-5.4",
                 "X-Harness-Effort": "high",
             }, content=sse.encode("utf-8"))
         return httpx.MockTransport(handler)
@@ -133,11 +133,11 @@ class DispatchParamTests(unittest.TestCase):
         captured: dict = {}
         result = dispatch_subtask(
             agent_profile="deep", task_text="x", task_id="t-param",
-            model="zhipu-glm-5.3", effort="high", transport=self._gateway(captured),
+            model="zhipu-glm-5.4", effort="high", transport=self._gateway(captured),
         )
-        self.assertEqual(captured["body"]["model"], "zhipu-glm-5.3")
+        self.assertEqual(captured["body"]["model"], "zhipu-glm-5.4")
         self.assertEqual(captured["headers"].get("x-harness-effort"), "high")
-        self.assertEqual(result["selected_model"], "zhipu-glm-5.3")
+        self.assertEqual(result["selected_model"], "zhipu-glm-5.4")
         self.assertEqual(result["effort"], "high")
 
     def test_defaults_omit_pin_and_effort_header(self):

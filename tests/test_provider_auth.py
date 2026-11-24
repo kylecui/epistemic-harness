@@ -93,7 +93,7 @@ class TestCopilotAuth(unittest.TestCase):
         try:
             now = datetime(2026, 11, 19, 3, 0, tzinfo=timezone.utc)  # off-peak, last-option pool
             # Copilot sits in the last-option reserve: only reachable once all primary pools are spent.
-            qm.record_usage("zhipu-glm-5.3", units_override=30000.0, now_utc=now)
+            qm.record_usage("zhipu-glm-5.4", units_override=30000.0, now_utc=now)
             qm.record_usage("kimi-k3.1-pro", units_override=2000.0, now_utc=now)
             qm.record_usage("opencode-deepseek-v4.1-flash", units_override=60.0, now_utc=now)
             qm.record_usage("google-ai-gemini-4-neon", units_override=999.0, now_utc=now)  # skip the other reserve

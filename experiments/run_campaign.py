@@ -29,13 +29,23 @@ def main() -> int:
     ap.add_argument("--samples", type=int, default=20)
     ap.add_argument("--arms", default="A0,A,B,C,D")
     ap.add_argument("--skip-judge", action="store_true")
+    ap.add_argument("--lab", action="store_true",
+                    help="run entirely on the isolated SiliconFlow lab instance (:8788); never touches working models")
     args = ap.parse_args()
     arms = [a.strip() for a in args.arms.split(",") if a.strip()]
+    if args.lab:
+        gw = ["--gateway-url", "http://127.0.0.1:8788", "--model", "lab-deepseek-v4-flash"]
+        judge = ["--gateway-url", "http://127.0.0.1:8788", "--model", "lab-deepseek-v3-2"]
+    else:
+        gw, judge = [], []
 
     t0 = time.time()
     for arm in arms:
         for task in TASKS:
-            extra = ["--provider", "kimi"] if arm == "A0" else []
+            if arm == "A0":
+                extra = ["--provider", "siliconflow", "--delay", "2"] if args.lab else ["--provider", "kimi"]
+            else:
+                extra = gw
             rc = run([sys.executable, "experiments/runner.py",
                       "--arm", arm, "--task", task, "--samples", str(args.samples), *extra])
             if rc != 0:
@@ -43,7 +53,7 @@ def main() -> int:
     if not args.skip_judge:
         for arm in arms:
             for task in TASKS:
-                run([sys.executable, "experiments/judge.py", "--arm", arm, "--task", task])
+                run([sys.executable, "experiments/judge.py", "--arm", arm, "--task", task, *judge])
     print(f"campaign done in {(time.time() - t0) / 60:.1f} min", flush=True)
     return 0
 

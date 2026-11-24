@@ -29,8 +29,8 @@ categories:
   deep-analysis:
     priority: 5
     match: ["分析", "设计", "trade-off", "tradeoff", "architecture", "架构", "重构方案", "推导", "证明"]
-    decision: {profile: deep, effort: high, budget: 8192, model: zhipu-glm-5.3}
-    note: "钉 zhipu-glm-5.3: 2026-11-21 dispatches.jsonl 实测 3/3 deep 派发都落在它; 钉住消除配额摇号方差, 网关仍会在该池不可用时 failover"
+    decision: {profile: deep, effort: high, budget: 8192, model: zhipu-glm-5.4}
+    note: "钉 zhipu-glm-5.4: 2026-11-21 dispatches.jsonl 实测 3/3 deep 派发都落在它; 钉住消除配额摇号方差, 网关仍会在该池不可用时 failover"
   verification:
     priority: 3
     match: ["test", "验证", "复现", "reproduce", "验收"]
