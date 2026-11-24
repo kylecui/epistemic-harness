@@ -5,7 +5,7 @@
   "checks": [
     {
       "name": "unit_tests",
-      "command": "python scripts/verify.py",
+      "command": "python scripts/select_tests.py --run",
       "required": true
     },
     {
