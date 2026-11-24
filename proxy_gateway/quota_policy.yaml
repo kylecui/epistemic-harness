@@ -17,6 +17,8 @@ pools:
     usage_api_key_env: ZHIPU_API_KEY
     usage_auth: bearer
     usage_format: zhipu
+    # A reading never refuses a pool on its own (booster top-ups raise the plan); only a real 429 does.
+    remote_exhaustion_mode: informational
     peak_cost_multiplier: 1.0
     peak_windows_utc:
     - start: 01:30
@@ -32,6 +34,7 @@ pools:
     usage_api_key_env: KIMI_API_KEY
     usage_auth: bearer
     usage_format: kimi
+    remote_exhaustion_mode: informational
     peak_cost_multiplier: 1.0
     peak_windows_utc:
     - start: 01:30
@@ -50,6 +53,7 @@ pools:
     usage_api_key_env: OPENCODE_GO_API_KEY
     usage_auth: bearer
     usage_format: opencode
+    remote_exhaustion_mode: informational
     usage_headers:
       x-opencode-session: hs-harness-usage
     peak_cost_multiplier: 2.0

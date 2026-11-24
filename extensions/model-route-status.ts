@@ -17,6 +17,7 @@ const norm = (v: unknown) => String(v ?? "").trim().toLowerCase();
 export default function (pi: ExtensionAPI) {
   let sent = "";
   let announced = "";
+  let announcedQuota = "";
 
   pi.on("before_provider_request", async (event: any) => {
     const model = (event?.payload as any)?.model;
@@ -29,7 +30,24 @@ export default function (pi: ExtensionAPI) {
     const clear = () => {
       if (announced) ctx.ui?.setStatus?.(KEY, "");
       announced = "";
+      if (announcedQuota) ctx.ui?.setStatus?.("quota", "");
+      announcedQuota = "";
     };
+
+    // A plan overrun is informational here: the gateway keeps routing, the operator decides whether to
+    // top up or hold the model. Shown once per distinct text, cleared when the gateway stops reporting it.
+    const alert = get("x-harness-quota-alert").trim();
+    if (alert) {
+      const text = `⚠ ${alert}`;
+      ctx.ui?.setStatus?.("quota", text);
+      if (text !== announcedQuota) {
+        ctx.ui?.notify?.(`[router] ${alert}`, "warning");
+        announcedQuota = text;
+      }
+    } else if (announcedQuota) {
+      ctx.ui?.setStatus?.("quota", "");
+      announcedQuota = "";
+    }
 
     const unavailable = norm(get("x-harness-all-upstreams-unavailable"));
     const selected = get("x-harness-selected-model").trim();

@@ -16,6 +16,7 @@ from __future__ import annotations
 from contextlib import closing
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import json
 import os
 from pathlib import Path
 import re
@@ -70,7 +71,7 @@ def is_in_peak_window(now_utc: datetime, peak_windows_utc: list[dict[str, str]])
 
 
 class QuotaManager:
-    def __init__(self, policy_path: Path, db_path: Path) -> None:
+    def __init__(self, policy_path: Path, db_path: Path, holds_path: Path | None = None) -> None:
         self.policy_path = policy_path
         self.db_path = db_path
         self.policy: dict[str, Any] = yaml.safe_load(policy_path.read_text(encoding="utf-8")) or {}
@@ -87,6 +88,11 @@ class QuotaManager:
         # (2026-11-24: it read 19.95/20 for OpenCode while the provider said 4%).
         self._remote_usage: dict[str, dict[str, Any]] = {}
         self._remote_thread: threading.Thread | None = None
+        # Operator holds: {"until": iso, "reason": str} keyed by model key or pool id. Persisted so a
+        # container restart does not silently unblock something the operator blocked on purpose.
+        self.holds_path: Path | None = holds_path
+        self._holds: dict[str, dict[str, Any]] = {}
+        self._load_holds()
         # Model-scoped cooldowns for misconfiguration-class failures (401/403/404/5xx).
         self._model_cooldowns: dict[str, tuple[datetime, str]] = {}
         self._init_db()
@@ -294,6 +300,11 @@ class QuotaManager:
             rem = int((mcd[0] - now_utc).total_seconds())
             return (False, False, f"model_{mcd[1]}({rem}s)")
 
+        # 0b. Operator hold on this model or its pool ("block kimi for 4h")
+        hold = self._hold_reason(model_key, pool_id, now_utc)
+        if hold:
+            return (False, False, hold)
+
         # 1. Shared-pool 429 cooldown
         cd = self._pool_cooldowns.get(pool_id)
         if cd and now_utc < cd:
@@ -304,13 +315,18 @@ class QuotaManager:
         remote = self._remote_usage.get(pool_id)
         remote_fresh = bool(remote and (now_utc - remote["ts"]).total_seconds() < REMOTE_USAGE_TTL_SEC)
         if remote_fresh:
+            # Operator decision 2026-11-24: a provider reading is display data, not a refusal. Booster
+            # top-ups raise the plan, and the chain already fails over on a real 429, so we never
+            # pre-emptively skip a pool that the provider might still serve. mode=hard restores the
+            # old pre-emptive skip for a pool if that ever becomes desirable.
+            hard = str(pcfg.get("remote_exhaustion_mode", "informational")) == "hard"
             for label, _hours, limit_key in WINDOW_SPECS:
                 pct = remote["percent"].get(label)
                 limit_val = pcfg.get(limit_key)
                 if pct is None or limit_val is None:
                     continue
                 lim = float(limit_val)
-                if pct >= lim * self.soft_limit_ratio:
+                if hard and pct >= lim * self.soft_limit_ratio:
                     return (False, False, f"pool_{pool_id}_{label}_exhausted(remote {pct:.1f}/{lim:.0f}%)")
         else:
             # Pools with a provider reading have limits in percent; local rows are estimated in another
@@ -374,8 +390,7 @@ class QuotaManager:
             if not ok:
                 skipped[mkey] = reason or "unavailable"
                 continue
-            if is_peak_dep and mkey == pinned:
-                is_peak_dep, reason = False, None  # the chair's pick is not moved for price
+            if is_peak_dep and mkey == pinned:                is_peak_dep, reason = False, None  # the chair's pick is not moved for price
             if is_last:
                 last_option_pool.append(mkey)
                 skipped[mkey] = "held_in_last_option_reserve"
@@ -550,14 +565,101 @@ class QuotaManager:
 
     USAGE_FORMATS = ("opencode", "zhipu", "kimi")
 
+    @classmethod
+    def parse_booster_kimi(cls, payload: Any) -> dict[str, Any] | None:
+        """Kimi exposes its top-up wallet: balance.amount + unit, active flag, whether top-ups are allowed."""
+        wallet = payload.get("booster_wallet") if isinstance(payload, dict) else None
+        if not isinstance(wallet, dict):
+            return None
+        balance = wallet.get("balance") or {}
+        try:
+            remaining = float(balance.get("amount"))
+        except (TypeError, ValueError):
+            return None
+        return {"remaining": remaining, "unit": balance.get("unit"),
+                "active": str(wallet.get("status") or "") == "STATUS_ACTIVE",
+                "allow_topup": bool(wallet.get("allowTopup"))}
+
+    # ---- operator holds (block a model or a pool for a while) ----
+    def _load_holds(self) -> None:
+        if not self.holds_path or not self.holds_path.exists():
+            return
+        try:
+            data = json.loads(self.holds_path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if isinstance(data, dict):
+            self._holds = {str(k): v for k, v in data.items() if isinstance(v, dict)}
+
+    def _save_holds(self) -> None:
+        if not self.holds_path:
+            return
+        try:
+            self.holds_path.parent.mkdir(parents=True, exist_ok=True)
+            self.holds_path.write_text(json.dumps(self._holds, ensure_ascii=False, indent=1), encoding="utf-8")
+        except OSError:
+            pass
+
+    def hold(self, target: str, minutes: int, reason: str = "", now_utc: datetime | None = None) -> dict[str, Any]:
+        """Block a model key or a pool id for the given number of minutes (operator decision at runtime)."""
+        now = now_utc or datetime.now(timezone.utc)
+        until = now + timedelta(minutes=max(1, int(minutes)))
+        self._holds[target] = {"until": until.isoformat(), "reason": reason, "minutes": int(minutes)}
+        self._save_holds()
+        return {"target": target, "until": until.isoformat(), "reason": reason}
+
+    def release(self, target: str) -> dict[str, Any]:
+        existed = self._holds.pop(target, None) is not None
+        if existed:
+            self._save_holds()
+        return {"target": target, "released": existed}
+
+    def active_holds(self, now_utc: datetime | None = None) -> dict[str, dict[str, Any]]:
+        now = now_utc or datetime.now(timezone.utc)
+        out: dict[str, dict[str, Any]] = {}
+        for target, entry in list(self._holds.items()):
+            try:
+                until = datetime.fromisoformat(str(entry.get("until")))
+            except ValueError:
+                continue
+            if until <= now:
+                continue
+            out[target] = {**entry, "remaining_sec": int((until - now).total_seconds())}
+        return out
+
+    def _hold_reason(self, model_key: str, pool_id: str, now: datetime) -> str | None:
+        holds = self.active_holds(now)
+        for target in (model_key, pool_id):
+            entry = holds.get(target)
+            if entry:
+                mins = max(1, entry["remaining_sec"] // 60)
+                return f"manual_hold({mins}m){' ' + entry['reason'] if entry.get('reason') else ''}"
+        return None
+
+    def over_cap_alerts(self, now_utc: datetime | None = None) -> list[str]:
+        """Pools whose provider reading is above 100%: the plan is being topped up by a booster."""
+        now = now_utc or datetime.now(timezone.utc)
+        alerts: list[str] = []
+        for pid, remote in self._remote_usage.items():
+            if (now - remote["ts"]).total_seconds() >= REMOTE_USAGE_TTL_SEC:
+                continue
+            over = {label: pct for label, pct in remote["percent"].items() if pct > 100.0}
+            if not over:
+                continue
+            detail = ", ".join(f"{label} {pct:.0f}%" for label, pct in over.items())
+            booster = "booster active" if (remote.get("booster") or {}).get("active") else "no booster visible"
+            alerts.append(f"{pid}: {detail} over plan ({booster})")
+        return alerts
+
     def _remote_usage_view(self, pool_id: str, now: datetime) -> dict[str, Any] | None:
         remote = self._remote_usage.get(pool_id)
         if not remote:
             return None
         return {"percent": remote["percent"], "age_sec": int((now - remote["ts"]).total_seconds()),
-                "authoritative": (now - remote["ts"]).total_seconds() < REMOTE_USAGE_TTL_SEC}
+                "authoritative": (now - remote["ts"]).total_seconds() < REMOTE_USAGE_TTL_SEC,
+                "booster": remote.get("booster")}
 
-    def _fetch_remote_usage(self, pool_id: str) -> dict[str, float] | None:
+    def _fetch_remote_usage(self, pool_id: str) -> tuple[dict[str, float], dict[str, Any] | None] | None:
         pcfg = self.pools.get(pool_id, {})
         url = str(pcfg.get("usage_endpoint") or "")
         key = os.environ.get(str(pcfg.get("usage_api_key_env") or ""), "")
@@ -573,9 +675,14 @@ class QuotaManager:
         try:
             resp = httpx.get(url, headers=headers, timeout=6.0)
             resp.raise_for_status()
+            payload = resp.json()
             fmt = str(pcfg.get("usage_format", "opencode"))
             parser = getattr(self, f"parse_usage_{fmt}", None) if fmt in self.USAGE_FORMATS else None
-            return (parser(resp.json()) if parser else None) or None
+            percent = (parser(payload) if parser else None) or None
+            if percent is None:
+                return None
+            booster = self.parse_booster_kimi(payload) if fmt == "kimi" else None
+            return percent, booster
         except (httpx.HTTPError, ValueError):
             return None
 
@@ -589,9 +696,11 @@ class QuotaManager:
         def loop() -> None:
             while True:
                 for pid in watched:
-                    percent = self._fetch_remote_usage(pid)
-                    if percent:
-                        self._remote_usage[pid] = {"percent": percent, "ts": datetime.now(timezone.utc)}
+                    fetched = self._fetch_remote_usage(pid)
+                    if fetched:
+                        percent, booster = fetched
+                        self._remote_usage[pid] = {"percent": percent, "booster": booster,
+                                                   "ts": datetime.now(timezone.utc)}
                 time.sleep(interval_sec)
 
         self._remote_thread = threading.Thread(target=loop, name="quota-remote-usage", daemon=True)

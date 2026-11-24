@@ -30,7 +30,10 @@ ZHIPU = {"code": 200, "data": {"limits": [
 ]}}
 KIMI = {"usage": {"limit": "100", "used": "100", "resetTime": "2026-11-29T09:12:26Z"},
         "limits": [{"window": {"duration": 300, "timeUnit": "TIME_UNIT_MINUTE"},
-                    "detail": {"limit": "100", "remaining": "100"}}]}
+                    "detail": {"limit": "100", "remaining": "100"}}],
+        "booster_wallet": {"status": "STATUS_ACTIVE", "allowTopup": True,
+                           "balance": {"amount": "35000000000", "unit": "UNIT_CURRENCY",
+                                       "type": "BOOSTER", "feature": "FEATURE_OMNI"}}}
 LEAD = "opencode-deepseek-v4.1-flash"
 
 
@@ -53,7 +56,21 @@ class RemoteUsageTests(unittest.TestCase):
         for fmt in QuotaManager.USAGE_FORMATS:
             self.assertTrue(callable(getattr(QuotaManager, f"parse_usage_{fmt}", None)), fmt)
 
-    def test_kimi_weekly_at_the_provider_cap_skips_the_pool(self) -> None:
+    def test_kimi_at_its_provider_cap_is_still_tried_and_shows_the_booster(self) -> None:
+        # Operator decision: a reading is display data. Boosters raise the plan, and the chain fails over
+        # on the provider's own 429, so 100% must not turn into a pre-emptive refusal.
+        self.qm._remote_usage["kimi_allegretto"] = {
+            "percent": QuotaManager.parse_usage_kimi(KIMI),
+            "booster": QuotaManager.parse_booster_kimi(KIMI), "ts": self.now}
+        sel = self.qm.select_candidates("system_1_5", "openai", "kimi-for-coding", now_utc=self.now, pin_requested=True)
+        self.assertEqual(sel.model_key, "kimi-for-coding")
+        remote = self.qm.status_snapshot(self.now)["pools"]["kimi_allegretto"]["remote_usage"]
+        self.assertEqual(remote["percent"]["week"], 100.0)
+        self.assertEqual(remote["booster"]["remaining"], 35000000000.0)
+        self.assertTrue(remote["booster"]["allow_topup"])
+
+    def test_hard_mode_can_still_refuse_a_pool_at_its_cap(self) -> None:
+        self.qm.pools["kimi_allegretto"]["remote_exhaustion_mode"] = "hard"
         self.qm._remote_usage["kimi_allegretto"] = {"percent": QuotaManager.parse_usage_kimi(KIMI), "ts": self.now}
         sel = self.qm.select_candidates("system_1_5", "openai", "kimi-for-coding", now_utc=self.now, pin_requested=True)
         self.assertNotEqual(sel.model_key, "kimi-for-coding")
@@ -73,11 +90,14 @@ class RemoteUsageTests(unittest.TestCase):
         sel = self.qm.select_candidates("system_1_5", "openai", LEAD, now_utc=self.now, pin_requested=True)
         self.assertEqual(sel.model_key, LEAD)
 
-    def test_provider_says_exhausted_is_skipped_and_says_so(self) -> None:
+    def test_provider_says_exhausted_is_only_displayed_by_default(self) -> None:
         self.qm._remote_usage["opencode_go_basic"] = {"percent": {"5h": 19.95}, "ts": self.now}
         sel = self.qm.select_candidates("system_1_5", "openai", LEAD, now_utc=self.now, pin_requested=True)
-        self.assertNotEqual(sel.model_key, LEAD)
-        self.assertIn("5h_exhausted(remote ", sel.skipped_reasons[LEAD])
+        self.assertEqual(sel.model_key, LEAD)  # informational by default
+        self.qm.pools["opencode_go_basic"]["remote_exhaustion_mode"] = "hard"
+        hard = self.qm.select_candidates("system_1_5", "openai", LEAD, now_utc=self.now, pin_requested=True)
+        self.assertNotEqual(hard.model_key, LEAD)
+        self.assertIn("5h_exhausted(remote ", hard.skipped_reasons[LEAD])
 
     def test_stale_reading_is_marked_and_the_pool_fails_open(self) -> None:
         self.qm.record_usage(LEAD, units_override=20.0, now_utc=self.now)  # local estimate looks exhausted

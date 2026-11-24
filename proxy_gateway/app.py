@@ -387,7 +387,7 @@ def create_app(
 
     oa_fallback = (openai_upstream or os.getenv("UPSTREAM_OPENAI_URL", "https://api.openai.com/v1")).rstrip("/")
     an_fallback = (anthropic_upstream or os.getenv("UPSTREAM_ANTHROPIC_URL", "https://api.anthropic.com")).rstrip("/")
-    qm = quota_manager or QuotaManager(DEFAULT_QUOTA_POLICY, DEFAULT_QUOTA_DB)
+    qm = quota_manager or QuotaManager(DEFAULT_QUOTA_POLICY, DEFAULT_QUOTA_DB, holds_path=STATE_DIR / "holds.json")
     if quota_manager is None and os.getenv("HARNESS_REMOTE_USAGE", "on") != "off" \
             and not ("unittest" in sys.modules or "pytest" in sys.modules):
         # Provider-reported usage for pools that declare usage_endpoint (OpenCode). Only for the
@@ -457,7 +457,38 @@ def create_app(
 
     @app.get("/quota")
     async def quota_status() -> dict[str, Any]:
-        return qm.status_snapshot(get_now())
+        snap = qm.status_snapshot(get_now())
+        snap["holds"] = qm.active_holds(get_now())
+        snap["alerts"] = qm.over_cap_alerts(get_now())
+        return snap
+
+    def _quota_alert_header() -> dict[str, str]:
+        """Advertising a plan overrun on every response is what lets the client warn the operator."""
+        alerts = qm.over_cap_alerts(get_now())
+        return {"X-Harness-Quota-Alert": "; ".join(alerts)[:200]} if alerts else {}
+
+    @app.post("/admin/hold")
+    async def admin_hold(request: Request) -> Any:
+        """Operator control: block a model key or a pool id for N minutes."""
+        if not _admin_authorized(request):
+            return JSONResponse(status_code=403, content={"error": "forbidden"})
+        body = await request.json()
+        target = str(body.get("target") or "").strip()
+        if not target:
+            return JSONResponse(status_code=400, content={"error": "target required (model key or pool id)"})
+        if target not in qm.models and target not in qm.pools:
+            # A typo must never look like success: the operator would believe the model is blocked.
+            return JSONResponse(status_code=404, content={
+                "error": f"unknown target: {target}",
+                "models": sorted(qm.models), "pools": sorted(qm.pools)})
+        return qm.hold(target, int(body.get("minutes") or 60), str(body.get("reason") or ""))
+
+    @app.post("/admin/unhold")
+    async def admin_unhold(request: Request) -> Any:
+        if not _admin_authorized(request):
+            return JSONResponse(status_code=403, content={"error": "forbidden"})
+        body = await request.json()
+        return qm.release(str(body.get("target") or "").strip())
 
     @app.get("/traces")
     async def list_traces(limit: int = 20) -> dict[str, Any]:
@@ -687,6 +718,7 @@ def create_app(
                     "X-Harness-Peak-Avoided": str(selection.peak_avoided).lower(),
                     "X-Harness-Last-Option-Used": str(last_opt).lower(),
                     "X-Harness-Tier-Tag": tier_tag,
+                    **_quota_alert_header(),
                 },
             )
 
@@ -916,6 +948,7 @@ def create_app(
                 "X-Harness-Peak-Avoided": str(selection.peak_avoided).lower(),
                 "X-Harness-Last-Option-Used": str(selection.last_option_used).lower(),
                 "X-Harness-Tier-Tag": tier_tag,
+                **_quota_alert_header(),
             },
         )
 
@@ -1072,6 +1105,7 @@ def create_app(
                     "X-Harness-Routed-Tier": decision.tier,
                     "X-Harness-Selected-Model": chosen_key,
                     "X-Harness-Tier-Tag": tier_tag,
+                    **_quota_alert_header(),
                 },
             )
 
@@ -1276,6 +1310,7 @@ def create_app(
                 "X-Harness-Routed-Tier": decision.tier,
                 "X-Harness-Selected-Model": chosen_key,
                 "X-Harness-Tier-Tag": tier_tag,
+                **_quota_alert_header(),
             },
         )
 
