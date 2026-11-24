@@ -48,6 +48,34 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 TRACE_FILE = REPO_ROOT / "traces" / "gateway_traces.jsonl"
 DEFAULT_QUOTA_POLICY = REPO_ROOT / "proxy_gateway" / "quota_policy.yaml"
 DEFAULT_QUOTA_DB = REPO_ROOT / "traces" / "quota_ledger.db"
+FAILED_REQUEST_DIR = REPO_ROOT / "traces" / "failed_requests"
+_FAILED_REQUEST_KEEP = 30  # newest files kept; traces/ is gitignored
+
+
+def capture_failed_request(model_key: str, status: int, payload: Any, upstream_body: str) -> str | None:
+    """Keep the exact upstream request on a field-level rejection (HTTP 400).
+
+    A 400 means the request shape itself is wrong; without the payload the failure
+    cannot be reproduced (2026-11-24, issue #18). Local diagnostics only: traces/ is
+    gitignored and holds the newest 30 captures.
+    """
+    if status != 400 or not isinstance(payload, dict):
+        return None
+    try:
+        raw = json.dumps(payload, ensure_ascii=False)
+        if len(raw) > 8_000_000:
+            return None
+        FAILED_REQUEST_DIR.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
+        target = FAILED_REQUEST_DIR / f"{stamp}-{model_key}-400.json"
+        target.write_text(json.dumps({"model_key": model_key, "status": status,
+                                       "upstream_body": (upstream_body or "")[:4000],
+                                       "request": payload}, ensure_ascii=False), encoding="utf-8")
+        for old in sorted(FAILED_REQUEST_DIR.glob("*.json"))[:-_FAILED_REQUEST_KEEP]:
+            old.unlink(missing_ok=True)
+        return target.name
+    except OSError:
+        return None
 
 
 def _contract_check_enabled(request: Request) -> bool:
@@ -157,7 +185,8 @@ def _is_failover_status(code: int) -> bool:
 
 
 async def _record_upstream_failure(
-    qm: Any, model_key: str, resp: Any, failures: dict[str, str], now: Any, streaming: bool = False
+    qm: Any, model_key: str, resp: Any, failures: dict[str, str], now: Any, streaming: bool = False,
+    request_payload: Any = None,
 ) -> None:
     """Classify an upstream HTTP failure (cooldown by status class) and keep a sanitized reason."""
     try:
@@ -167,6 +196,7 @@ async def _record_upstream_failure(
     except Exception:  # noqa: BLE001
         body_text = ""
     qm.mark_upstream_failure(model_key, resp.status_code, body_text, _parse_retry_after(resp), now_utc=now)
+    capture_failed_request(model_key, resp.status_code, request_payload, body_text)
     failures[model_key] = f"HTTP {resp.status_code}: {' '.join(body_text.split())[:140]}"
 
 
@@ -375,7 +405,7 @@ def create_app(
                     )
                     last_resp = resp
                     if _is_failover_status(resp.status_code):
-                        await _record_upstream_failure(qm, mkey, resp, failures, now)
+                        await _record_upstream_failure(qm, mkey, resp, failures, now, request_payload=rewritten)
                         continue
                     break
 
@@ -557,7 +587,8 @@ def create_app(
                             headers=_build_upstream_headers(request, qm, mkey, "openai", rewritten),
                         ) as resp:
                             if resp.status_code >= 400:
-                                await _record_upstream_failure(qm, mkey, resp, failures, now, streaming=True)
+                                await _record_upstream_failure(qm, mkey, resp, failures, now, streaming=True,
+                                                              request_payload=rewritten)
                                 continue
                             async for raw_line in resp.aiter_lines():
                                 if not raw_line:
@@ -898,7 +929,8 @@ def create_app(
                             headers=_build_upstream_headers(request, qm, mkey, "anthropic", rewritten),
                         ) as resp:
                             if resp.status_code >= 400:
-                                await _record_upstream_failure(qm, mkey, resp, failures, now, streaming=True)
+                                await _record_upstream_failure(qm, mkey, resp, failures, now, streaming=True,
+                                                              request_payload=rewritten)
                                 continue
                             async for raw_line in resp.aiter_lines():
                                 if not raw_line:
