@@ -20,6 +20,7 @@ COPY proxy_gateway/ ./proxy_gateway/
 COPY mcp_server/ ./mcp_server/
 COPY orchestrator/ ./orchestrator/
 COPY contracts/ ./contracts/
+COPY config/ ./config/
 COPY harness_backend.py .
 
 EXPOSE 8787

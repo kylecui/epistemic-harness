@@ -126,6 +126,8 @@ def main() -> int:
     ap.add_argument("--delay", type=float, default=0.0, help="seconds between samples (pacing for direct-API arms without failover)")
     ap.add_argument("--gateway-url", default=WORKING_GATEWAY, help="lab runs must pass http://127.0.0.1:8788")
     ap.add_argument("--model", default="kimi-for-coding", help="gateway model key (lab-* on the lab gateway)")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip a cell whose output file already holds >= --samples records")
     args = ap.parse_args()
 
     tasks = yaml.safe_load(FIXTURES.read_text(encoding="utf-8"))
@@ -140,8 +142,23 @@ def main() -> int:
     is_lab = args.gateway_url.rstrip("/") == LAB_GATEWAY or args.provider == "siliconflow"
     if is_lab:
         out = RUNS_DIR / f"lab__{args.arm}__{args.task}.jsonl"
+    start = 0
+    if args.resume and out.exists():
+        # Resume counts USABLE samples, not lines: a cell collected while the lab gateway was down is
+        # full of connection errors, and counting those as "done" would silently ship a broken cell.
+        rows = [json.loads(line) for line in out.read_text(encoding="utf-8").splitlines() if line.strip()]
+        keep = [r for r in rows if not r.get("error")]
+        if len(keep) >= args.samples:
+            print(f"[{args.arm}/{args.task}] resume: {len(keep)} usable samples already, skipping", flush=True)
+            return 0
+        if len(keep) != len(rows):
+            out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in keep),
+                           encoding="utf-8", newline="\n")
+            print(f"[{args.arm}/{args.task}] resume: dropped {len(rows) - len(keep)} failed records, "
+                  f"{args.samples - len(keep)} to go", flush=True)
+        start = len(keep)
 
-    for i in range(args.samples):
+    for i in range(start, args.samples):
         t0 = time.time()
         try:
             if cfg["via_gateway"]:

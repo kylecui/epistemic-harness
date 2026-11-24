@@ -82,6 +82,74 @@ def _git_rev() -> str:
         return "unknown"
 
 
+SKIP_PARTS = frozenset({".venv", "__pycache__", "node_modules", ".mypy_cache", ".pytest_cache"})
+
+
+def tree_entries(root: Path) -> list[Path]:
+    """Files to send into a container when the bind mount is unusable.
+
+    `.venv` holds host binaries that mean nothing in the Linux image, and the caches
+    are rebuilt anyway. Spelled out as a pure function so the exclusion list can be
+    tested without docker.
+    """
+    files: list[Path] = []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_PARTS]
+        for name in filenames:
+            path = Path(dirpath) / name
+            if path.is_symlink() or not path.is_file():
+                continue
+            files.append(path.relative_to(root))
+    return sorted(files)
+
+
+def _mount_works(image: str) -> bool:
+    """Cheap pre-check: can the container read the mounted tree at all?"""
+    probe = ["docker", "run", "--rm", "--network", "none", "-v", f"{ROOT}:{MOUNT}",
+             "-w", MOUNT, image, "python", "-c", "import os;os.listdir('.')"]
+    try:
+        proc = subprocess.run(probe, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=180)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return proc.returncode == 0
+
+
+MOUNT_BROKEN_MARKER = b"Cannot allocate memory"
+
+
+def _run_docker_streamed(args: list[str], image: str) -> int:
+    """Same suite, same image, no bind mount: the tree travels over the docker API."""
+    import tarfile
+
+    name = f"eh-verify-stream-{os.getpid()}"
+    subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL,
+                   stderr=subprocess.DEVNULL, timeout=60)
+    try:
+        up = subprocess.run(["docker", "run", "-d", "--name", name, "--network", "none",
+                             "-w", MOUNT, image, "sleep", "3600"],
+                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True, timeout=180)
+        if up.returncode != 0:
+            print(f"docker(raw) could not start a container: {up.stderr.strip()[:200]}", file=sys.stderr)
+            return 3
+        sender = subprocess.Popen(["docker", "exec", "-i", name, "tar", "-xf", "-", "-C", MOUNT],
+                                  stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+        entries = tree_entries(ROOT)
+        assert sender.stdin is not None
+        with tarfile.open(fileobj=sender.stdin, mode="w|") as tar:
+            for rel in entries:
+                tar.add(str(ROOT / rel), arcname=str(rel), recursive=False)
+        sender.stdin.close()
+        if sender.wait() != 0:
+            print(f"could not stream the tree into {name}", file=sys.stderr)
+            return 3
+        print(f"runner=docker(streamed) image={image} rev={_git_rev()} files={len(entries)}", flush=True)
+        inner = ["docker", "exec", "-w", MOUNT, name, "python", "scripts/verify.py", "--runner", "host", *args]
+        return _run(inner)
+    finally:
+        subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL,
+                       stderr=subprocess.DEVNULL, timeout=120)
+
+
 def _run_docker(args: list[str], image: str) -> int:
     inner = ["python", "scripts/verify.py", "--runner", "host", *args]
     cmd = [
@@ -89,7 +157,23 @@ def _run_docker(args: list[str], image: str) -> int:
         "-v", f"{ROOT}:{MOUNT}", "-w", MOUNT, image, *inner,
     ]
     print(f"runner=docker image={image} rev={_git_rev()}", flush=True)
-    return _run(cmd)
+    saw_broken_mount = False
+    proc = subprocess.Popen(cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    assert proc.stdout is not None
+    for raw in proc.stdout:
+        if MOUNT_BROKEN_MARKER in raw:
+            saw_broken_mount = True
+        sys.stdout.buffer.write(raw)
+        sys.stdout.buffer.flush()
+    rc = proc.wait()
+    if rc != 0 and saw_broken_mount:
+        # Docker Desktop's file sharing failed mid-discovery. The suite is fine; the
+        # mount is not. Re-run with the tree streamed over the docker API instead of
+        # mounting it, and say so in the verdict line.
+        print("\nbind mount failed with ENOMEM; re-running with the tree streamed into the "
+              "container (no bind mount)", flush=True)
+        return _run_docker_streamed(args, image)
+    return rc
 
 
 def _host_test_command(args: list[str]) -> list[str]:

@@ -41,6 +41,7 @@ services:
       # interim-output schemas (structured-interim research): the orchestrator
       # validates ReasoningRecord/SubagentReport against them at runtime
       - ./contracts:/app/contracts:ro
+      - ./config:/app/config:ro   # routing table (task_router.DEFAULT_CONFIG)
       - ./promotions:/app/promotions
       - ./skill_queue:/app/skill_queue
       - ./.secrets:/app/.secrets:ro   # provider OAuth creds (GitHub Copilot), imported by start_harness.ps1

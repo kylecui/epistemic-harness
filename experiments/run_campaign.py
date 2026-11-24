@@ -29,6 +29,8 @@ def main() -> int:
     ap.add_argument("--samples", type=int, default=20)
     ap.add_argument("--arms", default="A0,A,B,C,D")
     ap.add_argument("--skip-judge", action="store_true")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip cells that are already full (runner) / already judged (judge)")
     ap.add_argument("--lab", action="store_true",
                     help="run entirely on the isolated SiliconFlow lab instance (:8788); never touches working models")
     args = ap.parse_args()
@@ -39,11 +41,18 @@ def main() -> int:
     else:
         gw, judge = [], []
 
+    if args.resume:
+        gw = [*gw, "--resume"]
+        judge = [*judge, "--resume"]
+        resume_only = ["--resume"]
+    else:
+        resume_only = []
+
     t0 = time.time()
     for arm in arms:
         for task in TASKS:
             if arm == "A0":
-                extra = ["--provider", "siliconflow", "--delay", "2"] if args.lab else ["--provider", "kimi"]
+                extra = ["--provider", "siliconflow", "--delay", "2", *resume_only] if args.lab else ["--provider", "kimi", *resume_only]
             else:
                 extra = gw
             rc = run([sys.executable, "experiments/runner.py",

@@ -84,6 +84,8 @@ def main() -> int:
     ap.add_argument("--task", required=True)
     ap.add_argument("--gateway-url", default=WORKING_GATEWAY)
     ap.add_argument("--model", default="copilot-claude-sonnet-5.5")
+    ap.add_argument("--resume", action="store_true",
+                    help="skip a cell whose .judged.jsonl already covers every run")
     args = ap.parse_args()
     prefix = "lab__" if args.gateway_url.rstrip("/") == LAB_GATEWAY else ""
     path = RUNS_DIR / f"{prefix}{args.arm}__{args.task}.jsonl"
@@ -92,6 +94,12 @@ def main() -> int:
         return 2
     rows = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
     out_path = path.with_suffix(".judged.jsonl")
+    if args.resume and out_path.exists():
+        done = [json.loads(line) for line in out_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        clean = all((r.get("judge") or {}).get("total") is not None for r in done if not r.get("error"))
+        if len(done) >= len(rows) and clean:
+            print(f"[{args.arm}/{args.task}] resume: {len(done)} judged already, skipping")
+            return 0
     with out_path.open("w", encoding="utf-8", newline="\n") as fh:
         for r in rows:
             mech = mechanical_check(r.get("text") or "", r.get("check"))
