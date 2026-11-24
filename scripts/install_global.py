@@ -35,6 +35,7 @@ GLOBAL_EXT = Path.home() / ".pi" / "agent" / "extensions" / "harness-guard.ts"
 HARNESS_HOME = Path.home() / ".pi" / "harness"
 AGENT_DIR = Path.home() / ".pi" / "agent"
 GLOBAL_SANDBOX_EXT = AGENT_DIR / "extensions" / "sandbox-shell.ts"
+GLOBAL_ROUTE_STATUS_EXT = AGENT_DIR / "extensions" / "model-route-status.ts"
 SETTINGS_JSON = AGENT_DIR / "settings.json"
 REQUIRED_DEFAULT_TOOLS = ["+sh", "+powershell", "+grep", "+find", "+ls"]
 DEFAULT_SHELL_PATH = r"C:\Program Files\Git\bin\bash.exe"
@@ -70,15 +71,19 @@ def merge_pi_settings(existing: dict) -> dict:
     return merged
 
 
-def sync(check: bool = False) -> dict:
-    copied: list[str] = []
-    drift: list[str] = []
+def _jobs() -> list[tuple[Path, Path]]:
+    """Everything install_global must copy: (repo source, installed destination).
+
+    Exposed as a function so a test can assert that every extension in extensions/ is listed here —
+    a fixed list silently skipped a new extension once (model-route-status.ts, 2026-11-24).
+    """
     jobs = [
         (REPO_ROOT / "extensions" / "harness-guard.ts", GLOBAL_EXT),
         (REPO_ROOT / "extensions" / "sandbox-shell.ts", GLOBAL_SANDBOX_EXT),
         # Product-level extension: dispatches must be visible in EVERY project, not
         # just the harness repo (dogfooding must not ship project-local only).
         (REPO_ROOT / "extensions" / "dispatch-visibility.ts", AGENT_DIR / "extensions" / "dispatch-visibility.ts"),
+        (REPO_ROOT / "extensions" / "model-route-status.ts", GLOBAL_ROUTE_STATUS_EXT),
         (REPO_ROOT / "harness.yaml", HARNESS_HOME / "harness.yaml"),
         # compiled contract -> the file pi actually injects into every session;
         # must run AFTER compile_clients (upgrade orders it that way)
@@ -89,6 +94,13 @@ def sync(check: bool = False) -> dict:
     ]
     for script in ("harness_version.py", "install_user_skills.py", "upgrade.py"):
         jobs.append((REPO_ROOT / "scripts" / script, HARNESS_HOME / "scripts" / script))
+    return jobs
+
+
+def sync(check: bool = False) -> dict:
+    copied: list[str] = []
+    drift: list[str] = []
+    jobs = _jobs()
     for src, dest in jobs:
         _copy(src, dest, check, copied, drift)
     # skills source: repo skills/pi-native -> HARNESS_HOME/skills
