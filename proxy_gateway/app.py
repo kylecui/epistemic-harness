@@ -176,6 +176,53 @@ def create_app(
     now_provider: Any = None,
 ) -> FastAPI:
     app = FastAPI(title="Epistemic Harness Proxy Gateway", version="0.3.1")
+    # --- lifecycle escape hatch (issue: router is the ONLY LLM exit) ---
+    global _IN_FLIGHT, _DRAIN
+    _IN_FLIGHT = 0
+    _DRAIN = False
+
+    @app.middleware("http")
+    async def _inflight_middleware(request: Request, call_next: Any) -> Any:
+        global _IN_FLIGHT
+        if _DRAIN and request.url.path in ("/v1/chat/completions", "/anthropic/v1/messages"):
+            return JSONResponse(
+                status_code=503, content={"error": {"type": "draining", "message": "gateway draining for restart"}},
+                headers={"Retry-After": "5"},
+            )
+        _IN_FLIGHT += 1
+        try:
+            return await call_next(request)
+        finally:
+            _IN_FLIGHT -= 1
+
+    def _admin_authorized(request: Request) -> bool:
+        token = os.getenv("HARNESS_ADMIN_TOKEN")
+        return bool(token) and request.headers.get("x-admin-token") == token
+
+    @app.post("/admin/drain")
+    async def admin_drain(request: Request) -> Any:
+        """Graceful-restart hook: refuse NEW chat requests (503+Retry-After so
+        clients retry), let in-flight ones finish. Pair with scripts/router_safe_restart.py."""
+        if not _admin_authorized(request):
+            return JSONResponse(status_code=403, content={"error": "forbidden"})
+        global _DRAIN
+        _DRAIN = True
+        return {"drain": True, "in_flight": _IN_FLIGHT}
+
+    @app.post("/admin/undrain")
+    async def admin_undrain(request: Request) -> Any:
+        if not _admin_authorized(request):
+            return JSONResponse(status_code=403, content={"error": "forbidden"})
+        global _DRAIN
+        _DRAIN = False
+        return {"drain": False, "in_flight": _IN_FLIGHT}
+
+    @app.get("/admin/status")
+    async def admin_status(request: Request) -> Any:
+        if not _admin_authorized(request):
+            return JSONResponse(status_code=403, content={"error": "forbidden"})
+        return {"in_flight": _IN_FLIGHT, "drain": _DRAIN}
+
     oa_fallback = (openai_upstream or os.getenv("UPSTREAM_OPENAI_URL", "https://api.openai.com/v1")).rstrip("/")
     an_fallback = (anthropic_upstream or os.getenv("UPSTREAM_ANTHROPIC_URL", "https://api.anthropic.com")).rstrip("/")
     qm = quota_manager or QuotaManager(DEFAULT_QUOTA_POLICY, DEFAULT_QUOTA_DB)

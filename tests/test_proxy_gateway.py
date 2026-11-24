@@ -131,7 +131,12 @@ class TestProxyGateway(unittest.TestCase):
                 "usage": {"input_tokens": 1, "output_tokens": 1},
             })
         app = create_app(anthropic_upstream="https://mock.anthropic.local",
-                         transport=httpx.MockTransport(mock_handler))
+                         transport=httpx.MockTransport(mock_handler),
+                         # freeze OUTSIDE zhipu's peak-avoidance window (01:30-10:30 UTC):
+                         # during peak the router yields zhipu_v2_max to no-window pools
+                         # (zcode), which made this test time-of-day flaky (gate loop 2026-11-24)
+                         now_provider=lambda: __import__("datetime").datetime(
+                             2026, 11, 24, 12, 0, tzinfo=__import__("datetime").timezone.utc))
         client = TestClient(app)
         resp = client.post("/anthropic/v1/messages", json={
             "model": "zhipu-glm-5.4-anthropic", "max_tokens": 16,

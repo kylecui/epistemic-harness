@@ -190,7 +190,8 @@ class TestUpstreamFailureHandling(unittest.TestCase):
 
     def test_all_unavailable_probes_only_soonest_recovering_candidate(self) -> None:
         for mk in ("zhipu-glm-5.4", "kimi-for-coding", "opencode-deepseek-v4.1-flash",
-                   "copilot-claude-sonnet-5.5", "google-ai-gemini-4-neon", "google-ai-gemini-4-hydrogen"):
+                   "copilot-claude-sonnet-5.5", "google-ai-gemini-4-neon", "google-ai-gemini-4-hydrogen",
+                   "siliconflow-deepseek-v4-flash"):
             self.qm.mark_upstream_failure(mk, 404, "Not Found", None, now_utc=self.now)
         self.qm.mark_upstream_failure("kimi-for-coding", 429, "", 120, now_utc=self.now)  # recovers in 120s
         sel = self.qm.select_candidates("system_1_5", "openai", now_utc=self.now)

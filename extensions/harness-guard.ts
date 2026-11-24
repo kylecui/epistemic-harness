@@ -488,6 +488,34 @@ export default function (pi: any) {
       return undefined;
     }
     const name = String(event.toolName || "");
+    // HOST-LIFE GUARD (2026-11-24 incident): an agent once force-killed Docker
+    // Desktop and edited its global settings-store.json while running, wedging
+    // WSL integration (WSAETIMEDOUT) and taking down the ONLY-EXIT router for
+    // every session. Engine/lifecycle operations are human-only now: the guard
+    // blocks them mechanically and tells the human to run the recovery in a
+    // normal terminal. This is not a style rule — it is the anti-recurrence fix.
+    if (name === "bash" || name === "powershell" || name === "sh") {
+      const cmd = typeof event.input?.command === "string" ? event.input.command : "";
+      const DANGEROUS = [
+        /settings-store\.json/i,
+        /stop-process\b[^\n]*(docker|wsl|com\.docker)/i,
+        /taskkill\b[^\n]*(docker|com\.docker|wsl|vmwp|vmmem)/i,
+        /wsl\s+--shutdown/i,
+        /wsl\s+--terminate\s+docker-desktop/i,
+        /(docker\s+desktop\.exe|com\.docker\.backend)/i,
+      ];
+      if (DANGEROUS.some((re) => re.test(cmd))) {
+        blocksThisTurn += 1;
+        metric({ event: "host_life_block", tool: name });
+        ctx.ui.notify("harness-guard: Docker/WSL engine-level operation blocked — human-only", "warn");
+        return {
+          block: true,
+          reason:
+            "[HOST-LIFE GUARD] Docker/WSL 引擎级操作只能由你在正常终端亲手执行（历史事故：2026-11-24 强杀 Docker 进程 + 改 settings-store.json 导致 WSL 崩溃、唯一出口 router 全线中断）。" +
+            "如确需恢复操作（如 wsl --shutdown / 内存调整），请在正常终端自行运行并把输出贴回。",
+        };
+      }
+    }
     if (name === "bash") {
       const cmd = typeof event.input?.command === "string" ? event.input.command : "";
       audit(`[bash] pid=${process.pid} cwd=${process.cwd()} cmd=${cmd.slice(0, 200)}`);

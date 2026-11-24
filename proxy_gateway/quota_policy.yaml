@@ -1,97 +1,73 @@
-version: "2.0"
-description: "共享套餐池（Shared Pools）5h / 周 / 月三窗口配额 + 2026-11 官方计费系数与最优旗舰兜底"
-
+version: '2.0'
+description: 共享套餐池（Shared Pools）5h / 周 / 月三窗口配额 + 2026-11 官方计费系数与最优旗舰兜底
 default_cooldown_seconds: 300
-soft_limit_ratio: 0.995   # 2026-11-24: 0.95 在 OpenCode 周额度 $47.57/$50 时就提前封死，全部模型 429 时错过兜底
-# 全局主动避峰：任何处于 peak_windows_utc 的主力池自动退让给 off-peak 或无高峰窗口的主力池
+soft_limit_ratio: 0.995
 active_peak_avoidance: true
-
-# ==============================================================================
-# 一、共享配额池（同套餐下的多个模型共享同一个 5h / week / month 额度池）
-# ==============================================================================
 pools:
-  # 1. 智谱历史 V2 最高级 CodingPlan（Max 档，官方按积分计费：5h=28,000 / 周=140,000）
-  #    来源：https://docs.bigmodel.cn/cn/coding-plan/overview (2026-11-11)
   zhipu_v2_max:
-    unit: "credits"
+    unit: credits
     last_option: false
     rolling_5h_limit: 28000.0
     rolling_week_limit: 140000.0
-    rolling_month_limit: 560000.0     # 按 4 周等效上限折算，可按实际 V2 账单微调
+    rolling_month_limit: 560000.0
     peak_cost_multiplier: 1.0
     peak_windows_utc:
-      - start: "01:30"                # 东八区 09:30-18:30
-        end: "10:30"
-    # Peak accounting note: official charges off-peak at 0.5x credits; this pool
-    # keeps base = official 1x (peak) rates everywhere (multiplier only up-scales),
-    # so off-peak usage is overcounted ~2x — conservative for quota protection.
-
-  # 2. Kimi Allegretto（旧版 ¥199 共享额度池，官方含 5h 滚动 + 周限额 + 月限额，控制台按百分比展示）
-  #    来源：https://www.kimi.com/help/membership/membership-pricing (2026-10-19)
+    - start: 01:30
+      end: '10:30'
   kimi_allegretto:
-    unit: "credits"                   # 建议按控制台百分比校准（默认以 10000 积分代表月池 100%）
+    unit: credits
     last_option: false
     rolling_5h_limit: 1500.0
     rolling_week_limit: 3000.0
     rolling_month_limit: 10000.0
     peak_cost_multiplier: 1.0
     peak_windows_utc:
-      - start: "01:30"
-        end: "10:30"
-
-  # 3. OpenCode Go 基本版（$10/月 · DeepSeek V4.1 Flash 月额度 $100：5h=20%($20) / 周=50%($50) / 月=100%($100)）
-  #    来源：https://qcode.cc/en/opencode-go-guide (2026-11-13) — 高峰时段费率为低谷 2 倍
+    - start: 01:30
+      end: '10:30'
   opencode_go_basic:
-    unit: "usd"
+    unit: usd
     last_option: false
     rolling_5h_limit: 20.0
     rolling_week_limit: 50.0
     rolling_month_limit: 100.0
-    peak_cost_multiplier: 2.0         # 官方高峰期 2x 计费系数
+    peak_cost_multiplier: 2.0
     peak_windows_utc:
-      - start: "13:00"                # 北美工作日高峰（UTC 13:00-21:00）
-        end: "21:00"
-
-  # 4. 末位兜底池 #1：GitHub Copilot Pro+（$39/月 · 官方共享 7,000 AI Credits/月）
-  #    来源：https://felloai.com/claude-vs-copilot/ (2026-11-04)
+    - start: '13:00'
+      end: '21:00'
   github_copilot_pro_plus:
-    unit: "credits"
+    unit: credits
     last_option: true
-    rolling_5h_limit: 500.0           # 保护性 5h 软顶，防止单次任务烧光月度保底额度
+    rolling_5h_limit: 500.0
     rolling_week_limit: 2000.0
     rolling_month_limit: 7000.0
     peak_cost_multiplier: 1.0
     peak_windows_utc:
-      - start: "13:00"
-        end: "21:00"
-
-  # 5. 末位兜底池 #2：Google AI Pro（Gemini 4 Neon 2026-11-18 GA，无公开固定 Token 上限，按 USD 等效设保护阀）
-  #    来源：https://blog.google/innovation-and-ai/models-and-research/gemini-models/introducing-gemini-4-neon/
+    - start: '13:00'
+      end: '21:00'
   google_ai_pro:
-    unit: "usd_equiv"
+    unit: usd_equiv
     last_option: true
     rolling_5h_limit: 5.0
     rolling_week_limit: 20.0
     rolling_month_limit: 60.0
     peak_cost_multiplier: 1.0
     peak_windows_utc: []
-
-# ==============================================================================
-# 二、模型映射与精确单位消耗系数（每 1M Tokens 消耗的所属 Pool 单位数）
-# ==============================================================================
-  # 5. ZCode agent gateway pool (issue #17): the coding-plan key works on
-  #    zcode.z.ai /api/v1/ultra/* with the official open-source (Apache-2.0)
-  #    ZCode client fingerprint — likely a SEPARATE agent-quota meter.
-  #    Limits PROVISIONAL [L3 unverified]; calibrate via the meter A/B test.
   zhipu_zcode_agent:
-    unit: "credits"
+    unit: credits
     last_option: false
     rolling_5h_limit: 28000.0
     rolling_week_limit: 140000.0
     rolling_month_limit: 560000.0
     peak_cost_multiplier: 1.0
     peak_windows_utc: []
-
+  siliconflow_payg:
+    unit: cny
+    last_option: true
+    rolling_5h_limit: 15.0
+    rolling_week_limit: 40.0
+    rolling_month_limit: 100.0
+    peak_cost_multiplier: 1.0
+    peak_windows_utc: []
 models:
   zhipu-glm-5.4:
     pool: zhipu_v2_max
@@ -100,11 +76,7 @@ models:
     default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
     api_key_env: ZHIPU_API_KEY
     upstream_model: glm-5.4
-    context_window: 512000   # official coding recommendation (docs.bigmodel.cn, 2026-11-24)
-    # OFFICIAL coding-plan coefficients (docs.bigmodel.cn/cn/coding-plan/overview,
-    # read 2026-11-24): 4.6 / 1.1 / 16 per 10k tok — 2/3 of GLM-5.3 (6.9/1.7/24).
-    # "1.5x usage" = 1.5x tokens-per-credit, i.e. CHEAPER, not dearer.
-    # GLM-5.4: 1M context; official coding recommendation: client window 512000.
+    context_window: 512000
     cost_per_1m:
       input: 4.6
       cached_input: 1.1
@@ -112,20 +84,16 @@ models:
     avoid_in_peak_for_tiers:
     - system_0
     - system_1
-    # Vendor-agent quota harvesting (zcode): fingerprint values verbatim from the
-    # official open-source client (zai-org/ZCode, Apache-2.0) —
-    # packages/shared/src/zcode-source-headers.ts. See issue #17 for the quota
-    # meter A/B calibration. ToS: account holder's explicit acceptance recorded there.
     client_fingerprint:
-      user_agent: "ZCode/3.4.0"
+      user_agent: ZCode/3.4.0
       extra_headers:
-        x-title: "Z Code@electron"
-        http-referer: "https://zcode.z.ai"
-        x-platform: "win32-x64"
-        x-release-channel: "stable"
-        x-client-language: "zh-CN"
-        x-client-timezone: "Asia/Shanghai"
-        x-os-category: "windows"
+        x-title: Z Code@electron
+        http-referer: https://zcode.z.ai
+        x-platform: win32-x64
+        x-release-channel: stable
+        x-client-language: zh-CN
+        x-client-timezone: Asia/Shanghai
+        x-os-category: windows
   zhipu-glm-5.3-flash:
     pool: zhipu_v2_max
     protocol: openai
@@ -133,7 +101,7 @@ models:
     default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
     api_key_env: ZHIPU_API_KEY
     upstream_model: glm-5.3-flash
-    context_window: 1000000  # official: flash may use the full 1M window
+    context_window: 1000000
     cost_per_1m:
       input: 2.3
       cached_input: 0.56
@@ -173,8 +141,6 @@ models:
     default_base_url: https://opencode.ai/inference/go/v1
     api_key_env: OPENCODE_GO_API_KEY
     upstream_model: deepseek-v4.1-flash
-    # Empirical (2026-11-20 live): at medium/high effort this model spends the whole output
-    # budget on reasoning_content and returns empty content; low restores real answers.
     max_effort: low
     upstream_headers:
       x-opencode-session: '{session}'
@@ -243,9 +209,6 @@ models:
     - system_0
     - system_1
     note: 'thinking-heavy: prefer stream; non-stream may exceed client timeout'
-  # Officially documented anthropic-compatible coding-plan endpoint (domestic):
-  # https://open.bigmodel.cn/api/anthropic (docs.bigmodel.cn/cn/coding-plan/latest-model).
-  # Same zhipu_v2_max pool as the openai-path models; Bearer auth.
   zhipu-glm-5.4-anthropic:
     pool: zhipu_v2_max
     protocol: anthropic
@@ -285,15 +248,15 @@ models:
       cached_input: 1.1
       output: 16.0
     client_fingerprint:
-      user_agent: "ZCode/3.4.0"
+      user_agent: ZCode/3.4.0
       extra_headers:
-        x-title: "Z Code@electron"
-        http-referer: "https://zcode.z.ai"
-        x-platform: "win32-x64"
-        x-release-channel: "stable"
-        x-client-language: "zh-CN"
-        x-client-timezone: "Asia/Shanghai"
-        x-os-category: "windows"
+        x-title: Z Code@electron
+        http-referer: https://zcode.z.ai
+        x-platform: win32-x64
+        x-release-channel: stable
+        x-client-language: zh-CN
+        x-client-timezone: Asia/Shanghai
+        x-os-category: windows
   zhipu-glm-5.3-flash-zcode:
     pool: zhipu_zcode_agent
     protocol: anthropic
@@ -302,21 +265,32 @@ models:
     default_base_url: https://zcode.z.ai/api/v1/ultra/anthropic
     api_key_env: ZHIPU_API_KEY
     upstream_model: glm-5.3-flash
-    context_window: 1000000  # official: flash may use the full 1M window
+    context_window: 1000000
     cost_per_1m:
       input: 2.3
       cached_input: 0.56
       output: 8.0
     client_fingerprint:
-      user_agent: "ZCode/3.4.0"
+      user_agent: ZCode/3.4.0
       extra_headers:
-        x-title: "Z Code@electron"
-        http-referer: "https://zcode.z.ai"
-        x-platform: "win32-x64"
-        x-release-channel: "stable"
-        x-client-language: "zh-CN"
-        x-client-timezone: "Asia/Shanghai"
-        x-os-category: "windows"
+        x-title: Z Code@electron
+        http-referer: https://zcode.z.ai
+        x-platform: win32-x64
+        x-release-channel: stable
+        x-client-language: zh-CN
+        x-client-timezone: Asia/Shanghai
+        x-os-category: windows
+  siliconflow-deepseek-v4-flash:
+    pool: siliconflow_payg
+    protocol: openai
+    upstream_base_url_env: SILICONFLOW_API_URL
+    default_base_url: https://api.siliconflow.cn/v1
+    api_key_env: SILICONFLOW_API_KEY
+    upstream_model: deepseek-ai/DeepSeek-V4-Flash
+    cost_per_1m:
+      input: 1.5
+      cached_input: 0.15
+      output: 4.5
 routing_chains:
   system_0:
   - opencode-deepseek-v4.1-flash
@@ -325,6 +299,7 @@ routing_chains:
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
   - copilot-claude-sonnet-5.5
+  - siliconflow-deepseek-v4-flash
   system_1:
   - opencode-deepseek-v4.1-flash
   - zhipu-glm-5.3-flash
@@ -333,6 +308,7 @@ routing_chains:
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
   - copilot-claude-sonnet-5.5
+  - siliconflow-deepseek-v4-flash
   system_1_5:
   - opencode-deepseek-v4.1-flash
   - kimi-for-coding
@@ -346,6 +322,7 @@ routing_chains:
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
   - copilot-claude-sonnet-5.5
+  - siliconflow-deepseek-v4-flash
   system_2:
   - opencode-deepseek-v4.1-flash
   - kimi-k3.1-pro
@@ -357,6 +334,7 @@ routing_chains:
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
   - copilot-claude-sonnet-5.5
+  - siliconflow-deepseek-v4-flash
   system_2_plus:
   - opencode-deepseek-v4.1-flash
   - zhipu-glm-5.4
@@ -366,6 +344,7 @@ routing_chains:
   - copilot-claude-fable-5.2
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
+  - siliconflow-deepseek-v4-flash
 agent_profiles:
   explorer:
     description: 探索/检索子代理：快速发散初筛，轻量档
