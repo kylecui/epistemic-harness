@@ -226,6 +226,8 @@ class QuotaManager:
         until = naive.replace(tzinfo=self.BODY_TZ).astimezone(timezone.utc)
         return until if now < until <= now + timedelta(days=8) else None
 
+    _CONCURRENCY_ERROR_RE = re.compile(r"1302|1305|访问量过大|速率限制|rate limit|concurrency|too many requests", re.IGNORECASE)
+
     def mark_upstream_failure(
         self,
         model_key: str,
@@ -237,6 +239,14 @@ class QuotaManager:
         """Apply a cooldown by failure class. 429/529 -> shared pool; 401/403/404/5xx -> this model only."""
         now = now_utc or datetime.now(timezone.utc)
         if status in (429, 529):
+            # Transient concurrency / RPM limit (e.g. Zhipu 1302/1305): short model-level cooldown (5-15s),
+            # DO NOT lock the entire shared pool for 300s!
+            if self._CONCURRENCY_ERROR_RE.search(body_text or "") and not self._WINDOW_HINT.search(body_text or ""):
+                wait_s = retry_after_sec if (retry_after_sec and retry_after_sec > 0) else 10
+                until = now + timedelta(seconds=wait_s)
+                self._model_cooldowns[model_key] = (until, "concurrency_limited")
+                return {"scope": "model", "until": until, "reason": "concurrency_limited"}
+
             if retry_after_sec and retry_after_sec > 0:
                 until = self.mark_rate_limited(model_key, retry_after_sec, now_utc=now)
             else:
