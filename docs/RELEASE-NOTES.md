@@ -1,5 +1,14 @@
 # Release notes
 
+## v0.5.4
+
+- Router priority contract (L4 decision): sub-agent chains are zhipu > kimi > github copilot > google, with opencode-deepseek-v4.1-flash as the LAST-resort fallback; the main agent still reaches it first via requested_model. Pinned by tests/test_routing_priority.py.
+- Transient concurrency limits (Zhipu 1302/1305) now cool down only the affected model for a few seconds instead of freezing the whole shared pool for 300s — the failure mode that took the gateway down during quota spikes.
+- Copilot upstream auth deduplicated (duplicate Authorization headers caused spurious 400 invalid-whitespace), and google-ai-gemini-4-hydrogen got its missing api_key_env.
+- Self-healing router watchdog (scripts/router_watchdog.py): independent health poller with compose-up repair and :prev image rollback; verified by stopping the container and watching it recover in 26s.
+- Safe restart automation (scripts/router_safe_restart.py) and admin drain/status endpoints (/admin/drain, /admin/undrain, /admin/status) so upgrades no longer cut in-flight requests.
+- Sub-agent visibility: extensions/dispatch-visibility.ts adds footer status, start/end notifications, and the /agents command; dispatches are mirrored to .pi/agent_visibility.jsonl.
+
 ## v0.5.3
 
 - Linux sandbox execution plane: the sandbox-shell pi extension brings up a per-worktree docker sandbox (`harness-sandbox:local`); the `sh` tool routes commands into it, with a declared host Git Bash fallback and `[runner=...]` evidence labels.

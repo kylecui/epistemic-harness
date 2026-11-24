@@ -1,4 +1,4 @@
-# epistemic-dual-process-harness (v0.5.3) — Agent Runtime Contract
+# epistemic-dual-process-harness (v0.5.4) — Agent Runtime Contract
 
 > Auto-compiled from `harness.yaml` by `scripts/compile_clients.py`. Do not edit manually.
 

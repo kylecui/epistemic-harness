@@ -328,3 +328,14 @@ README）。镜像统一 :local tag，版本真相 = harness.yaml + upgrade stam
 （probe-skill 发现、LF 保真、PROBE-OK uname=Linux、[runner=docker]）。
 上游 issue：badlogic/pi#9（bash 工具 cmd is not defined，英文提交+
 范围收窄评论）；epistemic-harness#6（门禁档位矛盾）。
+
+## 二十、v0.5.4 路由优先级与自愈（2026-11-24）
+
+交付：子代理链序固化为 智谱 > Kimi > GitHub Copilot > Google > OpenCode 兜底（主 agent 仍以
+requested_model 直取 deepseek-v4.1-flash），新增 tests/test_routing_priority.py 钉死顺序；
+智谱 1302/1305 瞬时限频改为模型级 10 秒冷却（不再锁死整池 300 秒，这是当日连续断线的直接
+成因）；Copilot 重复 Authorization 头去重、Gemini hydrogen 补齐 api_key_env；新增
+scripts/router_watchdog.py 自愈看门狗（compose 重启 + :prev 镜像回滚，停容器实测 26 秒自愈）、
+scripts/router_safe_restart.py 排水式安全重启、/admin/drain|undrain|status 端点；新增
+extensions/dispatch-visibility.ts 让子代理派发在 TUI 可见（页脚状态 + 起止通知 + /agents）。
+实测：346 单测全绿，平面对齐 10/10，容器内 /health 11 模型、五池零冷却。
