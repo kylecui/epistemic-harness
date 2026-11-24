@@ -27,6 +27,7 @@ from proxy_gateway.policy import (
 )
 from proxy_gateway.exclude_policy import resolve_excluded_pool
 from proxy_gateway.provider_auth import copilot_auth, google_headers
+from proxy_gateway.thought_signature_store import thought_signature_store
 from proxy_gateway.response_guard import (
     build_contract_intercept,
     check_response_contract,
@@ -123,6 +124,12 @@ def _resolve_base(qm: QuotaManager, model_key: str, fallback: str) -> str:
         if derived:
             return derived.rstrip("/")
     return qm.resolve_upstream_url(model_key, fallback)
+
+
+def _attach_thought_signatures(rewritten: dict[str, Any], target_base: str) -> None:
+    """Gemini 3 refuses a follow-up request whose tool_calls lost the thought_signature."""
+    if "generativelanguage" in target_base:
+        thought_signature_store.inject(rewritten)
 
 
 def _derive_session_id(req: Request, body: dict[str, Any]) -> str:
@@ -360,6 +367,7 @@ def create_app(
                     rewritten["model"] = qm.models[mkey]["upstream_model"]
                     target_base = _resolve_base(qm, mkey, oa_fallback)
                     rewritten = sanitize_openai_payload(rewritten, target_base)
+                    _attach_thought_signatures(rewritten, target_base)
                     resp = await client.post(
                         f"{target_base}/chat/completions",
                         json=rewritten,
@@ -385,6 +393,8 @@ def create_app(
             data = last_resp.json()
             if not isinstance(data, dict):
                 data = {"choices": []}
+            if "generativelanguage" in target_base:
+                thought_signature_store.record_chunk(data)
             # raw upstream text BEFORE gateway tag injection: the interim schema
             # polices the model's output, not the harness's own prefix
             _raw_msg = (data.get("choices") or [{}])[0].get("message") or {}
@@ -535,6 +545,7 @@ def create_app(
                 rewritten["model"] = qm.models[mkey]["upstream_model"]
                 target_base = _resolve_base(qm, mkey, oa_fallback)
                 rewritten = sanitize_openai_payload(rewritten, target_base)
+                _attach_thought_signatures(rewritten, target_base)
                 saw_done = False
                 saw_finish = False
                 try:
@@ -559,6 +570,8 @@ def create_app(
                                 if raw_line.startswith("data: "):
                                     try:
                                         chunk_obj = json.loads(raw_line[6:])
+                                        if "generativelanguage" in target_base:
+                                            thought_signature_store.record_chunk(chunk_obj)
                                         if chunk_obj.get("id"):
                                             last_chunk_id = chunk_obj["id"]
                                         choice = (chunk_obj.get("choices") or [{}])[0]
