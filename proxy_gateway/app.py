@@ -705,7 +705,7 @@ def create_app(
                 "agent_id": agent_id or None,
                 "tag_injected": tag_injected,
                 "contract_violations": contract_violations or None,
-                "cap_note": _cap_note,
+                "cap_note": cap_note_stream,
             })
 
         return StreamingResponse(
