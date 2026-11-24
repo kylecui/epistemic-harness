@@ -8,6 +8,8 @@ import hashlib
 import json
 import uuid
 import os
+import sys
+import tempfile
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -45,10 +47,29 @@ from proxy_gateway.interim_guard import interim_mode, requested_interim_schema, 
 from proxy_gateway.thrashing_guard import GuardState, RECOVERY_DIRECTIVE
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TRACE_FILE = REPO_ROOT / "traces" / "gateway_traces.jsonl"
+# One state directory for everything that must not be shared between a running gateway and
+# anything else (unit tests, a lab instance). HARNESS_TRACES_DIR already steers response_guard.
+
+
+def _default_state_dir() -> Path:
+    """Under a test runner the live gateway's state is never the default, whatever the import style.
+
+    2026-11-24: `unittest discover -s tests` imports test modules as top-level modules, so
+    tests/__init__.py never ran and the suite wrote fake 503 events into the running gateway's trace log.
+    The runner is detected from sys.modules instead, and the env var is set so the other writers follow.
+    """
+    if "unittest" in sys.modules or "pytest" in sys.modules:
+        test_dir = tempfile.mkdtemp(prefix="harness-test-traces-")
+        os.environ["HARNESS_TRACES_DIR"] = test_dir
+        return Path(test_dir)
+    return REPO_ROOT / "traces"
+
+
+STATE_DIR = Path(os.environ.get("HARNESS_TRACES_DIR") or _default_state_dir()).resolve()
+TRACE_FILE = STATE_DIR / "gateway_traces.jsonl"
 DEFAULT_QUOTA_POLICY = REPO_ROOT / "proxy_gateway" / "quota_policy.yaml"
-DEFAULT_QUOTA_DB = REPO_ROOT / "traces" / "quota_ledger.db"
-FAILED_REQUEST_DIR = REPO_ROOT / "traces" / "failed_requests"
+DEFAULT_QUOTA_DB = STATE_DIR / "quota_ledger.db"
+FAILED_REQUEST_DIR = STATE_DIR / "failed_requests"
 _FAILED_REQUEST_KEEP = 30  # newest files kept; traces/ is gitignored
 
 
@@ -824,13 +845,15 @@ def create_app(
                     ).encode("utf-8")
             all_unavailable = not completed and not tripped
 
-            qm.record_usage(
-                chosen_key,
-                prompt_tokens=max(1, len(json.dumps(body.get("messages", []))) // 3),
-                completion_tokens=max(1, out_chars // 3),
-                thinking_tokens=max(0, guard.thinking_chars // 3),
-                now_utc=now,
-            )
+            if not all_unavailable:
+                # Nothing was generated, so nothing is charged to the local quota ledger.
+                qm.record_usage(
+                    chosen_key,
+                    prompt_tokens=max(1, len(json.dumps(body.get("messages", []))) // 3),
+                    completion_tokens=max(1, out_chars // 3),
+                    thinking_tokens=max(0, guard.thinking_chars // 3),
+                    now_utc=now,
+                )
             _log_trace({
                 "ts": now.isoformat(),
                 "protocol": "openai",
@@ -1170,13 +1193,15 @@ def create_app(
                     )
             all_unavailable = not completed and not tripped
 
-            qm.record_usage(
-                chosen_key,
-                prompt_tokens=max(1, len(json.dumps(body.get("messages", []))) // 3),
-                completion_tokens=max(1, out_chars // 3),
-                thinking_tokens=max(0, guard.thinking_chars // 3),
-                now_utc=now,
-            )
+            if not all_unavailable:
+                # Nothing was generated, so nothing is charged to the local quota ledger.
+                qm.record_usage(
+                    chosen_key,
+                    prompt_tokens=max(1, len(json.dumps(body.get("messages", []))) // 3),
+                    completion_tokens=max(1, out_chars // 3),
+                    thinking_tokens=max(0, guard.thinking_chars // 3),
+                    now_utc=now,
+                )
             _log_trace({
                 "ts": now.isoformat(),
                 "protocol": "anthropic",
