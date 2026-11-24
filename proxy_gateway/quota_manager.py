@@ -313,14 +313,18 @@ class QuotaManager:
                 if pct >= lim * self.soft_limit_ratio:
                     return (False, False, f"pool_{pool_id}_{label}_exhausted(remote {pct:.1f}/{lim:.0f}%)")
         else:
-            for label, hours, limit_key in WINDOW_SPECS:
-                limit_val = pcfg.get(limit_key)
-                if limit_val is None:
-                    continue
-                lim = float(limit_val)
-                used = self.get_pool_window_units(pool_id, hours, now_utc)
-                if used >= lim * self.soft_limit_ratio:
-                    return (False, False, f"pool_{pool_id}_{label}_exhausted(local-est {used:.1f}/{lim:.1f})")
+            # Pools with a provider reading have limits in percent; local rows are estimated in another
+            # unit, so comparing them would be nonsense. Without a fresh reading we fail OPEN (the
+            # provider's own 429 plus the cooldown above still apply) instead of inventing an outage.
+            if not pcfg.get("usage_endpoint"):
+                for label, hours, limit_key in WINDOW_SPECS:
+                    limit_val = pcfg.get(limit_key)
+                    if limit_val is None:
+                        continue
+                    lim = float(limit_val)
+                    used = self.get_pool_window_units(pool_id, hours, now_utc)
+                    if used >= lim * self.soft_limit_ratio:
+                        return (False, False, f"pool_{pool_id}_{label}_exhausted(local-est {used:.1f}/{lim:.1f})")
 
         # 3. Global active peak-hour avoidance (yields to off-peak / no-peak primary pools)
         in_peak = is_in_peak_window(now_utc, pcfg.get("peak_windows_utc", []))
@@ -474,7 +478,7 @@ class QuotaManager:
 
     @classmethod
     def parse_usage_payload(cls, payload: Any) -> dict[str, float]:
-        """{usage:{rolling:{percent},weekly:{...},monthly:{...}}} -> {'5h': pct, ...}."""
+        """OpenCode: {usage:{rolling:{percent},weekly:{...},monthly:{...}}} -> {'5h': pct, ...}."""
         usage = payload.get("usage") if isinstance(payload, dict) else None
         out: dict[str, float] = {}
         if isinstance(usage, dict):
@@ -483,6 +487,68 @@ class QuotaManager:
                 if isinstance(block, dict) and block.get("percent") is not None:
                     out[label] = float(block["percent"])
         return out
+
+    @classmethod
+    def parse_usage_zhipu(cls, payload: Any) -> dict[str, float]:
+        """Zhipu /api/monitor/usage/quota/limit: limits[] with type+unit+number+percentage.
+
+        TOKENS_LIMIT unit=3 number=5 is the 5-hour window, unit=6 the weekly one; TIME_LIMIT is the
+        monthly MCP tool budget, not tokens. Verified against the live endpoint 2026-11-24.
+        """
+        data = payload.get("data") if isinstance(payload, dict) else None
+        limits = data.get("limits") if isinstance(data, dict) else None
+        out: dict[str, float] = {}
+        if not isinstance(limits, list):
+            return out
+        for item in limits:
+            if not isinstance(item, dict) or item.get("type") != "TOKENS_LIMIT":
+                continue
+            pct = item.get("percentage")
+            if pct is None:
+                continue
+            if item.get("unit") == 3 and item.get("number") == 5:
+                out["5h"] = float(pct)
+            elif item.get("unit") == 6:
+                out["week"] = float(pct)
+        return out
+
+    @classmethod
+    def parse_usage_kimi(cls, payload: Any) -> dict[str, float]:
+        """Kimi /coding/v1/usages: usage{limit,used} is the weekly window; limits[] carries 300-minute ones."""
+        out: dict[str, float] = {}
+        if not isinstance(payload, dict):
+            return out
+
+        def pct(used: Any, limit: Any) -> float | None:
+            try:
+                u, lim = float(used), float(limit)
+            except (TypeError, ValueError):
+                return None
+            return 100.0 * u / lim if lim > 0 else None
+
+        weekly = payload.get("usage")
+        if isinstance(weekly, dict):
+            value = pct(weekly.get("used"), weekly.get("limit"))
+            if value is not None:
+                out["week"] = value
+        for entry in payload.get("limits") or []:
+            window = (entry or {}).get("window") or {}
+            detail = (entry or {}).get("detail") or {}
+            minutes = float(window.get("duration") or 0) * (
+                1.0 if str(window.get("timeUnit", "")).endswith("MINUTE") else 60.0)
+            if minutes and minutes <= 360:  # the 5-hour window (300 minutes)
+                remaining = float(detail.get("remaining") or 0)
+                limit = float(detail.get("limit") or 0)
+                if limit > 0:
+                    out["5h"] = 100.0 * (limit - remaining) / limit
+        return out
+
+    @classmethod
+    def parse_usage_opencode(cls, payload: Any) -> dict[str, float]:
+        """Format name used by the pool config: usage_format: opencode."""
+        return cls.parse_usage_payload(payload)
+
+    USAGE_FORMATS = ("opencode", "zhipu", "kimi")
 
     def _remote_usage_view(self, pool_id: str, now: datetime) -> dict[str, Any] | None:
         remote = self._remote_usage.get(pool_id)
@@ -507,7 +573,9 @@ class QuotaManager:
         try:
             resp = httpx.get(url, headers=headers, timeout=6.0)
             resp.raise_for_status()
-            return self.parse_usage_payload(resp.json()) or None
+            fmt = str(pcfg.get("usage_format", "opencode"))
+            parser = getattr(self, f"parse_usage_{fmt}", None) if fmt in self.USAGE_FORMATS else None
+            return (parser(resp.json()) if parser else None) or None
         except (httpx.HTTPError, ValueError):
             return None
 

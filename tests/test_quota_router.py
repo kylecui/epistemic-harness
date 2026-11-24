@@ -42,40 +42,43 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
         self.assertAlmostEqual(units, 20.6, places=3)
 
         # Spend full 5h Zhipu Max shared pool (28,000 credits) on glm-5.3
-        self.qm.record_usage("zhipu-glm-5.4", units_override=28000.0, now_utc=now)
+        # Local estimates no longer skip this pool (it reports its own percentage usage), so block it
+        # the way a real outage does: a 429 that cools the whole shared pool.
+        self.qm.mark_upstream_failure("zhipu-glm-5.4", 429, "quota exceeded", 600, now_utc=now)
 
-        # Now system_0 (which wants zhipu-glm-5.3-flash first) MUST skip flash because shared pool is full!
+        # Now system_0 (which wants zhipu-glm-5.3-flash first) MUST skip flash: one shared pool, one verdict.
         # L4 决策 (2026-11-24)：zhipu 池满后滑到 kimi 家族。
         sel = self.qm.select_candidates("system_0", "openai", now_utc=now)
         self.assertEqual(sel.model_key, "kimi-for-coding")
-        self.assertIn("pool_zhipu_v2_max_5h_exhausted", sel.skipped_reasons["zhipu-glm-5.3-flash"])
+        self.assertIn("pool_zhipu_v2_max_cooldown", sel.skipped_reasons["zhipu-glm-5.3-flash"])
 
-    def test_opencode_go_peak_2x_multiplier_and_weekly_cap(self) -> None:
-        """OpenCode Go applies 2x cost multiplier during US peak (15:00 UTC) and enforces $50/week."""
+    def test_opencode_go_peak_2x_multiplier(self) -> None:
+        """OpenCode Go applies a 2x cost multiplier during its peak window (13:00-21:00 UTC).
+
+        The weekly cap is no longer decided locally: the pool carries a provider usage endpoint and its
+        limits are percent, so an exhausted-looking local ledger must not skip it (2026-11-24).
+        """
         off_peak = datetime(2026, 11, 19, 8, 0, tzinfo=timezone.utc)
         us_peak = datetime(2026, 11, 19, 15, 0, tzinfo=timezone.utc)
         u_off = self.qm.compute_units("opencode-deepseek-v4.1-flash", prompt_tokens=1_000_000, completion_tokens=1_000_000, now_utc=off_peak)
         u_peak = self.qm.compute_units("opencode-deepseek-v4.1-flash", prompt_tokens=1_000_000, completion_tokens=1_000_000, now_utc=us_peak)
         self.assertAlmostEqual(u_peak, u_off * 2.0, places=4)
 
-        # Spend $50 weekly cap 2 days ago -> skips OpenCode Go even though 5h window is 0
         self.qm.record_usage("opencode-deepseek-v4.1-flash", units_override=50.0, now_utc=off_peak - timedelta(days=2))
-        sel = self.qm.select_candidates("system_1", "openai", now_utc=off_peak)
-        self.assertEqual(sel.model_key, "zhipu-glm-5.3-flash")
-        self.assertIn("pool_opencode_go_basic_week_exhausted", sel.skipped_reasons["opencode-deepseek-v4.1-flash"])
+        sel = self.qm.select_candidates("system_1", "openai", now_utc=off_peak, pin_requested=True)
+        self.assertNotIn("opencode-deepseek-v4.1-flash", sel.skipped_reasons)  # provider decides, not the estimate
 
-    def test_no_last_option_reserve_once_all_primary_pools_are_exhausted(self) -> None:
-        """GitHub Copilot and Google left every failover chain on 2026-11-24: when the three
-        primary pools are spent there is no reserve model left to unlock; only the
-        usual single probe to the soonest-recovering in-chain model is made."""
+    def test_local_estimates_no_longer_skip_a_pool_with_a_provider_reading(self) -> None:
+        """The three primary pools all report their own usage now; estimated ledger rows in another
+        unit must not produce a skip. Only real provider readings or upstream failures may."""
         now = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
         self.qm.record_usage("kimi-k3.1-pro", units_override=1500.0, now_utc=now)
         self.qm.record_usage("zhipu-glm-5.4", units_override=28000.0, now_utc=now)
         self.qm.record_usage("opencode-deepseek-v4.1-flash", units_override=20.0, now_utc=now)
 
         sel = self.qm.select_candidates("system_2", "openai", now_utc=now)
-        self.assertEqual(len(sel.failover_chain), 1)
-        self.assertIn(sel.failover_chain[0], self.qm.routing_chains["system_2"])
+        for key in ("zhipu-glm-5.4", "kimi-k3.1-pro", "opencode-deepseek-v4.1-flash"):
+            self.assertNotIn(key, sel.skipped_reasons, "a provider-reported pool must not be skipped on an estimate")
         self.assertFalse(sel.last_option_used)
 
     def test_copilot_and_google_are_in_no_failover_chain(self) -> None:
@@ -130,10 +133,10 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
         self.assertFalse(pinned.peak_avoided)
         self.assertEqual(pinned.failover_chain[0], lead)
 
-        self.qm.record_usage(lead, units_override=20.0, now_utc=peak)  # 5h window exhausted
+        self.qm.mark_upstream_failure(lead, 404, "Not Found", None, now_utc=peak)  # model out of service
         gone = self.qm.select_candidates("system_1_5", "openai", lead, now_utc=peak, pin_requested=True)
         self.assertNotEqual(gone.model_key, lead)
-        self.assertIn("pool_opencode_go_basic_5h_exhausted", gone.skipped_reasons[lead])
+        self.assertIn("model_endpoint_not_found", gone.skipped_reasons[lead])
         self.assertEqual(gone.model_key, self.qm.select_candidates("system_1_5", "openai", None, now_utc=peak).model_key)
 
     def test_only_the_chairs_request_pins_the_lead_sub_agents_keep_the_peak_rules(self) -> None:

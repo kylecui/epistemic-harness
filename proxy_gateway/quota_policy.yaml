@@ -5,21 +5,33 @@ soft_limit_ratio: 0.995
 active_peak_avoidance: true
 pools:
   zhipu_v2_max:
-    unit: credits
+    # Limits are PERCENT of each window's allowance, taken from the provider
+    # (/api/monitor/usage/quota/limit). Local rows are estimated credits in another unit and are
+    # kept for spend visibility only; without a fresh provider reading the pool fails open.
+    unit: percent
     last_option: false
-    rolling_5h_limit: 28000.0
-    rolling_week_limit: 140000.0
-    rolling_month_limit: 560000.0
+    rolling_5h_limit: 100.0
+    rolling_week_limit: 100.0
+    rolling_month_limit: 100.0
+    usage_endpoint: https://open.bigmodel.cn/api/monitor/usage/quota/limit
+    usage_api_key_env: ZHIPU_API_KEY
+    usage_auth: bearer
+    usage_format: zhipu
     peak_cost_multiplier: 1.0
     peak_windows_utc:
     - start: 01:30
       end: '10:30'
   kimi_allegretto:
-    unit: credits
+    # Same rules as zhipu: percent from /coding/v1/usages (weekly usage + the 300-minute window).
+    unit: percent
     last_option: false
-    rolling_5h_limit: 1500.0
-    rolling_week_limit: 3000.0
-    rolling_month_limit: 10000.0
+    rolling_5h_limit: 100.0
+    rolling_week_limit: 100.0
+    rolling_month_limit: 100.0
+    usage_endpoint: https://api.kimi.com/coding/v1/usages
+    usage_api_key_env: KIMI_API_KEY
+    usage_auth: bearer
+    usage_format: kimi
     peak_cost_multiplier: 1.0
     peak_windows_utc:
     - start: 01:30
@@ -37,6 +49,7 @@ pools:
     usage_endpoint: https://opencode.ai/inference/go/v1/usage
     usage_api_key_env: OPENCODE_GO_API_KEY
     usage_auth: bearer
+    usage_format: opencode
     usage_headers:
       x-opencode-session: hs-harness-usage
     peak_cost_multiplier: 2.0
