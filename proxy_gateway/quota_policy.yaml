@@ -60,6 +60,15 @@ pools:
     peak_windows_utc:
     - start: '13:00'
       end: '21:00'
+  workbuddy:
+    # Tencent CodeBuddy/WorkBuddy via the workbuddy2api adapter (container harness-workbuddy). Points-based,
+    # no usage API: limits are set high on purpose so a local estimate never pre-empts a request; the
+    # provider's own 429 is the signal. Chain position: after Zhipu and Kimi, before OpenCode.
+    unit: points
+    last_option: false
+    rolling_5h_limit: 1000000000.0
+    rolling_week_limit: 1000000000.0
+    rolling_month_limit: 1000000000.0
   github_copilot_pro_plus:
     unit: credits
     last_option: true
@@ -197,6 +206,25 @@ models:
       output: 1.0
     avoid_in_peak_for_tiers:
     - system_0
+  workbuddy-hy4:
+    pool: workbuddy
+    protocol: openai
+    # Container-to-container on the compose network; the host port 8790 is for manual checks only.
+    default_base_url: http://harness-workbuddy:8790/v1
+    upstream_model: hy4
+    cost_per_1m:
+      input: 3.0
+      cached_input: 0.3
+      output: 12.0
+  workbuddy-glm-5.4:
+    pool: workbuddy
+    protocol: openai
+    default_base_url: http://harness-workbuddy:8790/v1
+    upstream_model: glm-5.4
+    cost_per_1m:
+      input: 3.0
+      cached_input: 0.3
+      output: 12.0
   copilot-claude-fable-5.2:
     pool: github_copilot_pro_plus
     protocol: openai
@@ -290,6 +318,8 @@ routing_chains:
   - kimi-for-coding
   - kimi-for-coding-anthropic
   - opencode-deepseek-v4.1-flash-anthropic
+  - workbuddy-hy4
+  - workbuddy-glm-5.4
   - opencode-deepseek-v4.1-flash
   system_1:
   - zhipu-glm-5.3-flash
@@ -298,6 +328,8 @@ routing_chains:
   - kimi-for-coding
   - kimi-for-coding-anthropic
   - opencode-deepseek-v4.1-flash-anthropic
+  - workbuddy-hy4
+  - workbuddy-glm-5.4
   - opencode-deepseek-v4.1-flash
   system_1_5:
   - zhipu-glm-5.4
@@ -308,6 +340,8 @@ routing_chains:
   - kimi-k3.1-pro
   - kimi-k3.1-pro-anthropic
   - opencode-deepseek-v4.1-flash-anthropic
+  - workbuddy-hy4
+  - workbuddy-glm-5.4
   - opencode-deepseek-v4.1-flash
   system_2:
   - zhipu-glm-5.4
@@ -317,6 +351,8 @@ routing_chains:
   - kimi-for-coding
   - kimi-for-coding-anthropic
   - opencode-deepseek-v4.1-flash-anthropic
+  - workbuddy-hy4
+  - workbuddy-glm-5.4
   - opencode-deepseek-v4.1-flash
   system_2_plus:
   - zhipu-glm-5.4
@@ -324,6 +360,8 @@ routing_chains:
   - kimi-k3.1-pro
   - kimi-k3.1-pro-anthropic
   - opencode-deepseek-v4.1-flash-anthropic
+  - workbuddy-hy4
+  - workbuddy-glm-5.4
   - opencode-deepseek-v4.1-flash
 agent_profiles:
   explorer:

@@ -125,7 +125,7 @@ def _jobs() -> list[tuple[Path, Path]]:
         (REPO_ROOT / "sandbox" / "Dockerfile", HARNESS_HOME / "sandbox" / "Dockerfile"),
         (REPO_ROOT / "sandbox" / "compose.yaml", HARNESS_HOME / "sandbox" / "compose.yaml"),
     ]
-    for script in ("harness_version.py", "install_user_skills.py", "upgrade.py"):
+    for script in ("harness_version.py", "install_user_skills.py", "upgrade.py", "gate_universal.py"):
         jobs.append((REPO_ROOT / "scripts" / script, HARNESS_HOME / "scripts" / script))
     return jobs
 

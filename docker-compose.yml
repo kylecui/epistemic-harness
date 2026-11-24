@@ -60,3 +60,20 @@ services:
     volumes:
       - .:/work
     network_mode: none
+
+  # WorkBuddy (Tencent CodeBuddy) upstream adapter. Separate profile: the chain entries
+  # workbuddy-hy3 / workbuddy-glm-5.2 only resolve while this container runs.
+  #   docker compose --profile workbuddy up -d workbuddy
+  # The account store is bind-mounted from the host (WORKBUDDY_DATA_DIR in .env), never baked in.
+  workbuddy:
+    profiles: ["workbuddy"]
+    build:
+      context: .
+      dockerfile: Dockerfile.workbuddy
+    image: harness-workbuddy:local
+    container_name: harness-workbuddy
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8790:8790"
+    volumes:
+      - ${WORKBUDDY_DATA_DIR:-./.workbuddy2api}:/root/.workbuddy2api

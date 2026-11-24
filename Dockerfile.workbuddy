@@ -4,16 +4,17 @@
 # Anthropic wire formats into CodeBuddy's private protocol and owns the browser-login session.
 # Our gateway treats it as one upstream, so pi still has exactly one exit (the router).
 #
-# The session file is mounted, never baked in: a login cookie inside an image layer is a leak.
+# The login now writes a per-account store (accounts/*.json + index.json) rather than one session file,
+# but the proxy resolves ~/.codebuddy-session.json. The entrypoint links the newest account file there and
+# then starts the proxy, so a re-login needs no image rebuild.
 #   docker build -t harness-workbuddy:local -f Dockerfile.workbuddy .
 #   docker run -d --name harness-workbuddy --network epistemic-harness_default \
-#     -p 127.0.0.1:8790:8790 -v <dir-with-session.json>:/data:ro harness-workbuddy:local
+#     -p 127.0.0.1:8790:8790 -v C:\Users\<you>\.workbuddy2api:/root/.workbuddy2api harness-workbuddy:local
 FROM python:3.12-slim
 
 RUN pip install --no-cache-dir workbuddy2api==2.0.6
 EXPOSE 8790
 
-# --session-file points at the mounted session; without it the proxy answers 401 on every call
-# instead of crashing, which keeps router failover predictable.
-ENTRYPOINT ["python", "-m", "codebuddy_proxy"]
-CMD ["--host", "0.0.0.0", "--port", "8790", "--session-file", "/data/session.json"]
+# Without a usable session the proxy answers 401 per request instead of crashing, which keeps router
+# failover predictable.
+ENTRYPOINT ["sh", "-c", "acct=$(ls -t /root/.workbuddy2api/accounts/account-*.json 2>/dev/null | head -1); [ -n \"$acct\" ] && ln -sf \"$acct\" /root/.codebuddy-session.json; exec python -m codebuddy_proxy --host 0.0.0.0 --port 8790"]

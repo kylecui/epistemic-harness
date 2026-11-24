@@ -70,17 +70,27 @@ interface ExitGateConfig {
   evidence_policy?: "off" | "warn" | "enforce";
 }
 
+const UNIVERSAL_GATE = join(homedir(), ".pi", "harness", "scripts", "gate_universal.py");
+
+function defaultChecks(): ExitGateCheck[] {
+  // Only when the global harness install is present: a missing script would fail every turn.
+  if (!existsSync(UNIVERSAL_GATE)) return [];
+  return [{ name: "universal", command: `python "${UNIVERSAL_GATE}"`, required: true }];
+}
+
 const DEFAULT_EXIT_GATE: ExitGateConfig = {
   enabled: true,
   max_gate_retries: 3,
   command_timeout_ms: 60000,
-  checks: [],
+  // A project that declares no gate still gets the cheap, language-agnostic invariants: scratch files,
+  // CRLF committed into .sh/.py, a credential written into a tracked file. Running an unknown project's
+  // own tests is deliberately NOT attempted (toolchain, duration, side effects).
+  checks: defaultChecks(),
   residue_globs: ["*.tmp", "*.bak", "*.orig", "debug_*.py", "scratch_*", "tmp_*"],
   evidence_policy: "warn",
 };
 
-function loadExitGateConfig(cwd: string): ExitGateConfig {
-  const cfgPath = join(cwd, ".pi", "exit_gate.json");
+function loadExitGateConfig(cwd: string): ExitGateConfig {  const cfgPath = join(cwd, ".pi", "exit_gate.json");
   if (!existsSync(cfgPath)) return { ...DEFAULT_EXIT_GATE };
   try {
     const parsed = JSON.parse(readFileSync(cfgPath, "utf-8"));

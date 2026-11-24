@@ -81,6 +81,21 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
             self.assertNotIn(key, sel.skipped_reasons, "a provider-reported pool must not be skipped on an estimate")
         self.assertFalse(sel.last_option_used)
 
+    def test_workbuddy_sits_after_kimi_and_before_opencode(self) -> None:
+        """Operator priority: below Zhipu and Kimi, above OpenCode (Copilot/Google are out of the chains)."""
+        for tier, chain in self.qm.routing_chains.items():
+            wb = [k for k in chain if k.startswith("workbuddy-")]
+            self.assertEqual(wb, ["workbuddy-hy4", "workbuddy-glm-5.4"], tier)  # family order HY > GLM
+            last_kimi = max(i for i, k in enumerate(chain) if k.startswith("kimi-"))
+            first_opencode = chain.index("opencode-deepseek-v4.1-flash")
+            self.assertLess(last_kimi, chain.index("workbuddy-hy4"), tier)
+            self.assertLess(chain.index("workbuddy-glm-5.4"), first_opencode, tier)
+            for key in wb:
+                entry = self.qm.models[key]
+                self.assertEqual(entry["pool"], "workbuddy")
+                self.assertEqual(entry["default_base_url"], "http://harness-workbuddy:8790/v1")
+                self.assertIsNone(entry.get("api_key_env"))  # the adapter needs no key
+
     def test_copilot_and_google_are_in_no_failover_chain(self) -> None:
         for tier, chain in self.qm.routing_chains.items():
             for key in chain:
@@ -226,8 +241,10 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
         cn_daytime = datetime(2026, 11, 19, 4, 0, tzinfo=timezone.utc)
         sel_cn = self.qm.select_candidates("system_2", "openai", now_utc=cn_daytime)
         self.assertTrue(sel_cn.peak_avoided)
-        # During CN daytime, kimi & zhipu are in peak -> yields to off-peak opencode-deepseek-v4.1-flash
-        self.assertEqual(sel_cn.model_key, "opencode-deepseek-v4.1-flash")
+        # During CN daytime kimi & zhipu are in peak, and so is OpenCode Go is not: the relay now lands on
+        # WorkBuddy first (added 2026-11-24, no peak window) and OpenCode stays the last resort.
+        self.assertEqual(sel_cn.model_key, "workbuddy-hy4")
+        self.assertIn("opencode-deepseek-v4.1-flash", sel_cn.failover_chain)
         self.assertFalse(sel_cn.last_option_used)
 
         us_daytime = datetime(2026, 11, 19, 15, 0, tzinfo=timezone.utc)
@@ -289,7 +306,8 @@ class TestUpstreamFailureHandling(unittest.TestCase):
         self.assertNotIn("kimi-for-coding", sel.skipped_reasons)
 
     def test_all_unavailable_probes_only_soonest_recovering_candidate(self) -> None:
-        for mk in ("zhipu-glm-5.4", "kimi-for-coding", "opencode-deepseek-v4.1-flash",
+        for mk in ("zhipu-glm-5.4", "zhipu-glm-5.3-flash", "kimi-for-coding", "opencode-deepseek-v4.1-flash",
+                   "workbuddy-hy4", "workbuddy-glm-5.4",
                    "copilot-claude-sonnet-5.5", "google-ai-gemini-4-neon", "google-ai-gemini-4-hydrogen",
                    "siliconflow-deepseek-v4-flash"):
             self.qm.mark_upstream_failure(mk, 404, "Not Found", None, now_utc=self.now)
