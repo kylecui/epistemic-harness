@@ -235,6 +235,38 @@ def _is_failover_status(code: int) -> bool:
     return code >= 400
 
 
+_REQUEST_ID_HEADERS = ("request-id", "x-request-id", "x-goog-request-id", "x-amzn-requestid", "x-trace-id")
+
+
+def _error_brief(status: int, body_text: str, headers: Any) -> str:
+    """One line per failed upstream: status, the provider's error code, its message, request id.
+
+    The request id is what a provider's support asks for; without it a failure cannot be traced
+    on their side (2026-11-24).
+    """
+    code = message = ""
+    try:
+        err = json.loads(body_text or "")
+        if isinstance(err, dict) and isinstance(err.get("error"), dict):
+            err = err["error"]
+        if isinstance(err, dict):
+            code = str(err.get("status") or err.get("code") or err.get("type") or "")
+            message = str(err.get("message") or "")
+    except (ValueError, TypeError):
+        pass
+    if not message:
+        message = " ".join((body_text or "").split())
+    parts = [f"HTTP {status}"]
+    if code:
+        parts.append(f"[{code}]")
+    parts.append(message[:200])
+    try:
+        rid = next((str(headers[h]) for h in _REQUEST_ID_HEADERS if headers.get(h)), "")
+    except (AttributeError, TypeError):
+        rid = ""
+    return " ".join(p for p in parts if p) + (f" (request_id={rid})" if rid else "")
+
+
 async def _record_upstream_failure(
     qm: Any, model_key: str, resp: Any, failures: dict[str, str], now: Any, streaming: bool = False,
     request_payload: Any = None,
@@ -248,13 +280,13 @@ async def _record_upstream_failure(
         body_text = ""
     qm.mark_upstream_failure(model_key, resp.status_code, body_text, _parse_retry_after(resp), now_utc=now)
     capture_failed_request(model_key, resp.status_code, request_payload, body_text)
-    failures[model_key] = f"HTTP {resp.status_code}: {' '.join(body_text.split())[:140]}"
+    failures[model_key] = _error_brief(resp.status_code, body_text, resp.headers)
 
 
 def _failure_summary(failures: dict[str, str], skipped: dict[str, str]) -> str:
     parts = [f"{k} -> {v}" for k, v in failures.items()]
     parts += [f"{k} -> skipped({v})" for k, v in skipped.items() if k not in failures and not v.startswith("held_in_last")]
-    return "; ".join(parts)[:900] or "no candidate attempted"
+    return "; ".join(parts)[:2400] or "no candidate attempted"
 
 
 def create_app(

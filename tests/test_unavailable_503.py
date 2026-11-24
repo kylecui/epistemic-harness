@@ -19,7 +19,7 @@ import httpx
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from proxy_gateway.app import AllUpstreamsUnavailable, create_app, unavailable_response
+from proxy_gateway.app import AllUpstreamsUnavailable, _error_brief, create_app, unavailable_response
 from proxy_gateway.quota_manager import QuotaManager
 
 MSG = [{"role": "user", "content": "hi"}]
@@ -53,6 +53,30 @@ class ResponseTests(unittest.TestCase):
         anth = unavailable_response(AllUpstreamsUnavailable("anthropic", "system_2", "x", None))
         self.assertEqual(anth.headers["retry-after"], "30")
         self.assertEqual(json.loads(anth.body)["error"]["type"], "overloaded_error")
+
+
+class ErrorBriefTests(unittest.TestCase):
+    def test_brief_keeps_the_provider_error_code_message_and_request_id(self) -> None:
+        body = json.dumps({"error": {"code": 400, "message": "Function call is missing a thought_signature in functionCall parts.",
+                                     "status": "INVALID_ARGUMENT"}})
+        brief = _error_brief(400, body, {"request-id": "req_abc", "x-goog-request-id": "g-1"})
+        self.assertEqual(brief, "HTTP 400 [INVALID_ARGUMENT] Function call is missing a thought_signature in "
+                         "functionCall parts. (request_id=req_abc)")
+
+    def test_brief_copes_with_plain_text_and_anthropic_shapes(self) -> None:
+        self.assertEqual(_error_brief(529, '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', {}),
+                         "HTTP 529 [overloaded_error] Overloaded")
+        self.assertEqual(_error_brief(502, "bad gateway", {}), "HTTP 502 bad gateway")
+
+    def test_503_message_names_the_code_and_request_id_of_each_failed_upstream(self) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(429, headers={"retry-after": "90", "request-id": "r-429"}, json={"error": {"code": "1302", "message": "rate"}})
+        resp = _client(handler).post("/v1/chat/completions", json={"model": "test-reasoner", "stream": False, "messages": MSG})
+        text = json.loads(resp.text)["error"]["message"]
+        self.assertEqual(resp.status_code, 503)
+        self.assertIn("[1302]", text)
+        self.assertIn("request_id=r-429", text)
+        self.assertNotIn("{\"error\"", text)  # raw JSON prefix is no longer what the user sees
 
 
 class SoonestTests(unittest.TestCase):
