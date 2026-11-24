@@ -76,6 +76,19 @@ pools:
 # ==============================================================================
 # 二、模型映射与精确单位消耗系数（每 1M Tokens 消耗的所属 Pool 单位数）
 # ==============================================================================
+  # 5. ZCode agent gateway pool (issue #17): the coding-plan key works on
+  #    zcode.z.ai /api/v1/ultra/* with the official open-source (Apache-2.0)
+  #    ZCode client fingerprint — likely a SEPARATE agent-quota meter.
+  #    Limits PROVISIONAL [L3 unverified]; calibrate via the meter A/B test.
+  zhipu_zcode_agent:
+    unit: "credits"
+    last_option: false
+    rolling_5h_limit: 28000.0
+    rolling_week_limit: 140000.0
+    rolling_month_limit: 560000.0
+    peak_cost_multiplier: 1.0
+    peak_windows_utc: []
+
 models:
   zhipu-glm-5.4:
     pool: zhipu_v2_max
@@ -92,13 +105,20 @@ models:
     avoid_in_peak_for_tiers:
     - system_0
     - system_1
-    # Vendor-agent quota harvesting (zcode etc.): the mechanism (client_fingerprint)
-    # is implemented in the gateway, but a VERIFIED fingerprint is required before
-    # enabling — see the tracking issue. ToS risk: subscription-agent quotas may be
-    # restricted to the vendor's own client; misidentification can suspend the plan.
-    # client_fingerprint:
-    #   user_agent: "<captured-from-real-zcode-traffic>"
-    #   extra_headers: {}
+    # Vendor-agent quota harvesting (zcode): fingerprint values verbatim from the
+    # official open-source client (zai-org/ZCode, Apache-2.0) —
+    # packages/shared/src/zcode-source-headers.ts. See issue #17 for the quota
+    # meter A/B calibration. ToS: account holder's explicit acceptance recorded there.
+    client_fingerprint:
+      user_agent: "ZCode/3.4.0"
+      extra_headers:
+        x-title: "Z Code@electron"
+        http-referer: "https://zcode.z.ai"
+        x-platform: "win32-x64"
+        x-release-channel: "stable"
+        x-client-language: "zh-CN"
+        x-client-timezone: "Asia/Shanghai"
+        x-os-category: "windows"
   zhipu-glm-5.3-flash:
     pool: zhipu_v2_max
     protocol: openai
@@ -215,6 +235,48 @@ models:
     - system_0
     - system_1
     note: 'thinking-heavy: prefer stream; non-stream may exceed client timeout'
+  zhipu-glm-5.4-zcode:
+    pool: zhipu_zcode_agent
+    protocol: anthropic
+    upstream_base_url_env: ZCODE_BASE_URL
+    default_base_url: https://zcode.z.ai/api/v1/ultra/anthropic
+    api_key_env: ZHIPU_API_KEY
+    upstream_model: glm-5.4
+    cost_per_1m:
+      input: 6.9
+      cached_input: 1.7
+      output: 24.0
+    client_fingerprint:
+      user_agent: "ZCode/3.4.0"
+      extra_headers:
+        x-title: "Z Code@electron"
+        http-referer: "https://zcode.z.ai"
+        x-platform: "win32-x64"
+        x-release-channel: "stable"
+        x-client-language: "zh-CN"
+        x-client-timezone: "Asia/Shanghai"
+        x-os-category: "windows"
+  zhipu-glm-5.3-flash-zcode:
+    pool: zhipu_zcode_agent
+    protocol: anthropic
+    upstream_base_url_env: ZCODE_BASE_URL
+    default_base_url: https://zcode.z.ai/api/v1/ultra/anthropic
+    api_key_env: ZHIPU_API_KEY
+    upstream_model: glm-5.3-flash
+    cost_per_1m:
+      input: 6.9
+      cached_input: 1.7
+      output: 24.0
+    client_fingerprint:
+      user_agent: "ZCode/3.4.0"
+      extra_headers:
+        x-title: "Z Code@electron"
+        http-referer: "https://zcode.z.ai"
+        x-platform: "win32-x64"
+        x-release-channel: "stable"
+        x-client-language: "zh-CN"
+        x-client-timezone: "Asia/Shanghai"
+        x-os-category: "windows"
 routing_chains:
   system_0:
   - opencode-deepseek-v4.1-flash
@@ -235,8 +297,10 @@ routing_chains:
   - opencode-deepseek-v4.1-flash
   - kimi-for-coding
   - zhipu-glm-5.4
+  - zhipu-glm-5.4-zcode
   - kimi-k3.1-pro
   - zhipu-glm-5.3-flash
+  - zhipu-glm-5.3-flash-zcode
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
   - copilot-claude-sonnet-5.5
@@ -244,6 +308,7 @@ routing_chains:
   - opencode-deepseek-v4.1-flash
   - kimi-k3.1-pro
   - zhipu-glm-5.4
+  - zhipu-glm-5.4-zcode
   - kimi-for-coding
   - copilot-claude-fable-5.2
   - google-ai-gemini-4-neon
@@ -252,6 +317,7 @@ routing_chains:
   system_2_plus:
   - opencode-deepseek-v4.1-flash
   - zhipu-glm-5.4
+  - zhipu-glm-5.4-zcode
   - kimi-k3.1-pro
   - copilot-claude-fable-5.2
   - google-ai-gemini-4-neon
