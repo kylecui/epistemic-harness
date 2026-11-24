@@ -209,13 +209,15 @@ class TestUpstreamFailureHandling(unittest.TestCase):
         client = TestClient(app)
         resp = client.post("/v1/chat/completions", json={
             "stream": False, "messages": [{"role": "user", "content": "请排查这个多文件问题并对比方案"}]})
-        self.assertEqual(resp.status_code, 502)
+        self.assertEqual(resp.status_code, 503)  # unavailable, not a bad gateway (2026-11-24)
+        self.assertTrue(resp.headers["retry-after"].isdigit())
         msg = resp.json()["error"]["message"]
         self.assertIn("HARNESS_GATEWAY_ERROR", msg)
         self.assertIn("HTTP 401", msg)
         self.assertIn("Invalid Authentication", msg)
 
-    def test_stream_synthesized_error_includes_upstream_reasons(self) -> None:
+    def test_stream_unavailable_error_includes_upstream_reasons(self) -> None:
+        """All candidates failed before any byte reached the client: HTTP 503, never a synthesized reply."""
         async def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(404, text="Not Found")
 
@@ -224,8 +226,10 @@ class TestUpstreamFailureHandling(unittest.TestCase):
         with client.stream("POST", "/v1/chat/completions", json={
                 "stream": True, "messages": [{"role": "user", "content": "请排查这个多文件问题并对比方案"}]}) as r:
             text = "".join(r.iter_text())
-        self.assertIn("All upstream candidates failed", text)
+            self.assertEqual(r.status_code, 503)
+        self.assertIn("nothing was generated", text)
         self.assertIn("HTTP 404", text)
+        self.assertNotIn("data:", text)  # no SSE frame, so a client cannot store it as an assistant message
 
 
 class TestProviderRequiredHeaders(unittest.TestCase):

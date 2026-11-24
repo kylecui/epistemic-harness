@@ -20,7 +20,7 @@ import os
 from pathlib import Path
 import re
 import sqlite3
-from typing import Any
+from typing import Any, Iterable
 
 import yaml
 
@@ -382,6 +382,32 @@ class QuotaManager:
             peak_avoided=peak_avoided,
             last_option_used=last_option_used,
         )
+
+    def soonest_available_in(
+        self, tier: str, now_utc: datetime | None = None, model_keys: Iterable[str] | None = None
+    ) -> int | None:
+        """Seconds until the first of these models leaves cooldown (>= 1); None when none of them is cooling down.
+
+        Defaults to the tier's chain. The gateway passes the models it actually attempted: a chain member
+        skipped for another reason (peak avoidance, exclusion) is skipped again on retry, so it must not make
+        the wait look short (seen as Retry-After: 1 under a real 429 outage, 2026-11-24).
+        Covers explicit cooldowns only; a spent quota window without a recorded cooldown is not predicted.
+        """
+        now = now_utc or datetime.now(timezone.utc)
+        keys = list(model_keys) if model_keys is not None else list(self.routing_chains.get(tier, []))
+        best: int | None = None
+        for mk in keys:
+            if mk not in self.models:
+                continue
+            pid, _ = self.pool_for_model(mk)
+            recover = now
+            if mk in self._model_cooldowns:
+                recover = max(recover, self._model_cooldowns[mk][0])
+            if pid in self._pool_cooldowns:
+                recover = max(recover, self._pool_cooldowns[pid])
+            secs = max(1, int((recover - now).total_seconds()) + 1)
+            best = secs if best is None else min(best, secs)
+        return best
 
     def status_snapshot(self, now_utc: datetime | None = None) -> dict[str, Any]:
         now = now_utc or datetime.now(timezone.utc)

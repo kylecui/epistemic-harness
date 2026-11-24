@@ -78,6 +78,57 @@ def capture_failed_request(model_key: str, status: int, payload: Any, upstream_b
         return None
 
 
+class AllUpstreamsUnavailable(Exception):
+    """Every candidate failed or is cooling down, so nothing was generated for this request.
+
+    Reported to the client as HTTP 503 + Retry-After instead of a synthesized assistant message:
+    a fake reply ends the turn silently, an error lets the user retry (2026-11-24).
+    """
+
+    def __init__(self, protocol: str, tier: str, summary: str, retry_after: int | None) -> None:
+        super().__init__(summary)
+        self.protocol = protocol
+        self.tier = tier
+        self.summary = summary
+        self.retry_after = retry_after
+
+
+def unavailable_response(exc: AllUpstreamsUnavailable) -> JSONResponse:
+    message = ("[HARNESS_GATEWAY_ERROR] No upstream is available right now; nothing was generated "
+               f"for this request. {exc.summary}")
+    if exc.retry_after:
+        message += f" Earliest recovery in about {exc.retry_after}s."
+    if exc.protocol == "anthropic":
+        content: dict[str, Any] = {"type": "error", "error": {"type": "overloaded_error", "message": message}}
+    else:
+        content = {"error": {"type": "harness_gateway_error", "message": message}}
+    return JSONResponse(
+        status_code=503,
+        content=content,
+        headers={"Retry-After": str(exc.retry_after or 30), "X-Harness-Routed-Tier": exc.tier},
+    )
+
+
+async def _prepend(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
+    yield first
+    async for chunk in rest:
+        yield chunk
+
+
+async def _primed(stream: AsyncIterator[bytes]) -> bytes | None:
+    """Pull the first chunk inside the endpoint so a failure before it can still set the status code.
+
+    StreamingResponse sends the response start line BEFORE it iterates the body (Starlette 1.10,
+    responses.py: ``http.response.start`` precedes ``async for chunk in self.body_iterator``), so an
+    exception raised inside the body iterator arrives too late to become a 503. Returns None when the
+    stream ends without yielding anything.
+    """
+    try:
+        return await stream.__anext__()
+    except StopAsyncIteration:
+        return None
+
+
 def _contract_check_enabled(request: Request) -> bool:
     """Ablation switch (Paper 3 internal axis): env kills it globally; the
     x-harness-no-contract header kills it per request (arm A runs clean)."""
@@ -337,6 +388,10 @@ def create_app(
         lines = TRACE_FILE.read_text(encoding="utf-8").splitlines()[-limit:]
         return {"traces": [json.loads(line) for line in lines if line.strip()]}
 
+    @app.exception_handler(AllUpstreamsUnavailable)
+    async def _all_upstreams_unavailable(request: Request, exc: AllUpstreamsUnavailable) -> JSONResponse:
+        return unavailable_response(exc)
+
     def _interim_check(request: Request, text: str) -> str | None:
         """Interim-schema guard (P1.5): header opt-in, env mode, warn-note only."""
         if interim_mode() == "off" or not text.strip():
@@ -411,15 +466,9 @@ def create_app(
 
             assert last_resp is not None
             if failures and _is_failover_status(last_resp.status_code):
-                return JSONResponse(
-                    status_code=502,
-                    content={"error": {
-                        "type": "harness_gateway_error",
-                        "message": "[HARNESS_GATEWAY_ERROR] All upstream candidates failed: "
-                        + _failure_summary(failures, selection.skipped_reasons),
-                    }},
-                    headers={"X-Harness-Routed-Tier": decision.tier},
-                )
+                raise AllUpstreamsUnavailable(
+                    "openai", decision.tier, _failure_summary(failures, selection.skipped_reasons),
+                    qm.soonest_available_in(decision.tier, now, failures))
             data = last_resp.json()
             if not isinstance(data, dict):
                 data = {"choices": []}
@@ -561,6 +610,7 @@ def create_app(
             tag_injected = False
             tripped = False
             completed = False
+            streamed_any = False  # once a candidate has yielded, the status line is gone
             last_chunk_id = "harness-fallback"
             cap_note_stream: str | None = None
             openai_tag_guard = StreamTagGuard(tier_tag)
@@ -590,6 +640,7 @@ def create_app(
                                 await _record_upstream_failure(qm, mkey, resp, failures, now, streaming=True,
                                                               request_payload=rewritten)
                                 continue
+                            streamed_any = True
                             async for raw_line in resp.aiter_lines():
                                 if not raw_line:
                                     yield b"\n"
@@ -718,12 +769,7 @@ def create_app(
                         "stop-loss: stop internal debate, verify missing facts via MCP/L2 tools, "
                         "or state the minimal unknown and 1-3 concrete next actions.",
                     ).encode("utf-8")
-            if not completed and not tripped:
-                yield _openai_terminal_chunk(
-                    "harness-gateway-error",
-                    "[HARNESS_GATEWAY_ERROR] All upstream candidates failed for this request; stop-loss synthesized. Upstream: "
-                    + _failure_summary(failures, selection.skipped_reasons),
-                ).encode("utf-8")
+            all_unavailable = not completed and not tripped
 
             qm.record_usage(
                 chosen_key,
@@ -751,9 +797,27 @@ def create_app(
                 "contract_violations": contract_violations or None,
                 "cap_note": cap_note_stream,
             })
+            if all_unavailable:
+                if streamed_any:
+                    # Bytes already reached the client, so the status line is gone: report in-band.
+                    yield _openai_terminal_chunk(
+                        "harness-gateway-error",
+                        "[HARNESS_GATEWAY_ERROR] an upstream stream failed and no candidate recovered. Upstream: "
+                        + _failure_summary(failures, selection.skipped_reasons),
+                    ).encode("utf-8")
+                else:
+                    raise AllUpstreamsUnavailable(
+                        "openai", decision.tier, _failure_summary(failures, selection.skipped_reasons),
+                        qm.soonest_available_in(decision.tier, now, failures))
 
+        stream = sse_proxy()
+        first_chunk = await _primed(stream)
+        if first_chunk is None:
+            raise AllUpstreamsUnavailable(
+                "openai", decision.tier, "gateway stream produced no output",
+                qm.soonest_available_in(decision.tier, now, []))
         return StreamingResponse(
-            sse_proxy(),
+            _prepend(first_chunk, stream),
             media_type="text/event-stream",
             headers={
                 "X-Harness-Routed-Tier": decision.tier,
@@ -907,6 +971,7 @@ def create_app(
             tag_injected = False
             tripped = False
             completed = False
+            streamed_any = False  # once a candidate has yielded, the status line is gone
             cap_note_stream: str | None = None
             anthropic_tag_guard = StreamTagGuard(tier_tag)
             failures: dict[str, str] = {}
@@ -932,6 +997,7 @@ def create_app(
                                 await _record_upstream_failure(qm, mkey, resp, failures, now, streaming=True,
                                                               request_payload=rewritten)
                                 continue
+                            streamed_any = True
                             async for raw_line in resp.aiter_lines():
                                 if not raw_line:
                                     yield b"\n"
@@ -1048,11 +1114,7 @@ def create_app(
                         "[HARNESS_GATEWAY] auto-recovery continuation unavailable; "
                         "stop-loss: verify missing facts via MCP/L2 tools, or state the minimal unknown and next actions."
                     )
-            if not completed and not tripped:
-                yield _anthropic_terminal_events(
-                    "[HARNESS_GATEWAY_ERROR] All upstream candidates failed for this request; stop-loss synthesized. Upstream: "
-                    + _failure_summary(failures, selection.skipped_reasons)
-                )
+            all_unavailable = not completed and not tripped
 
             qm.record_usage(
                 chosen_key,
@@ -1076,9 +1138,25 @@ def create_app(
                 "contract_violations": contract_violations or None,
                 "cap_note": cap_note_stream,
             })
+            if all_unavailable:
+                if streamed_any:
+                    # Bytes already reached the client, so the status line is gone: report in-band.
+                    yield _anthropic_terminal_events(
+                        "[HARNESS_GATEWAY_ERROR] an upstream stream failed and no candidate recovered. Upstream: "
+                        + _failure_summary(failures, selection.skipped_reasons))
+                else:
+                    raise AllUpstreamsUnavailable(
+                        "anthropic", decision.tier, _failure_summary(failures, selection.skipped_reasons),
+                        qm.soonest_available_in(decision.tier, now, failures))
 
+        stream = sse_proxy()
+        first_chunk = await _primed(stream)
+        if first_chunk is None:
+            raise AllUpstreamsUnavailable(
+                "anthropic", decision.tier, "gateway stream produced no output",
+                qm.soonest_available_in(decision.tier, now, []))
         return StreamingResponse(
-            sse_proxy(),
+            _prepend(first_chunk, stream),
             media_type="text/event-stream",
             headers={
                 "X-Harness-Routed-Tier": decision.tier,
