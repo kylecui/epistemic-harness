@@ -63,22 +63,24 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
         self.assertEqual(sel.model_key, "zhipu-glm-5.3-flash")
         self.assertIn("pool_opencode_go_basic_week_exhausted", sel.skipped_reasons["opencode-deepseek-v4.1-flash"])
 
-    def test_last_option_unlocks_fable_5_2_and_gemini_4_neon_only_when_all_3_pools_exhausted(self) -> None:
+    def test_no_last_option_reserve_once_all_primary_pools_are_exhausted(self) -> None:
+        """GitHub Copilot and Google left every failover chain on 2026-11-24: when the three
+        primary pools are spent there is no reserve model left to unlock; only the
+        usual single probe to the soonest-recovering in-chain model is made."""
         now = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
-        # Exhaust all 3 primary shared pools (kimi_allegretto, zhipu_v2_max, opencode_go_basic)
         self.qm.record_usage("kimi-k3.1-pro", units_override=1500.0, now_utc=now)
         self.qm.record_usage("zhipu-glm-5.4", units_override=28000.0, now_utc=now)
         self.qm.record_usage("opencode-deepseek-v4.1-flash", units_override=20.0, now_utc=now)
 
         sel = self.qm.select_candidates("system_2", "openai", now_utc=now)
-        self.assertEqual(sel.model_key, "copilot-claude-fable-5.2")
-        self.assertTrue(sel.last_option_used)
+        self.assertEqual(len(sel.failover_chain), 1)
+        self.assertIn(sel.failover_chain[0], self.qm.routing_chains["system_2"])
+        self.assertFalse(sel.last_option_used)
 
-        # Exhaust Copilot Pro+ shared pool -> falls over to Google AI Pro (gemini-4-neon)
-        self.qm.record_usage("copilot-claude-fable-5.2", units_override=500.0, now_utc=now)
-        sel2 = self.qm.select_candidates("system_2", "openai", now_utc=now)
-        self.assertEqual(sel2.model_key, "google-ai-gemini-4-neon")
-        self.assertTrue(sel2.last_option_used)
+    def test_copilot_and_google_are_in_no_failover_chain(self) -> None:
+        for tier, chain in self.qm.routing_chains.items():
+            for key in chain:
+                self.assertFalse(key.startswith(("copilot-", "google-")), f"{tier}: {key}")
 
     def test_gateway_429_cools_down_entire_shared_pool_and_fails_over(self) -> None:
         called: list[str] = []
@@ -197,7 +199,7 @@ class TestUpstreamFailureHandling(unittest.TestCase):
             self.qm.mark_upstream_failure(mk, 404, "Not Found", None, now_utc=self.now)
         self.qm.mark_upstream_failure("kimi-for-coding", 429, "", 120, now_utc=self.now)  # recovers in 120s
         sel = self.qm.select_candidates("system_1_5", "openai", now_utc=self.now)
-        self.assertEqual(len(sel.failover_chain), 1)
+        self.assertEqual(len(sel.failover_chain), 1)  # only the soonest-recovering in-chain model
 
     def test_gateway_surfaces_per_candidate_reasons_when_all_fail(self) -> None:
         async def handler(request: httpx.Request) -> httpx.Response:

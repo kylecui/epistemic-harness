@@ -14,6 +14,9 @@ import httpx
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+from starlette.requests import Request
+
+import proxy_gateway.app as app_module
 from proxy_gateway import provider_auth
 from proxy_gateway.app import create_app
 from proxy_gateway.provider_auth import CopilotAuth, copilot_dynamic_headers, google_headers
@@ -79,9 +82,6 @@ class TestCopilotAuth(unittest.TestCase):
         captured = {}
 
         def upstream(request: httpx.Request) -> httpx.Response:
-            if request.url.host.startswith("api.individual.githubcopilot.com"):
-                captured.update(dict(request.headers))
-                captured["host"] = request.url.host
             return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}})
 
         auth = CopilotAuth(transport=httpx.MockTransport(
@@ -93,20 +93,20 @@ class TestCopilotAuth(unittest.TestCase):
         try:
             now = datetime(2026, 11, 19, 3, 0, tzinfo=timezone.utc)  # off-peak, last-option pool
             # Copilot sits in the last-option reserve: only reachable once all primary pools are spent.
-            qm.record_usage("zhipu-glm-5.4", units_override=30000.0, now_utc=now)
-            qm.record_usage("kimi-k3.1-pro", units_override=2000.0, now_utc=now)
-            qm.record_usage("opencode-deepseek-v4.1-flash", units_override=60.0, now_utc=now)
-            qm.record_usage("google-ai-gemini-4-neon", units_override=999.0, now_utc=now)  # skip the other reserve
-            client = TestClient(create_app(transport=httpx.MockTransport(upstream), quota_manager=qm,
-                                           now_provider=lambda: now))
-            resp = client.post("/v1/chat/completions", json={
-                "model": "copilot-claude-sonnet-5.5", "stream": False,
-                "messages": [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "yo"}]})
+            # Copilot is no longer in any failover chain (2026-11-24), so the gateway never
+            # reaches it on its own; build the upstream headers directly to keep the
+            # token-exchange + fingerprint path covered in case it is re-enabled.
+            body = {"model": "copilot-claude-sonnet-5.5", "stream": False,
+                    "messages": [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "yo"}]}
+            scope = {"type": "http", "method": "POST", "path": "/v1/chat/completions", "query_string": b"",
+                     "headers": [(b"content-type", b"application/json"), (b"authorization", b"Bearer incoming")]}
+            hdrs = app_module._build_upstream_headers(Request(scope), qm, "copilot-claude-sonnet-5.5", "openai", body)
+            captured.update({k.lower(): v for k, v in hdrs.items()})
+            captured["host"] = auth.base_url() or ""
         finally:
             provider_auth._COPILOT = original
             del os.environ["HARNESS_COPILOT_GITHUB_TOKEN"]
-        self.assertEqual(resp.status_code, 200)
-        self.assertEqual(captured["host"], "api.individual.githubcopilot.com")
+        self.assertTrue(captured["host"].endswith("api.individual.githubcopilot.com"), captured["host"])
         self.assertEqual(captured["copilot-integration-id"], "vscode-chat")
         self.assertEqual(captured["editor-version"], "vscode/1.107.0")
         self.assertEqual(captured["x-initiator"], "agent")

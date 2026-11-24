@@ -216,18 +216,12 @@ routing_chains:
   - zhipu-glm-5.3-flash
   - zhipu-glm-5.3-flash-anthropic
   - kimi-for-coding
-  - copilot-claude-sonnet-5.5
-  - google-ai-gemini-4-neon
-  - google-ai-gemini-4-hydrogen
   - opencode-deepseek-v4.1-flash
   system_1:
   - zhipu-glm-5.3-flash
   - zhipu-glm-5.4
   - zhipu-glm-5.3-flash-anthropic
   - kimi-for-coding
-  - copilot-claude-sonnet-5.5
-  - google-ai-gemini-4-neon
-  - google-ai-gemini-4-hydrogen
   - opencode-deepseek-v4.1-flash
   system_1_5:
   - zhipu-glm-5.4
@@ -235,28 +229,17 @@ routing_chains:
   - zhipu-glm-5.3-flash
   - kimi-for-coding
   - kimi-k3.1-pro
-  - copilot-claude-sonnet-5.5
-  - google-ai-gemini-4-neon
-  - google-ai-gemini-4-hydrogen
   - opencode-deepseek-v4.1-flash
   system_2:
   - zhipu-glm-5.4
   - zhipu-glm-5.4-anthropic
   - kimi-k3.1-pro
   - kimi-for-coding
-  - copilot-claude-fable-5.2
-  - copilot-claude-sonnet-5.5
-  - google-ai-gemini-4-neon
-  - google-ai-gemini-4-hydrogen
   - opencode-deepseek-v4.1-flash
   system_2_plus:
   - zhipu-glm-5.4
   - zhipu-glm-5.4-anthropic
   - kimi-k3.1-pro
-  - copilot-claude-fable-5.2
-  - copilot-claude-sonnet-5.5
-  - google-ai-gemini-4-neon
-  - google-ai-gemini-4-hydrogen
   - opencode-deepseek-v4.1-flash
 agent_profiles:
   explorer:
