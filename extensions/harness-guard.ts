@@ -22,7 +22,7 @@
 
 import { execSync, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -526,6 +526,7 @@ export default function (pi: any) {
     }
     // CLI-driven dispatches (python -m orchestrator..., pi subprocesses) leave no MCP tool call
     // for the hook to see; the command line is the signal then.
+    const cmd = typeof event.input?.command === "string" ? event.input.command : "";
     if (name === "bash" && /(dispatch_subtask\(|run_plan\(|dispatch_tooled\(|orchestrator\.server)/.test(cmd)) {
       dispatchedThisTurn = true;
       metric({ event: "dispatch", tool: "bash-cli" });
@@ -591,8 +592,10 @@ export default function (pi: any) {
         if (assistantText.trim().length >= 40) {
           const jr = runReviewCheck(cwd, assistantText);
           if (jr && typeof jr.cap_note === "string" && jr.cap_note) {
-            // Computed-cap correction: surface one quiet line, no bounce.
-            ctx.ui.notify(jr.cap_note, "info");
+            // Computed-cap correction: footer status only, never a transcript line
+            // (2026-11-24): ctx.ui.notify rendered as a grey line the model then
+            // echoed; the header is already normalized, so nothing needs announcing.
+            try { ctx.ui?.setStatus?.("cap", `cap → ${jr.cap_note.replace(/^.*归一为\s*/, "")}`); } catch { /* noop */ }
             audit(`[review-gate] cap normalized cwd=${cwd}`);
           }
           if (jr && Array.isArray(jr.violations) && jr.violations.length) {
@@ -654,8 +657,31 @@ export default function (pi: any) {
     const cfg = loadExitGateConfig(cwd);
     if (!cfg.enabled) return undefined;
 
+    // Heavy-check cache (2026-11-24): `unit_tests` spawns the docker verify
+    // container (15-40s) and ran after EVERY mutating turn, which froze the TUI
+    // after each reply. The tree fingerprint (HEAD + porcelain status) identifies
+    // the exact working state; if the same state was green minutes ago, reuse it.
+    const cachePath = join(cwd, ".pi", "gate_cache.json");
+    const treeFingerprint = (() => {
+      try {
+        const head = execSync("git rev-parse HEAD", { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] }).trim();
+        const st = execSync("git status --porcelain", { cwd, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+        return createHash("sha1").update(head + "\n" + st).digest("hex").slice(0, 16);
+      } catch { return ""; }
+    })();
+    let cached: { fingerprint?: string; ts?: number } = {};
+    try { cached = JSON.parse(readFileSync(cachePath, "utf-8")); } catch { /* no cache */ }
+    const cacheFresh = (nowMs: number) =>
+      !!treeFingerprint && cached.fingerprint === treeFingerprint &&
+      typeof cached.ts === "number" && (nowMs - cached.ts) < 30 * 60 * 1000;
+
     const failures: Array<{ name: string; tail: string }> = [];
+    let reused = 0;
     for (const check of cfg.checks) {
+      if (check.name === "unit_tests" && cacheFresh(Date.now())) {
+        reused += 1;
+        continue;
+      }
       const res = runCheck(cwd, check, cfg.command_timeout_ms);
       if (!res.ok && check.required !== false) {
         failures.push({ name: check.name, tail: res.tail });
@@ -673,6 +699,13 @@ export default function (pi: any) {
     if (verdict === "green") {
       gateRetriesThisTurn = 0;
       lastErrorFingerprint = "";
+      if (treeFingerprint) {
+        try {
+          mkdirSync(dirname(cachePath), { recursive: true });
+          writeFileSync(cachePath, JSON.stringify({ fingerprint: treeFingerprint, ts: Date.now(), reused }), "utf-8");
+        } catch { /* cache is an optimization, never a failure */ }
+      }
+      if (reused > 0) audit(`[exit-gate] reused cached unit_tests green (fingerprint ${treeFingerprint})`);
       appendLedger(cwd, { kind: "gate", verdict, fingerprint: "", checks: executedChecks, policy });
       return undefined;
     }

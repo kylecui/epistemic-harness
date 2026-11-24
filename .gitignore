@@ -29,3 +29,4 @@ experiments/campaign.status
 .pi/router_watchdog.status
 .pi/router_watchdog.jsonl
 .upgrade-backup-*/
+.pi/gate_cache.json
