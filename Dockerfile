@@ -10,12 +10,16 @@ ENV PYTHONUNBUFFERED=1 \
 
 WORKDIR /app
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+COPY requirements.lock.txt .
+# Dependency isolation (uv lock is the source of truth): versions here are pinned
+# by uv.lock so the container and the host venv resolve identically. Regenerate with
+#   uv export --frozen --no-dev --no-emit-project -o requirements.lock.txt
+RUN pip install --no-cache-dir -r requirements.lock.txt
 
 COPY proxy_gateway/ ./proxy_gateway/
 COPY mcp_server/ ./mcp_server/
 COPY orchestrator/ ./orchestrator/
+COPY contracts/ ./contracts/
 COPY harness_backend.py .
 
 EXPOSE 8787

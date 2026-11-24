@@ -28,3 +28,4 @@ experiments/campaign.status
 .pi/agent_visibility.jsonl
 .pi/router_watchdog.status
 .pi/router_watchdog.jsonl
+.upgrade-backup-*/

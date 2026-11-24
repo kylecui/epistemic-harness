@@ -27,6 +27,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 
@@ -130,9 +131,13 @@ MIGRATIONS: list[tuple[str, str, object]] = [
 
 
 def backup(repo: Path, sink: Path) -> list[str]:
-    """Copy mutable state before migrating. Returns list of backed-up paths."""
+    """Copy mutable state before migrating. Returns list of backed-up paths.
+
+    sink may already exist when it is created by tempfile.mkdtemp (outside-repo
+    backups), so this tolerates an existing directory.
+    """
     backed: list[str] = []
-    sink.mkdir(parents=True, exist_ok=False)
+    sink.mkdir(parents=True, exist_ok=True)
     for rel in (".pi", "knowledge", ".env", "promotions"):
         src = repo / rel
         if src.is_dir():
@@ -257,8 +262,10 @@ def main() -> int:
         return 0
 
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    backup_dir = REPO_ROOT / f".upgrade-backup-{ts}"
-    print(f"\nbackup -> {backup_dir.name}")
+    # Backups live OUTSIDE the source tree (issue: dev/runtime separation). Staging
+    # runtime artifacts inside the repo dirtied git status on failure paths.
+    backup_dir = Path(tempfile.mkdtemp(prefix=f"harness-upgrade-backup-{ts}-"))
+    print(f"\nbackup -> {backup_dir}")
     try:
         backed = backup(REPO_ROOT, backup_dir)
         print(f"  backed up: {', '.join(backed)}")
@@ -293,11 +300,11 @@ def main() -> int:
             shutil.rmtree(backup_dir, ignore_errors=True)
             print(f"\nupgrade complete: {cur} -> v{new} (backup removed; --keep-backup to retain)")
         else:
-            print(f"\nupgrade complete: {cur} -> v{new} (backup kept at {backup_dir.name})")
+            print(f"\nupgrade complete: {cur} -> v{new} (backup kept at {backup_dir})")
         return 0
     except Exception as exc:  # noqa: BLE001 - report with rollback pointer
         print(f"\nUPGRADE FAILED: {exc}", file=sys.stderr)
-        print(f"rollback: restore {backup_dir.name}/ over the repo, then re-run.", file=sys.stderr)
+        print(f"rollback: restore {backup_dir}/ over the repo, then re-run.", file=sys.stderr)
         return 1
 
 
