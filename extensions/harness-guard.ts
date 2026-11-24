@@ -420,7 +420,11 @@ export default function (pi: any) {
       audit(msg);
     };
     const emitUnknown = () => {
-      const msg = `[sub-agent] done ${label} (no model metadata in result)`;
+      // A dispatch that ran inside a codemode script returns the script's own output, not the
+      // MCP payload, so the model metadata is simply not in the text we can see.
+      const msg = label === "tool=codemode"
+        ? `[sub-agent] done ${label} (dispatch ran inside a codemode script: model metadata not in its output)`
+        : `[sub-agent] done ${label} (no model metadata in result)`;
       ctx.ui.notify(msg, "info");
       audit(msg);
     };
@@ -595,7 +599,8 @@ export default function (pi: any) {
             // Computed-cap correction: footer status only, never a transcript line
             // (2026-11-24): ctx.ui.notify rendered as a grey line the model then
             // echoed; the header is already normalized, so nothing needs announcing.
-            try { ctx.ui?.setStatus?.("cap", `cap → ${jr.cap_note.replace(/^.*归一为\s*/, "")}`); } catch { /* noop */ }
+            // The gateway already normalized the header cap; nothing to announce. Kept as an audit
+            // line only, because the terse footer item ("cap -> L4") read as noise (2026-11-24).
             audit(`[review-gate] cap normalized cwd=${cwd}`);
           }
           if (jr && Array.isArray(jr.violations) && jr.violations.length) {
