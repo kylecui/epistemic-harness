@@ -52,12 +52,23 @@ function summarize(toolName: string, taskInput: unknown): { agent: string; taskI
     dispatch_tooled: "coder(tooled)",
   };
   const explicit = input.agent_profile ?? input.profile;
-  const agent = String(explicit ?? byTool[toolName] ?? "auto");
+  // MCP tool names arrive fully qualified (mcp__epistemic_orchestrator__dispatch_readonly),
+  // so match by suffix rather than exact key (bug found in the first live check).
+  const inferred = Object.entries(byTool).find(([key]) => toolName.endsWith(key))?.[1];
+  const agent = String(explicit ?? inferred ?? "auto");
   const taskId = String(input.task_id ?? "-");
   return { agent, taskId };
 }
 
 export default function (pi: ExtensionAPI) {
+  // Idempotency guard: if this file is ever discoverable twice (project .pi/extensions
+  // plus global ~/.pi/agent/extensions), only the first instance binds events —
+  // otherwise every dispatch is logged and announced twice (observed 2026-11-24).
+  const guardKey = "__harnessDispatchVisibilityBound";
+  const g = globalThis as Record<string, unknown>;
+  if (g[guardKey]) return;
+  g[guardKey] = true;
+
   pi.on("tool_call", async (event: any, ctx: any) => {
     const name = String(event?.toolName ?? "");
     if (!DISPATCH_RE.test(name)) return undefined;
