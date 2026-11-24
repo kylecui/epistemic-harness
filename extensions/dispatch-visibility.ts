@@ -42,9 +42,17 @@ function record(entry: DispatchInfo, event: "start" | "end"): void {
   }
 }
 
-function summarize(taskInput: unknown): { agent: string; taskId: string } {
+function summarize(toolName: string, taskInput: unknown): { agent: string; taskId: string } {
   const input = (taskInput ?? {}) as Record<string, unknown>;
-  const agent = String(input.agent_profile ?? input.profile ?? "auto");
+  // Profile can come from args (orchestrator tools) or from the tool name itself
+  // (dispatch_readonly -> explorer-ro, dispatch_tooled -> coder).
+  const byTool: Record<string, string> = {
+    dispatch_subagent: "auto(subagent)",
+    dispatch_readonly: "explorer-ro",
+    dispatch_tooled: "coder(tooled)",
+  };
+  const explicit = input.agent_profile ?? input.profile;
+  const agent = String(explicit ?? byTool[toolName] ?? "auto");
   const taskId = String(input.task_id ?? "-");
   return { agent, taskId };
 }
@@ -54,7 +62,7 @@ export default function (pi: ExtensionAPI) {
     const name = String(event?.toolName ?? "");
     if (!DISPATCH_RE.test(name)) return undefined;
     const id = String(event?.toolCallId ?? `${Date.now()}`);
-    const { agent, taskId } = summarize(event?.input);
+    const { agent, taskId } = summarize(name, event?.input);
     const info: DispatchInfo = { id, tool: name, agent, taskId, startedAt: Date.now() };
     inFlight.set(id, info);
     history.push(info);
@@ -80,7 +88,11 @@ export default function (pi: ExtensionAPI) {
     const secs = ((info.endedAt - info.startedAt) / 1000).toFixed(1);
     record(info, "end");
     try {
-      ctx.ui?.setStatus?.("agents", inFlight.size > 0 ? `agents: ${inFlight.size} running` : undefined);
+      // Keep a persistent summary in the footer instead of clearing to undefined:
+      // a completed dispatch stays glanceable until the next one starts.
+      ctx.ui?.setStatus?.("agents", inFlight.size > 0
+        ? `agents: ${inFlight.size} running`
+        : `agents: last ${info.ok ? "ok" : "FAIL"} ${info.agent} ${secs}s`);
       ctx.ui?.setWorkingMessage?.();
       ctx.ui?.notify?.(
         `${info.ok ? "✔" : "✖"} dispatch ${info.agent} done in ${secs}s (task=${info.taskId})`,

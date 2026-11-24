@@ -76,6 +76,9 @@ def sync(check: bool = False) -> dict:
     jobs = [
         (REPO_ROOT / "extensions" / "harness-guard.ts", GLOBAL_EXT),
         (REPO_ROOT / "extensions" / "sandbox-shell.ts", GLOBAL_SANDBOX_EXT),
+        # Product-level extension: dispatches must be visible in EVERY project, not
+        # just the harness repo (dogfooding must not ship project-local only).
+        (REPO_ROOT / "extensions" / "dispatch-visibility.ts", AGENT_DIR / "extensions" / "dispatch-visibility.ts"),
         (REPO_ROOT / "harness.yaml", HARNESS_HOME / "harness.yaml"),
         # compiled contract -> the file pi actually injects into every session;
         # must run AFTER compile_clients (upgrade orders it that way)
