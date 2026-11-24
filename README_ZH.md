@@ -70,6 +70,8 @@ python scripts/install.py
 - 响应头 `X-Harness-Selected-Model` 是实际应答的模型；客户端显示的模型名只是它请求的那个。
 - **用量读服务商的准数**（OpenCode、智谱、Kimi 都有官方接口）。读数只做展示，不提前拒绝：链上会真的试一次，服务商回 `429` 才换下一个。读数超过 100% 说明在消耗加油包，网关通过 `X-Harness-Quota-Alert` 响应头告知，客户端据此提醒你。
 - **可以临时屏蔽某个模型或某个池**：`python scripts/hold_model.py <模型或池> <分钟> "原因"`（池 id 加 `--pool`，`--release` 解除，`--list` 查看）。屏蔽会持久化、重启后仍在，跳过原因里显示 `manual_hold(<n>m)`。
+- **WorkBuddy（腾讯 CodeBuddy）** 是可选的容器化上游：`docker compose --profile workbuddy up -d workbuddy`。它的模型（`workbuddy-hy4`、`workbuddy-glm-5.4`）排在智谱和 Kimi 之后、OpenCode 之前；账号库从 `WORKBUDDY_DATA_DIR` 挂载，不进镜像。
+- **没有 `.pi/exit_gate.json` 的项目会得到一套通用闸门**：遗留的临时草稿文件、提交进仓库的 `.sh`/`.py` 里的 CRLF（读的是 git 索引，所以 `core.autocrlf` 不会让它每回合报红）、以及写进受跟踪文件的密钥。不在 git 仓库里时它直接跳过，不去猜；它也**不会**去跑未知项目自己的测试。
 
 ## 技能：不用记的命令
 

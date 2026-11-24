@@ -87,6 +87,8 @@ Verify at any time — the `hvx` wrapper resolves the project interpreter for yo
 - The response header `X-Harness-Selected-Model` names the model that actually answered; the client's model label only shows what it asked for.
 - **Usage readings come from the providers** (OpenCode, Zhipu, Kimi all expose one). Readings are display data, never a pre-emptive refusal: the chain tries the model and fails over on a real `429`. A reading above 100% means a booster is being consumed, and the gateway advertises it in `X-Harness-Quota-Alert` so the client can warn you.
 - **You can block a model or a pool for a while**: `python scripts/hold_model.py <model-or-pool> <minutes> "reason"` (add `--pool` for a pool id, `--release` to lift it, `--list` to see holds and alerts). Holds persist across restarts and show up as the skip reason `manual_hold(<n>m)`.
+- **WorkBuddy (Tencent CodeBuddy)** is an optional upstream, containerized: `docker compose --profile workbuddy up -d workbuddy`. Its models (`workbuddy-hy4`, `workbuddy-glm-5.4`) sit after Zhipu and Kimi and before OpenCode; the account store is bind-mounted from `WORKBUDDY_DATA_DIR` and never baked into the image.
+- **A project that declares no `.pi/exit_gate.json` gets a universal gate**: scratch files left behind, CRLF committed into `.sh`/`.py` (read from the git index, so `core.autocrlf` does not red every turn), and credentials written into tracked files. Outside a git repository it skips rather than guessing — and it never tries to run an unknown project's own tests.
 
 ## Skills: commands you don't have to remember
 
