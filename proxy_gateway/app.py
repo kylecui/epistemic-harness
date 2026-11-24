@@ -399,6 +399,7 @@ def create_app(
             _msg = (data.get("choices") or [{}])[0].get("message") or {}
             _resp_text = _msg.get("content") if isinstance(_msg.get("content"), str) else ""
             _interim_note = _interim_check(request, _raw_text)
+            _cap_note: str | None = None
             if _interim_note and interim_mode() == "enforce":
                 # bounce once: retry upstream with a corrective directive, then degrade
                 _schema_name = requested_interim_schema(request.headers.get("x-harness-interim"))
@@ -429,11 +430,15 @@ def create_app(
                     pass
             if _interim_note and isinstance(_msg.get("content"), str):
                 _msg["content"] = f"{_msg['content']}\n\n{_interim_note}"
-            if _resp_text:
+            if isinstance(_msg.get("content"), str):
                 # Cap is computed, not self-declared: align the header before judging.
-                _resp_text, _cap_note = normalize_declared_cap(_resp_text)
-                if _cap_note and isinstance(_msg.get("content"), str):
-                    _msg["content"] = _resp_text
+                # Normalize the FINAL content (tag + any interim note already in it) so
+                # writing it back never drops those; the NOTE itself is trace-only
+                # (2026-11-24) — appended to content it polluted the transcript and got
+                # echoed by the model for turns.
+                _msg["content"], _cap_note = normalize_declared_cap(_msg["content"])
+                _resp_text = _msg["content"]
+            if _resp_text:
                 contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode) if _contract_check_enabled(request) else []
             if contract_violations and isinstance(_msg.get("content"), str):
                 retry_payload = dict(rewritten)
@@ -493,6 +498,7 @@ def create_app(
                 "agent_id": agent_id or None,
                 "tag_injected": tag_injected,
                 "contract_violations": contract_violations or None,
+                "cap_note": _cap_note,
                 "interim_violations": _interim_note or None,
             })
             return JSONResponse(
@@ -516,6 +522,7 @@ def create_app(
             tripped = False
             completed = False
             last_chunk_id = "harness-fallback"
+            cap_note_stream: str | None = None
             openai_tag_guard = StreamTagGuard(tier_tag)
             failures: dict[str, str] = {}
             resp_mode = detect_mode(user_text, decision.tier)
@@ -598,10 +605,10 @@ def create_app(
                             check_response_contract(full_text, decision.tier, resp_mode, notes=cap_notes)
                             if _contract_check_enabled(request) else []
                         )
-                        if cap_notes:
-                            yield _openai_contract_chunk(
-                                last_chunk_id, "\n\n" + cap_notes[0]
-                            ).encode("utf-8")
+                        # Cap note goes to the trace + response headers, NEVER into the
+                        # transcript (2026-11-24): injected into content it polluted the
+                        # conversation and taught the model to echo it on later turns.
+                        cap_note_stream = cap_notes[0] if cap_notes else None
                         _interim_note = _interim_check(request, full_text)
                         if _interim_note:
                             yield _openai_contract_chunk(last_chunk_id, "\n\n" + _interim_note).encode("utf-8")
@@ -698,6 +705,7 @@ def create_app(
                 "agent_id": agent_id or None,
                 "tag_injected": tag_injected,
                 "contract_violations": contract_violations or None,
+                "cap_note": _cap_note,
             })
 
         return StreamingResponse(
@@ -765,6 +773,7 @@ def create_app(
             # Review-turn output-contract check (issue #1): bounce exactly once.
             resp_mode = detect_mode(user_text, decision.tier)
             contract_violations: list[str] = []
+            _cap_note: str | None = None
             _blocks = data.get("content") if isinstance(data.get("content"), list) else []
             _resp_text = "".join(
                 str(b.get("text")) for b in _blocks
@@ -772,9 +781,15 @@ def create_app(
             )
             if _resp_text:
                 # Cap is computed, not self-declared: align the header before judging.
+                # NOTE goes to header/trace only (2026-11-24), never into the transcript.
+                # Anthropic layout: text lives in content blocks; write the normalized
+                # header back into the FIRST text block (header is always up front).
                 _resp_text, _cap_note = normalize_declared_cap(_resp_text)
-                if _cap_note and isinstance(_msg.get("content"), str):
-                    _msg["content"] = _resp_text
+                _first_text = next((b for b in _blocks if isinstance(b, dict) and b.get("type") == "text"), None)
+                if _first_text is not None and isinstance(_first_text.get("text"), str):
+                    # normalize only swaps L<digit> -> L<digit> (same length), so the
+                    # first block keeps its length and takes the normalized prefix.
+                    _first_text["text"] = _resp_text[:len(_first_text["text"])]
                 contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode) if _contract_check_enabled(request) else []
             if contract_violations:
                 retry_payload = dict(rewritten)
@@ -848,6 +863,7 @@ def create_app(
             tag_injected = False
             tripped = False
             completed = False
+            cap_note_stream: str | None = None
             anthropic_tag_guard = StreamTagGuard(tier_tag)
             failures: dict[str, str] = {}
             resp_mode = detect_mode(user_text, decision.tier)
@@ -924,15 +940,8 @@ def create_app(
                             full_text, decision.tier, resp_mode, notes=cap_notes)
                         if _contract_check_enabled(request) else []
                     )
-                    if cap_notes:
-                        yield (
-                            "event: content_block_delta\n"
-                            + "data: " + json.dumps({
-                                "type": "content_block_delta",
-                                "delta": {"type": "text_delta", "text": "\n\n" + cap_notes[0]},
-                            })
-                            + "\n\n"
-                        ).encode("utf-8")
+                    # Cap note: trace/header only, never into the transcript (2026-11-24).
+                    cap_note_stream = cap_notes[0] if cap_notes else None
                     if contract_violations:
                         yield (
                             "event: content_block_delta\n"
@@ -1020,6 +1029,7 @@ def create_app(
                 "agent_id": agent_id or None,
                 "tag_injected": tag_injected,
                 "contract_violations": contract_violations or None,
+                "cap_note": cap_note_stream,
             })
 
         return StreamingResponse(
