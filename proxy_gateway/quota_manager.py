@@ -20,8 +20,11 @@ import os
 from pathlib import Path
 import re
 import sqlite3
+import threading
+import time
 from typing import Any, Iterable
 
+import httpx
 import yaml
 
 WINDOW_SPECS: tuple[tuple[str, float, str], ...] = (
@@ -29,6 +32,8 @@ WINDOW_SPECS: tuple[tuple[str, float, str], ...] = (
     ("week", 168.0, "rolling_week_limit"),
     ("month", 720.0, "rolling_month_limit"),
 )
+# A provider reading older than this stops overriding the local estimate.
+REMOTE_USAGE_TTL_SEC = 600.0
 
 
 @dataclass(frozen=True)
@@ -77,6 +82,11 @@ class QuotaManager:
         self.active_peak_avoidance: bool = bool(self.policy.get("active_peak_avoidance", True))
         self.default_cooldown_sec: int = int(self.policy.get("default_cooldown_seconds", 300))
         self._pool_cooldowns: dict[str, datetime] = {}
+        # Provider-reported window usage (percent) per pool, with its fetch time. Authoritative for
+        # the exhaustion decision while fresh: the local ledger is an estimate in another unit
+        # (2026-11-24: it read 19.95/20 for OpenCode while the provider said 4%).
+        self._remote_usage: dict[str, dict[str, Any]] = {}
+        self._remote_thread: threading.Thread | None = None
         # Model-scoped cooldowns for misconfiguration-class failures (401/403/404/5xx).
         self._model_cooldowns: dict[str, tuple[datetime, str]] = {}
         self._init_db()
@@ -291,14 +301,26 @@ class QuotaManager:
             return (False, False, f"pool_{pool_id}_cooldown({rem}s)")
 
         # 2. Shared-pool 5h / week / month rolling quota check
-        for label, hours, limit_key in WINDOW_SPECS:
-            limit_val = pcfg.get(limit_key)
-            if limit_val is None:
-                continue
-            lim = float(limit_val)
-            used = self.get_pool_window_units(pool_id, hours, now_utc)
-            if used >= lim * self.soft_limit_ratio:
-                return (False, False, f"pool_{pool_id}_{label}_exhausted({used:.1f}/{lim:.1f})")
+        remote = self._remote_usage.get(pool_id)
+        remote_fresh = bool(remote and (now_utc - remote["ts"]).total_seconds() < REMOTE_USAGE_TTL_SEC)
+        if remote_fresh:
+            for label, _hours, limit_key in WINDOW_SPECS:
+                pct = remote["percent"].get(label)
+                limit_val = pcfg.get(limit_key)
+                if pct is None or limit_val is None:
+                    continue
+                lim = float(limit_val)
+                if pct >= lim * self.soft_limit_ratio:
+                    return (False, False, f"pool_{pool_id}_{label}_exhausted(remote {pct:.1f}/{lim:.0f}%)")
+        else:
+            for label, hours, limit_key in WINDOW_SPECS:
+                limit_val = pcfg.get(limit_key)
+                if limit_val is None:
+                    continue
+                lim = float(limit_val)
+                used = self.get_pool_window_units(pool_id, hours, now_utc)
+                if used >= lim * self.soft_limit_ratio:
+                    return (False, False, f"pool_{pool_id}_{label}_exhausted(local-est {used:.1f}/{lim:.1f})")
 
         # 3. Global active peak-hour avoidance (yields to off-peak / no-peak primary pools)
         in_peak = is_in_peak_window(now_utc, pcfg.get("peak_windows_utc", []))
@@ -443,5 +465,66 @@ class QuotaManager:
                 "models": [mk for mk, mc in self.models.items() if mc.get("pool") == pid],
                 "windows": windows_info,
                 "cooldown_remaining_sec": cd_rem,
+                "remote_usage": self._remote_usage_view(pid, now),
             }
         return {"ts_utc": now.isoformat(), "pools": pools_out}
+
+    # ---- provider-reported usage (authoritative while fresh) ----
+    REMOTE_WINDOW_KEYS = {"5h": "rolling", "week": "weekly", "month": "monthly"}
+
+    @classmethod
+    def parse_usage_payload(cls, payload: Any) -> dict[str, float]:
+        """{usage:{rolling:{percent},weekly:{...},monthly:{...}}} -> {'5h': pct, ...}."""
+        usage = payload.get("usage") if isinstance(payload, dict) else None
+        out: dict[str, float] = {}
+        if isinstance(usage, dict):
+            for label, key in cls.REMOTE_WINDOW_KEYS.items():
+                block = usage.get(key)
+                if isinstance(block, dict) and block.get("percent") is not None:
+                    out[label] = float(block["percent"])
+        return out
+
+    def _remote_usage_view(self, pool_id: str, now: datetime) -> dict[str, Any] | None:
+        remote = self._remote_usage.get(pool_id)
+        if not remote:
+            return None
+        return {"percent": remote["percent"], "age_sec": int((now - remote["ts"]).total_seconds()),
+                "authoritative": (now - remote["ts"]).total_seconds() < REMOTE_USAGE_TTL_SEC}
+
+    def _fetch_remote_usage(self, pool_id: str) -> dict[str, float] | None:
+        pcfg = self.pools.get(pool_id, {})
+        url = str(pcfg.get("usage_endpoint") or "")
+        key = os.environ.get(str(pcfg.get("usage_api_key_env") or ""), "")
+        if not url or not key:
+            return None
+        headers: dict[str, str] = {"accept": "application/json"}
+        if str(pcfg.get("usage_auth", "bearer")) == "bearer":
+            headers["authorization"] = f"Bearer {key}"
+        else:
+            headers["x-api-key"] = key
+        for name, value in (pcfg.get("usage_headers") or {}).items():
+            headers[str(name).lower()] = str(value)
+        try:
+            resp = httpx.get(url, headers=headers, timeout=6.0)
+            resp.raise_for_status()
+            return self.parse_usage_payload(resp.json()) or None
+        except (httpx.HTTPError, ValueError):
+            return None
+
+    def start_remote_usage_refresh(self, interval_sec: float = 60.0) -> None:
+        """Background refresh for every pool that declares usage_endpoint. Never started implicitly:
+        tests build managers without it, so no test touches the network."""
+        watched = [pid for pid, cfg in self.pools.items() if cfg.get("usage_endpoint")]
+        if not watched or self._remote_thread and self._remote_thread.is_alive():
+            return
+
+        def loop() -> None:
+            while True:
+                for pid in watched:
+                    percent = self._fetch_remote_usage(pid)
+                    if percent:
+                        self._remote_usage[pid] = {"percent": percent, "ts": datetime.now(timezone.utc)}
+                time.sleep(interval_sec)
+
+        self._remote_thread = threading.Thread(target=loop, name="quota-remote-usage", daemon=True)
+        self._remote_thread.start()

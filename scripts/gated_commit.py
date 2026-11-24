@@ -37,7 +37,7 @@ def main() -> int:
     if not args.skip_tests:
         # docker-first (operator rule): the commit gate runs the full suite in the verify
         # container through verify.py, which prints the runner and never falls back silently.
-        tests = run([sys.executable, "scripts/verify.py", "--runner", "docker"],
+        tests = run([sys.executable, "scripts/verify.py", "--runner", "docker", "--policy"],
                     capture_output=True, text=True, timeout=900)
         lines = [l for l in tests.stdout.splitlines() if l.strip()]
         runner = next((l for l in lines if l.startswith("runner=")), "")

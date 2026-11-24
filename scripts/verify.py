@@ -128,7 +128,12 @@ def _run_host(args: list[str]) -> int:
               "(yaml/pydantic/fastapi/httpx). Create .venv or use --runner docker.",
               file=sys.stderr, flush=True)
         return 3
-    return _run(_host_test_command(args))
+    tests_rc = _run(_host_test_command(args))
+    if "--policy" in args:
+        policy = subprocess.run([python, "scripts/gate_policy.py"], cwd=str(ROOT), text=True)
+        # The gate must see a failure from either part; tests still run so the log has everything.
+        return max(tests_rc, policy.returncode)
+    return tests_rc
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -136,10 +141,14 @@ def main() -> int:
                     default=os.environ.get("HARNESS_GATE_RUNNER", "auto"))
     ap.add_argument("--image", default=os.environ.get("HARNESS_VERIFY_IMAGE", DEFAULT_IMAGE))
     ap.add_argument("-p", dest="pattern", help="unittest discovery pattern")
+    ap.add_argument("--policy", action="store_true",
+                    help="also run scripts/gate_policy.py (the five host gate entries, now in-container)")
     ap.add_argument("--modules", nargs="*", help="explicit test modules (tests.x) instead of discovery")
     args, _unknown = ap.parse_known_args()
 
     extra = ["--modules", *args.modules] if args.modules else (["-p", args.pattern] if args.pattern else [])
+    if args.policy:
+        extra = ["--policy", *extra]
 
     if args.runner == "host":
         return _run_host(extra)

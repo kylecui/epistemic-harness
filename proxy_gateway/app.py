@@ -388,6 +388,11 @@ def create_app(
     oa_fallback = (openai_upstream or os.getenv("UPSTREAM_OPENAI_URL", "https://api.openai.com/v1")).rstrip("/")
     an_fallback = (anthropic_upstream or os.getenv("UPSTREAM_ANTHROPIC_URL", "https://api.anthropic.com")).rstrip("/")
     qm = quota_manager or QuotaManager(DEFAULT_QUOTA_POLICY, DEFAULT_QUOTA_DB)
+    if quota_manager is None and os.getenv("HARNESS_REMOTE_USAGE", "on") != "off" \
+            and not ("unittest" in sys.modules or "pytest" in sys.modules):
+        # Provider-reported usage for pools that declare usage_endpoint (OpenCode). Only for the
+        # gateway's own manager: tests inject theirs and never touch the network.
+        qm.start_remote_usage_refresh()
     get_now = now_provider or (lambda: datetime.now(timezone.utc))
     session_last_pool: dict[str, str] = {}
     drafter_state: dict[str, str | None] = {"last_pool": None}

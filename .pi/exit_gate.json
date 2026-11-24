@@ -5,32 +5,7 @@
   "checks": [
     {
       "name": "unit_tests",
-      "command": "python scripts/select_tests.py --docker",
-      "required": true
-    },
-    {
-      "name": "public_language",
-      "command": "python scripts/check_public_language.py",
-      "required": true
-    },
-    {
-      "name": "experiment_runner_declared",
-      "command": "python scripts/check_experiment_runner_declared.py",
-      "required": true
-    },
-    {
-      "name": "eol_policy",
-      "command": "python scripts/check_eol.py",
-      "required": true
-    },
-    {
-      "name": "routing_validate",
-      "command": "python scripts/capability_matrix.py --validate-routing config/task_routing.yaml",
-      "required": true
-    },
-    {
-      "name": "docs_fresh",
-      "command": "python scripts/check_docs.py",
+      "command": "python scripts/select_tests.py --docker --policy",
       "required": true
     }
   ],

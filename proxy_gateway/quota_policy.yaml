@@ -25,12 +25,20 @@ pools:
     - start: 01:30
       end: '10:30'
   opencode_go_basic:
-    unit: usd
+    # The limits below are PERCENT of the plan allowance (5h <= 20%, week <= 50%, month <= 100%),
+    # matching what the provider reports. Local ledger rows for this pool are estimated dollars
+    # in another unit, so they only decide exhaustion when the provider reading is unavailable.
+    unit: percent
     last_option: false
     weekly_reset: monday_00_utc
     rolling_5h_limit: 20.0
     rolling_week_limit: 50.0
     rolling_month_limit: 100.0
+    usage_endpoint: https://opencode.ai/inference/go/v1/usage
+    usage_api_key_env: OPENCODE_GO_API_KEY
+    usage_auth: bearer
+    usage_headers:
+      x-opencode-session: hs-harness-usage
     peak_cost_multiplier: 2.0
     peak_windows_utc:
     - start: '13:00'

@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import json
+import os
+import sys
 import unittest
 from pathlib import Path
 
@@ -82,15 +85,15 @@ class SelectionTests(unittest.TestCase):
     def test_docker_command_targets_the_verify_container_with_explicit_modules(self) -> None:
         # Policy: tests run in docker; the host only computes which modules to run.
         cmd = st.docker_command(["test_a", "test_b"])
-        self.assertEqual(cmd, [sys.executable, "scripts/verify.py", "--runner", "docker",
+        self.assertEqual(cmd, [sys.executable, "scripts/verify.py", "--runner", "docker", "--policy",
                                "--modules", "tests.test_a", "tests.test_b"])
-        self.assertEqual(st.docker_command(None), [sys.executable, "scripts/verify.py", "--runner", "docker"])
+        self.assertEqual(st.docker_command(None), [sys.executable, "scripts/verify.py", "--runner", "docker", "--policy"])
 
     def test_exit_gate_runs_unit_tests_through_docker(self) -> None:
         import json
         gate = json.loads((REPO_ROOT / ".pi" / "exit_gate.json").read_text(encoding="utf-8"))
         command = next(c["command"] for c in gate["checks"] if c["name"] == "unit_tests")
-        self.assertTrue(command.endswith("select_tests.py --docker"), command)
+        self.assertTrue(command.endswith("select_tests.py --docker --policy"), command)
 
 
 if __name__ == "__main__":

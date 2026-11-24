@@ -98,8 +98,11 @@ def select(changed: list[str], modules: dict[str, str]) -> tuple[list[str] | Non
 
 
 def docker_command(selected: list[str] | None) -> list[str]:
-    """verify.py invocation for the selection: explicit modules, or the full suite when None."""
-    cmd = [sys.executable, "scripts/verify.py", "--runner", "docker"]
+    """verify.py invocation for the selection: explicit modules, or the full suite when None.
+
+    --policy runs the five former host gate checks in the same container run.
+    """
+    cmd = [sys.executable, "scripts/verify.py", "--runner", "docker", "--policy"]
     if selected is not None:
         cmd += ["--modules", *[f"tests.{m}" for m in selected]]
     return cmd
