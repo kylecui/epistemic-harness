@@ -44,8 +44,9 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
         self.qm.record_usage("zhipu-glm-5.4", units_override=28000.0, now_utc=now)
 
         # Now system_0 (which wants zhipu-glm-5.3-flash first) MUST skip flash because shared pool is full!
+        # L4 决策 (2026-11-24)：zhipu 池满后滑到 kimi 家族。
         sel = self.qm.select_candidates("system_0", "openai", now_utc=now)
-        self.assertEqual(sel.model_key, "opencode-deepseek-v4.1-flash")
+        self.assertEqual(sel.model_key, "kimi-for-coding")
         self.assertIn("pool_zhipu_v2_max_5h_exhausted", sel.skipped_reasons["zhipu-glm-5.3-flash"])
 
     def test_opencode_go_peak_2x_multiplier_and_weekly_cap(self) -> None:
@@ -112,12 +113,13 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
             },
         )
         self.assertEqual(resp.status_code, 200)
-        # L4 决策：system_2 链首为 deepseek，kimi 429 后按新链序 failover 至 deepseek
-        self.assertEqual(called, ["k3.1-pro", "deepseek-v4.1-flash"])
+        # L4 决策 (2026-11-24)：子代理链序 zhipu > kimi > copilot > google > opencode；
+        # 显式请求 kimi-k3.1-pro，429 后 failover 至 zhipu 家族。
+        self.assertEqual(called, ["k3.1-pro", "glm-5.4"])
         q = client.get("/quota").json()
         self.assertGreater(q["pools"]["kimi_allegretto"]["cooldown_remaining_sec"], 0)
-        # 0.1M * 0.25 + 0.05M * 1.0 = 0.075 USD in opencode_go_basic shared pool
-        self.assertAlmostEqual(q["pools"]["opencode_go_basic"]["windows"]["5h"]["used"], 0.075, places=3)
+        # 0.1M * 4.6 + 0.05M * 16.0 = 1.26 credits in zhipu_v2_max shared pool
+        self.assertAlmostEqual(q["pools"]["zhipu_v2_max"]["windows"]["5h"]["used"], 1.26, places=2)
 
 
     def test_24h_global_active_peak_hour_relay(self) -> None:
@@ -141,12 +143,12 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
         """System 2+ audit automatically selects a different provider family than the drafter."""
         off_peak_all = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)  # 20:00 +08:00 (both CN & US off-peak)
         # Suppose zhipu_v2_max drafted Turn 1 -> audit MUST pick a DIFFERENT provider family.
-        # L4 决策：链首 deepseek（opencode 家族）优先，但仍须排除 zhipu 起草池。
+        # L4 决策 (2026-11-24)：子代理链首为 zhipu，排除 zhipu 起草池后滑到 kimi 家族。
         sel_critic = self.qm.select_candidates(
             "system_2_plus", "openai", now_utc=off_peak_all, exclude_pool="zhipu_v2_max"
         )
-        self.assertEqual(sel_critic.pool_id, "opencode_go_basic")
-        self.assertEqual(sel_critic.model_key, "opencode-deepseek-v4.1-flash")
+        self.assertEqual(sel_critic.pool_id, "kimi_allegretto")
+        self.assertEqual(sel_critic.model_key, "kimi-k3.1-pro")
         self.assertIn("cross_family_critic_excluded", sel_critic.skipped_reasons["zhipu-glm-5.4"])
 
 if __name__ == "__main__":

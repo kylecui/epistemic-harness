@@ -26,16 +26,18 @@ from proxy_gateway.response_guard import (
 )
 
 
-class TestDeepseekFirstChains(unittest.TestCase):
-    def test_deepseek_is_chain_head_for_all_tiers(self) -> None:
+class TestChainPriorityContract(unittest.TestCase):
+    def test_zhipu_head_opencode_tail_for_all_tiers(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             qm = QuotaManager(REPO_ROOT / "proxy_gateway" / "quota_policy.yaml", Path(tmp) / "q.db")
             for tier in ("system_0", "system_1", "system_1_5", "system_2", "system_2_plus"):
-                self.assertEqual(
-                    qm.routing_chains[tier][0],
-                    "opencode-deepseek-v4.1-flash",
-                    msg=f"{tier} must start with deepseek (L4 baseline decision)",
-                )
+                chain = qm.routing_chains[tier]
+                # L4 decision (2026-11-24): sub-agents prefer zhipu > kimi > copilot > google;
+                # opencode is the LAST-resort fallback. The main agent still reaches it first
+                # by passing the model explicitly as requested_model.
+                self.assertTrue(chain[0].startswith("zhipu"), msg=f"{tier} must start with zhipu: {chain}")
+                self.assertEqual(chain[-1], "opencode-deepseek-v4.1-flash",
+                                 msg=f"{tier} must end with the opencode fallback: {chain}")
             # Agent profiles are loaded: pin tier (reasoning intensity) only,
             # model selection stays with the local dynamic router.
             self.assertIn("coder", qm.agent_profiles)
@@ -84,8 +86,8 @@ class TestAgentProfileRouting(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.headers["x-harness-routed-tier"], "system_1_5")
-        # No model pin: local router picks chain head (deepseek) dynamically
-        self.assertEqual(captured["model"], "deepseek-v4.1-flash")
+        # No model pin: local router picks the chain head (zhipu, L4 priority 2026-11-24)
+        self.assertTrue(captured["model"].startswith("glm-"), captured["model"])
         self.assertEqual(captured["reasoning_effort"], "medium")  # system_1_5 effort
 
     def test_explorer_profile_uses_lightweight_tier(self) -> None:
@@ -98,7 +100,7 @@ class TestAgentProfileRouting(unittest.TestCase):
         )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.headers["x-harness-routed-tier"], "system_1")
-        self.assertEqual(captured["model"], "deepseek-v4.1-flash")
+        self.assertTrue(captured["model"].startswith("glm-"), captured["model"])
         self.assertEqual(captured["reasoning_effort"], "low")
 
     def test_explicit_tier_header_overrides_agent_profile(self) -> None:
@@ -110,9 +112,9 @@ class TestAgentProfileRouting(unittest.TestCase):
             json={"stream": False, "messages": [{"role": "user", "content": "做形式化证明"}]},
         )
         self.assertEqual(resp.status_code, 200)
-        # Tier from explicit header wins; model still chosen by local router (chain head)
+        # Tier from explicit header wins; model still chosen by local router (zhipu head)
         self.assertEqual(resp.headers["x-harness-routed-tier"], "system_2")
-        self.assertEqual(captured["model"], "deepseek-v4.1-flash")
+        self.assertTrue(captured["model"].startswith("glm-"), captured["model"])
         self.assertEqual(captured["reasoning_effort"], "high")
 
     def test_unknown_agent_id_falls_back_to_fingerprint(self) -> None:

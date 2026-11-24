@@ -25,3 +25,6 @@ __pycache__/
 experiments/campaign*.log
 experiments/campaign.status
 .pi/extensions/
+.pi/agent_visibility.jsonl
+.pi/router_watchdog.status
+.pi/router_watchdog.jsonl
