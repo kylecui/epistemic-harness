@@ -209,11 +209,12 @@ class TestUpstreamFailureHandling(unittest.TestCase):
         client = TestClient(app)
         resp = client.post("/v1/chat/completions", json={
             "stream": False, "messages": [{"role": "user", "content": "请排查这个多文件问题并对比方案"}]})
-        self.assertEqual(resp.status_code, 503)  # unavailable, not a bad gateway (2026-11-24)
+        self.assertEqual(resp.status_code, 503)  # the gateway's own status (2026-11-24)
+        self.assertEqual(resp.headers["x-harness-all-upstreams-unavailable"], "1")
         self.assertTrue(resp.headers["retry-after"].isdigit())
         msg = resp.json()["error"]["message"]
-        self.assertIn("HARNESS_GATEWAY_ERROR", msg)
-        self.assertIn("HTTP 401", msg)
+        self.assertTrue(msg.startswith("HTTP 401 Invalid Authentication. "), msg)  # provider error leads
+        self.assertIn("HTTP 401", resp.json()["harness"]["other_candidates"])  # every candidate stays visible
         self.assertIn("Invalid Authentication", msg)
 
     def test_stream_unavailable_error_includes_upstream_reasons(self) -> None:
@@ -227,8 +228,10 @@ class TestUpstreamFailureHandling(unittest.TestCase):
                 "stream": True, "messages": [{"role": "user", "content": "请排查这个多文件问题并对比方案"}]}) as r:
             text = "".join(r.iter_text())
             self.assertEqual(r.status_code, 503)
-        self.assertIn("nothing was generated", text)
-        self.assertIn("HTTP 404", text)
+        parsed = json.loads(text)
+        self.assertTrue(parsed["harness"]["all_upstreams_unavailable"])
+        self.assertTrue(parsed["error"]["message"].startswith("HTTP 404 Not Found. "))
+        self.assertIn("HTTP 404", parsed["harness"]["other_candidates"])
         self.assertNotIn("data:", text)  # no SSE frame, so a client cannot store it as an assistant message
 
 

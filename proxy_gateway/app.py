@@ -85,28 +85,39 @@ class AllUpstreamsUnavailable(Exception):
     a fake reply ends the turn silently, an error lets the user retry (2026-11-24).
     """
 
-    def __init__(self, protocol: str, tier: str, summary: str, retry_after: int | None) -> None:
+    def __init__(self, protocol: str, tier: str, summary: str, retry_after: int | None,
+                 upstream: dict[str, Any] | None = None) -> None:
         super().__init__(summary)
         self.protocol = protocol
         self.tier = tier
         self.summary = summary
         self.retry_after = retry_after
+        self.upstream = upstream  # the first upstream that actually answered: {status, body}
 
 
 def unavailable_response(exc: AllUpstreamsUnavailable) -> JSONResponse:
-    message = ("[HARNESS_GATEWAY_ERROR] No upstream is available right now; nothing was generated "
-               f"for this request. {exc.summary}")
+    headers = {"Retry-After": str(exc.retry_after or 30), "X-Harness-Routed-Tier": exc.tier,
+               "X-Harness-All-Upstreams-Unavailable": "1"}
+    # The status stays the gateway's 503 (deterministic for clients), but the message LEADS with the
+    # first upstream that actually answered (its status, code, message, request id), because the
+    # client UI shows only error.message. Its raw status and body ride along as structured data.
+    upstream = exc.upstream or {}
+    lead = str(upstream.get("brief") or "")
+    message = (f"{lead}. " if lead else "") + \
+              "[HARNESS_GATEWAY_ERROR] No upstream produced a response for this request; nothing was generated."
     if exc.retry_after:
         message += f" Earliest recovery in about {exc.retry_after}s."
+    message += f" Candidates: {exc.summary}"
     if exc.protocol == "anthropic":
         content: dict[str, Any] = {"type": "error", "error": {"type": "overloaded_error", "message": message}}
     else:
         content = {"error": {"type": "harness_gateway_error", "message": message}}
-    return JSONResponse(
-        status_code=503,
-        content=content,
-        headers={"Retry-After": str(exc.retry_after or 30), "X-Harness-Routed-Tier": exc.tier},
-    )
+    if upstream:
+        content["harness"] = {"all_upstreams_unavailable": True, "retry_after_sec": int(headers["Retry-After"]),
+                              "upstream_error": {"model": upstream.get("model"), "status": upstream.get("status"),
+                                                  "body": str(upstream.get("body") or "")[:2000]},
+                              "other_candidates": exc.summary}
+    return JSONResponse(status_code=503, content=content, headers=headers)
 
 
 async def _prepend(first: bytes, rest: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
@@ -269,7 +280,7 @@ def _error_brief(status: int, body_text: str, headers: Any) -> str:
 
 async def _record_upstream_failure(
     qm: Any, model_key: str, resp: Any, failures: dict[str, str], now: Any, streaming: bool = False,
-    request_payload: Any = None,
+    request_payload: Any = None, first_failure: dict[str, Any] | None = None,
 ) -> None:
     """Classify an upstream HTTP failure (cooldown by status class) and keep a sanitized reason."""
     try:
@@ -281,6 +292,9 @@ async def _record_upstream_failure(
     qm.mark_upstream_failure(model_key, resp.status_code, body_text, _parse_retry_after(resp), now_utc=now)
     capture_failed_request(model_key, resp.status_code, request_payload, body_text)
     failures[model_key] = _error_brief(resp.status_code, body_text, resp.headers)
+    if first_failure is not None and not first_failure:
+        first_failure.update(status=resp.status_code, body=body_text[:8000], model=model_key,
+                            brief=failures[model_key])
 
 
 def _failure_summary(failures: dict[str, str], skipped: dict[str, str]) -> str:
@@ -422,6 +436,11 @@ def create_app(
 
     @app.exception_handler(AllUpstreamsUnavailable)
     async def _all_upstreams_unavailable(request: Request, exc: AllUpstreamsUnavailable) -> JSONResponse:
+        # Every 503 leaves one trace event, whichever route raised it, so its frequency and
+        # wait time can be counted (monitoring rule: auto-retry only pays off for short waits).
+        _log_trace({"ts": get_now().isoformat(), "event": "all_unavailable", "protocol": exc.protocol,
+                    "tier": exc.tier, "retry_after": exc.retry_after, "detail": exc.summary,
+                    "upstream_status": (exc.upstream or {}).get("status")})
         return unavailable_response(exc)
 
     def _interim_check(request: Request, text: str) -> str | None:
@@ -477,6 +496,7 @@ def create_app(
         if not is_stream:
             last_resp: httpx.Response | None = None
             failures: dict[str, str] = {}
+            first_failure: dict[str, Any] = {}  # first upstream that actually answered
             async with httpx.AsyncClient(transport=transport, timeout=upstream_timeout) as client:
                 for mkey in selection.failover_chain:
                     chosen_key = mkey
@@ -492,7 +512,7 @@ def create_app(
                     )
                     last_resp = resp
                     if _is_failover_status(resp.status_code):
-                        await _record_upstream_failure(qm, mkey, resp, failures, now, request_payload=rewritten)
+                        await _record_upstream_failure(qm, mkey, resp, failures, now, request_payload=rewritten, first_failure=first_failure)
                         continue
                     break
 
@@ -500,7 +520,7 @@ def create_app(
             if failures and _is_failover_status(last_resp.status_code):
                 raise AllUpstreamsUnavailable(
                     "openai", decision.tier, _failure_summary(failures, selection.skipped_reasons),
-                    qm.soonest_available_in(decision.tier, now, failures))
+                    qm.soonest_available_in(decision.tier, now, failures), first_failure or None)
             data = last_resp.json()
             if not isinstance(data, dict):
                 data = {"choices": []}
@@ -647,6 +667,7 @@ def create_app(
             cap_note_stream: str | None = None
             openai_tag_guard = StreamTagGuard(tier_tag)
             failures: dict[str, str] = {}
+            first_failure: dict[str, Any] = {}  # first upstream that actually answered
             resp_mode = detect_mode(user_text, decision.tier)
             full_text = ""
             done_line: str | None = None
@@ -670,7 +691,7 @@ def create_app(
                         ) as resp:
                             if resp.status_code >= 400:
                                 await _record_upstream_failure(qm, mkey, resp, failures, now, streaming=True,
-                                                              request_payload=rewritten)
+                                                              request_payload=rewritten, first_failure=first_failure)
                                 continue
                             streamed_any = True
                             async for raw_line in resp.aiter_lines():
@@ -840,7 +861,7 @@ def create_app(
                 else:
                     raise AllUpstreamsUnavailable(
                         "openai", decision.tier, _failure_summary(failures, selection.skipped_reasons),
-                        qm.soonest_available_in(decision.tier, now, failures))
+                        qm.soonest_available_in(decision.tier, now, failures), first_failure or None)
 
         stream = sse_proxy()
         first_chunk = await _primed(stream)
@@ -1007,6 +1028,7 @@ def create_app(
             cap_note_stream: str | None = None
             anthropic_tag_guard = StreamTagGuard(tier_tag)
             failures: dict[str, str] = {}
+            first_failure: dict[str, Any] = {}  # first upstream that actually answered
             resp_mode = detect_mode(user_text, decision.tier)
             full_text = ""
             stop_lines: list[str] = []
@@ -1027,7 +1049,7 @@ def create_app(
                         ) as resp:
                             if resp.status_code >= 400:
                                 await _record_upstream_failure(qm, mkey, resp, failures, now, streaming=True,
-                                                              request_payload=rewritten)
+                                                              request_payload=rewritten, first_failure=first_failure)
                                 continue
                             streamed_any = True
                             async for raw_line in resp.aiter_lines():
@@ -1179,7 +1201,7 @@ def create_app(
                 else:
                     raise AllUpstreamsUnavailable(
                         "anthropic", decision.tier, _failure_summary(failures, selection.skipped_reasons),
-                        qm.soonest_available_in(decision.tier, now, failures))
+                        qm.soonest_available_in(decision.tier, now, failures), first_failure or None)
 
         stream = sse_proxy()
         first_chunk = await _primed(stream)

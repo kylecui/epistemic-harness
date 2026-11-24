@@ -12,6 +12,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 import httpx
@@ -19,6 +20,7 @@ import httpx
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
+import proxy_gateway.app as app_module
 from proxy_gateway.app import AllUpstreamsUnavailable, _error_brief, create_app, unavailable_response
 from proxy_gateway.quota_manager import QuotaManager
 
@@ -68,15 +70,47 @@ class ErrorBriefTests(unittest.TestCase):
                          "HTTP 529 [overloaded_error] Overloaded")
         self.assertEqual(_error_brief(502, "bad gateway", {}), "HTTP 502 bad gateway")
 
-    def test_503_message_names_the_code_and_request_id_of_each_failed_upstream(self) -> None:
+    def test_provider_code_and_request_id_lead_the_message_and_ride_along_as_data(self) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(429, headers={"retry-after": "90", "request-id": "r-429"}, json={"error": {"code": "1302", "message": "rate"}})
+            return httpx.Response(429, headers={"retry-after": "90", "request-id": "r-429"},
+                                  json={"error": {"code": "1302", "message": "rate"}})
         resp = _client(handler).post("/v1/chat/completions", json={"model": "test-reasoner", "stream": False, "messages": MSG})
-        text = json.loads(resp.text)["error"]["message"]
+        body = json.loads(resp.text)
         self.assertEqual(resp.status_code, 503)
-        self.assertIn("[1302]", text)
-        self.assertIn("request_id=r-429", text)
-        self.assertNotIn("{\"error\"", text)  # raw JSON prefix is no longer what the user sees
+        self.assertTrue(body["error"]["message"].startswith("HTTP 429 [1302] rate (request_id=r-429). "), body["error"]["message"])
+        self.assertEqual(body["harness"]["upstream_error"]["status"], 429)
+        self.assertIn("1302", body["harness"]["upstream_error"]["body"])
+        self.assertIn("request_id=r-429", body["harness"]["other_candidates"])
+
+    def test_no_upstream_answered_means_503_without_the_upstream_error_field(self) -> None:
+        resp = unavailable_response(AllUpstreamsUnavailable("openai", "system_1", "a -> skipped(pool_exhausted)", 8479))
+        self.assertEqual(resp.status_code, 503)
+        body = json.loads(resp.body)
+        self.assertNotIn("harness", body)
+        self.assertIn("Earliest recovery in about 8479s", body["error"]["message"])
+
+    def test_a_non_json_provider_body_is_kept_as_text(self) -> None:
+        resp = unavailable_response(AllUpstreamsUnavailable("openai", "system_1", "a -> HTTP 502", 5,
+                                                            {"status": 502, "body": "Bad Gateway"}))
+        self.assertEqual(resp.status_code, 503)
+        self.assertEqual(json.loads(resp.body)["harness"]["upstream_error"]["body"], "Bad Gateway")
+        self.assertEqual(json.loads(resp.body)["harness"]["retry_after_sec"], 5)
+
+
+class TraceTests(unittest.TestCase):
+    def test_every_503_leaves_one_trace_event_with_its_wait(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            trace = Path(tmp) / "traces.jsonl"
+            with patch.object(app_module, "TRACE_FILE", trace):
+                for stream in (True, False):
+                    _client(_always_429).post("/v1/chat/completions", json={
+                        "model": "test-reasoner", "stream": stream, "messages": MSG})
+            lines = trace.read_text(encoding="utf-8").splitlines()
+        events = [json.loads(l) for l in lines]
+        events = [e for e in events if e.get("event") == "all_unavailable"]
+        self.assertEqual(len(events), 2)
+        self.assertEqual({e["retry_after"] for e in events}, {91})
+        self.assertEqual({e["protocol"] for e in events}, {"openai"})
 
 
 class SoonestTests(unittest.TestCase):
@@ -103,17 +137,27 @@ class RouteTests(unittest.TestCase):
     def test_openai_stream_and_non_stream_get_503_not_a_synthesized_reply(self) -> None:
         for stream in (True, False):
             resp = _client(_always_429).post("/v1/chat/completions", json={"model": "test-reasoner", "stream": stream, "messages": MSG})
-            self.assertEqual(resp.status_code, 503, resp.text)
+            self.assertEqual(resp.status_code, 503, resp.text)  # always the gateway's status: deterministic
             # every attempted model answered retry-after 90 (rechecked one second later)
             self.assertEqual(resp.headers["retry-after"], "91")
-            self.assertNotIn("stop-loss synthesized", resp.text)
-            self.assertEqual(json.loads(resp.text)["error"]["type"], "harness_gateway_error")
+            self.assertEqual(resp.headers["x-harness-all-upstreams-unavailable"], "1")
+            body = json.loads(resp.text)
+            # The client UI shows only error.message, so the provider's own error leads it.
+            self.assertTrue(body["error"]["message"].startswith("HTTP 429 rate limited. "), body["error"]["message"])
+            self.assertIn("nothing was generated", body["error"]["message"])
+            self.assertEqual(body["harness"]["all_upstreams_unavailable"], True)
+            self.assertEqual(body["harness"]["upstream_error"]["status"], 429)
+            self.assertEqual(body["harness"]["retry_after_sec"], 91)
+            self.assertIn("HTTP 429", body["harness"]["other_candidates"])  # every candidate stays visible
 
     def test_anthropic_stream_gets_503(self) -> None:
         resp = _client(_always_429).post("/anthropic/v1/messages", json={
             "model": "claude", "max_tokens": 16, "stream": True, "messages": MSG})
         self.assertEqual(resp.status_code, 503, resp.text)
-        self.assertEqual(json.loads(resp.text)["error"]["type"], "overloaded_error")
+        body = json.loads(resp.text)
+        self.assertTrue(body["error"]["message"].startswith("HTTP 429 rate limited. "))
+        self.assertEqual(body["error"]["type"], "overloaded_error")
+        self.assertEqual(body["harness"]["upstream_error"]["status"], 429)
 
     def test_healthy_upstream_is_requested_once_and_content_is_intact(self) -> None:
         calls: list[str] = []
