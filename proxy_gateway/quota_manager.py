@@ -185,7 +185,14 @@ class QuotaManager:
 
     def get_pool_window_units(self, pool_id: str, hours: float, now_utc: datetime | None = None) -> float:
         now = now_utc or datetime.now(timezone.utc)
-        cutoff = (now - timedelta(hours=hours)).timestamp()
+        _, pcfg = "", self.pools.get(pool_id, {})
+        # Calendar week reset: provider official rule (e.g. OpenCode Go resets on Monday 00:00 UTC)
+        # prevents counting prior calendar week's usage against the current week's limit.
+        if pcfg.get("weekly_reset") == "monday_00_utc" and hours == 168.0:
+            monday = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+            cutoff = monday.timestamp()
+        else:
+            cutoff = (now - timedelta(hours=hours)).timestamp()
         with closing(sqlite3.connect(self.db_path)) as conn, conn:
             row = conn.execute(
                 "SELECT COALESCE(SUM(units_consumed), 0.0) FROM pool_usage WHERE pool_id = ? AND ts_utc >= ?",

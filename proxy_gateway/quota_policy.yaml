@@ -27,6 +27,7 @@ pools:
   opencode_go_basic:
     unit: usd
     last_option: false
+    weekly_reset: monday_00_utc
     rolling_5h_limit: 20.0
     rolling_week_limit: 50.0
     rolling_month_limit: 100.0
@@ -52,22 +53,6 @@ pools:
     rolling_month_limit: 60.0
     peak_cost_multiplier: 1.0
     peak_windows_utc: []
-  zhipu_zcode_agent:
-    unit: credits
-    last_option: false
-    rolling_5h_limit: 28000.0
-    rolling_week_limit: 140000.0
-    rolling_month_limit: 560000.0
-    peak_cost_multiplier: 1.0
-    peak_windows_utc: []
-  siliconflow_payg:
-    unit: cny
-    last_option: true
-    rolling_5h_limit: 15.0
-    rolling_week_limit: 40.0
-    rolling_month_limit: 100.0
-    peak_cost_multiplier: 1.0
-    peak_windows_utc: []
 models:
   zhipu-glm-5.4:
     pool: zhipu_v2_max
@@ -84,16 +69,6 @@ models:
     avoid_in_peak_for_tiers:
     - system_0
     - system_1
-    client_fingerprint:
-      user_agent: ZCode/3.4.0
-      extra_headers:
-        x-title: Z Code@electron
-        http-referer: https://zcode.z.ai
-        x-platform: win32-x64
-        x-release-channel: stable
-        x-client-language: zh-CN
-        x-client-timezone: Asia/Shanghai
-        x-os-category: windows
   zhipu-glm-5.3-flash:
     pool: zhipu_v2_max
     protocol: openai
@@ -235,62 +210,6 @@ models:
       input: 2.3
       cached_input: 0.56
       output: 8.0
-  zhipu-glm-5.4-zcode:
-    pool: zhipu_zcode_agent
-    protocol: anthropic
-    auth: bearer
-    upstream_base_url_env: ZCODE_BASE_URL
-    default_base_url: https://zcode.z.ai/api/v1/ultra/anthropic
-    api_key_env: ZHIPU_API_KEY
-    upstream_model: glm-5.4
-    cost_per_1m:
-      input: 4.6
-      cached_input: 1.1
-      output: 16.0
-    client_fingerprint:
-      user_agent: ZCode/3.4.0
-      extra_headers:
-        x-title: Z Code@electron
-        http-referer: https://zcode.z.ai
-        x-platform: win32-x64
-        x-release-channel: stable
-        x-client-language: zh-CN
-        x-client-timezone: Asia/Shanghai
-        x-os-category: windows
-  zhipu-glm-5.3-flash-zcode:
-    pool: zhipu_zcode_agent
-    protocol: anthropic
-    auth: bearer
-    upstream_base_url_env: ZCODE_BASE_URL
-    default_base_url: https://zcode.z.ai/api/v1/ultra/anthropic
-    api_key_env: ZHIPU_API_KEY
-    upstream_model: glm-5.3-flash
-    context_window: 1000000
-    cost_per_1m:
-      input: 2.3
-      cached_input: 0.56
-      output: 8.0
-    client_fingerprint:
-      user_agent: ZCode/3.4.0
-      extra_headers:
-        x-title: Z Code@electron
-        http-referer: https://zcode.z.ai
-        x-platform: win32-x64
-        x-release-channel: stable
-        x-client-language: zh-CN
-        x-client-timezone: Asia/Shanghai
-        x-os-category: windows
-  siliconflow-deepseek-v4-flash:
-    pool: siliconflow_payg
-    protocol: openai
-    upstream_base_url_env: SILICONFLOW_API_URL
-    default_base_url: https://api.siliconflow.cn/v1
-    api_key_env: SILICONFLOW_API_KEY
-    upstream_model: deepseek-ai/DeepSeek-V4-Flash
-    cost_per_1m:
-      input: 1.5
-      cached_input: 0.15
-      output: 4.5
 routing_chains:
   system_0:
   - opencode-deepseek-v4.1-flash
@@ -299,7 +218,6 @@ routing_chains:
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
   - copilot-claude-sonnet-5.5
-  - siliconflow-deepseek-v4-flash
   system_1:
   - opencode-deepseek-v4.1-flash
   - zhipu-glm-5.3-flash
@@ -308,43 +226,35 @@ routing_chains:
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
   - copilot-claude-sonnet-5.5
-  - siliconflow-deepseek-v4-flash
   system_1_5:
   - opencode-deepseek-v4.1-flash
   - kimi-for-coding
   - zhipu-glm-5.4
-  - zhipu-glm-5.4-zcode
   - zhipu-glm-5.4-anthropic
   - kimi-k3.1-pro
   - zhipu-glm-5.3-flash
-  - zhipu-glm-5.3-flash-zcode
   - zhipu-glm-5.3-flash-anthropic
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
   - copilot-claude-sonnet-5.5
-  - siliconflow-deepseek-v4-flash
   system_2:
   - opencode-deepseek-v4.1-flash
   - kimi-k3.1-pro
   - zhipu-glm-5.4
-  - zhipu-glm-5.4-zcode
   - zhipu-glm-5.4-anthropic
   - kimi-for-coding
   - copilot-claude-fable-5.2
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
   - copilot-claude-sonnet-5.5
-  - siliconflow-deepseek-v4-flash
   system_2_plus:
   - opencode-deepseek-v4.1-flash
   - zhipu-glm-5.4
-  - zhipu-glm-5.4-zcode
   - zhipu-glm-5.4-anthropic
   - kimi-k3.1-pro
   - copilot-claude-fable-5.2
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
-  - siliconflow-deepseek-v4-flash
 agent_profiles:
   explorer:
     description: 探索/检索子代理：快速发散初筛，轻量档
