@@ -943,14 +943,34 @@ def create_app(
         rewritten["model"] = selection.upstream_model
 
         if not is_stream:
+            # Same failover loop as the OpenAI route. Until 2026-11-24 this path made exactly one
+            # attempt and relayed the upstream error, so a second Anthropic-protocol candidate existed
+            # in the chain but was never tried.
+            last_resp: httpx.Response | None = None
+            failures: dict[str, str] = {}
+            first_failure: dict[str, Any] = {}  # first upstream that actually answered
             async with httpx.AsyncClient(transport=transport, timeout=upstream_timeout) as client:
-                resp = await client.post(
-                    f"{an_base}/v1/messages",
-                    json=rewritten,
-                    headers=_build_upstream_headers(request, qm, chosen_key, "anthropic", rewritten),
-                )
-            if _is_failover_status(resp.status_code):
-                await _record_upstream_failure(qm, chosen_key, resp, {}, now)
+                for mkey in selection.failover_chain:
+                    chosen_key = mkey
+                    an_base = _resolve_base(qm, mkey, an_fallback)
+                    rewritten = inject_thinking_language_anthropic(rewrite_anthropic_payload(body, decision), thinking_lang_mode)
+                    rewritten["model"] = qm.models[mkey]["upstream_model"]
+                    resp = await client.post(
+                        f"{an_base}/v1/messages",
+                        json=rewritten,
+                        headers=_build_upstream_headers(request, qm, mkey, "anthropic", rewritten),
+                    )
+                    last_resp = resp
+                    if _is_failover_status(resp.status_code):
+                        await _record_upstream_failure(qm, mkey, resp, failures, now, request_payload=rewritten,
+                                                      first_failure=first_failure)
+                        continue
+                    break
+            assert last_resp is not None
+            if failures and _is_failover_status(last_resp.status_code):
+                raise AllUpstreamsUnavailable(
+                    "anthropic", decision.tier, _failure_summary(failures, selection.skipped_reasons),
+                    qm.soonest_available_in(decision.tier, now, failures), first_failure or None)
             data = resp.json()
             guard_anthropic_content(data, tier_tag)
 

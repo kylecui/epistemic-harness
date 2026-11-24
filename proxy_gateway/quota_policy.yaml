@@ -109,6 +109,36 @@ models:
       output: 10.0
     avoid_in_peak_for_tiers:
     - system_0
+  kimi-for-coding-anthropic:
+    pool: kimi_allegretto
+    protocol: anthropic
+    auth: bearer
+    upstream_base_url_env: KIMI_ANTHROPIC_BASE_URL
+    default_base_url: https://api.kimi.com/coding
+    api_key_env: KIMI_API_KEY
+    upstream_model: kimi-for-coding
+    cost_per_1m:
+      input: 2.5
+      cached_input: 0.6
+      output: 10.0
+    avoid_in_peak_for_tiers:
+    - system_0
+    - system_1
+  kimi-k3.1-pro-anthropic:
+    pool: kimi_allegretto
+    protocol: anthropic
+    auth: bearer
+    upstream_base_url_env: KIMI_ANTHROPIC_BASE_URL
+    default_base_url: https://api.kimi.com/coding
+    api_key_env: KIMI_API_KEY
+    upstream_model: k3.1-pro
+    cost_per_1m:
+      input: 4.0
+      cached_input: 1.0
+      output: 16.0
+    avoid_in_peak_for_tiers:
+    - system_0
+    - system_1
   opencode-deepseek-v4.1-flash:
     pool: opencode_go_basic
     protocol: openai
@@ -216,30 +246,37 @@ routing_chains:
   - zhipu-glm-5.3-flash
   - zhipu-glm-5.3-flash-anthropic
   - kimi-for-coding
+  - kimi-for-coding-anthropic
   - opencode-deepseek-v4.1-flash
   system_1:
   - zhipu-glm-5.3-flash
   - zhipu-glm-5.4
   - zhipu-glm-5.3-flash-anthropic
   - kimi-for-coding
+  - kimi-for-coding-anthropic
   - opencode-deepseek-v4.1-flash
   system_1_5:
   - zhipu-glm-5.4
   - zhipu-glm-5.4-anthropic
   - zhipu-glm-5.3-flash
   - kimi-for-coding
+  - kimi-for-coding-anthropic
   - kimi-k3.1-pro
+  - kimi-k3.1-pro-anthropic
   - opencode-deepseek-v4.1-flash
   system_2:
   - zhipu-glm-5.4
   - zhipu-glm-5.4-anthropic
   - kimi-k3.1-pro
+  - kimi-k3.1-pro-anthropic
   - kimi-for-coding
+  - kimi-for-coding-anthropic
   - opencode-deepseek-v4.1-flash
   system_2_plus:
   - zhipu-glm-5.4
   - zhipu-glm-5.4-anthropic
   - kimi-k3.1-pro
+  - kimi-k3.1-pro-anthropic
   - opencode-deepseek-v4.1-flash
 agent_profiles:
   explorer:

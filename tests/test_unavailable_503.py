@@ -159,6 +159,36 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(body["error"]["type"], "overloaded_error")
         self.assertEqual(body["harness"]["upstream_error"]["status"], 429)
 
+    def test_anthropic_non_stream_tries_every_candidate_before_the_503(self) -> None:
+        """This path used to make one attempt and relay the upstream error (2026-11-24)."""
+        attempts: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts.append(json.loads(request.content.decode("utf-8"))["model"])
+            return httpx.Response(429, json={"type": "error", "error": {"type": "exceeded_current_quota_error", "message": "weekly limit"}})
+        resp = _client(handler).post("/anthropic/v1/messages", json={
+            "model": "claude-sonnet-5.5", "max_tokens": 16, "stream": False, "messages": MSG})
+        self.assertEqual(resp.status_code, 503, resp.text)
+        self.assertEqual(resp.headers["x-harness-all-upstreams-unavailable"], "1")
+        self.assertGreaterEqual(len(attempts), 2)
+        self.assertIn("exceeded_current_quota_error", resp.text)  # Kimi's real error shape leads the message
+
+    def test_anthropic_non_stream_fails_over_to_the_next_candidate(self) -> None:
+        attempts: list[str] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            attempts.append(json.loads(request.content.decode("utf-8"))["model"])
+            if len(attempts) == 1:
+                return httpx.Response(429, json={"type": "error", "error": {"type": "exceeded_current_quota_error", "message": "weekly limit"}})
+            return httpx.Response(200, json={"id": "msg_1", "type": "message", "role": "assistant", "model": attempts[-1],
+                                             "content": [{"type": "text", "text": "second candidate answered"}], "stop_reason": "end_turn",
+                                             "usage": {"input_tokens": 1, "output_tokens": 1}})
+        resp = _client(handler).post("/anthropic/v1/messages", json={
+            "model": "claude-sonnet-5.5", "max_tokens": 16, "stream": False, "messages": MSG})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(len(attempts), 2)
+        self.assertIn("second candidate answered", resp.text)
+
     def test_healthy_upstream_is_requested_once_and_content_is_intact(self) -> None:
         calls: list[str] = []
 

@@ -82,6 +82,28 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
             for key in chain:
                 self.assertFalse(key.startswith(("copilot-", "google-")), f"{tier}: {key}")
 
+    def test_every_tier_has_an_anthropic_protocol_backup(self) -> None:
+        """Anthropic-protocol requests had exactly one candidate per tier (Zhipu) until 2026-11-24,
+        so a single Zhipu error ended them in a 503 with nothing to fail over to."""
+        now = datetime(2026, 11, 19, 3, 0, tzinfo=timezone.utc)  # off-peak
+        for tier in self.qm.routing_chains:
+            sel = self.qm.select_candidates(tier, "anthropic", now_utc=now)
+            chain = sel.failover_chain
+            self.assertGreaterEqual(len(chain), 2, f"{tier}: {chain}")
+            self.assertEqual(chain[0], sel.model_key)
+            self.assertTrue(all(self.qm.models[k]["protocol"] == "anthropic" for k in chain), f"{tier}: {chain}")
+            self.assertTrue(any(k.startswith("kimi-") for k in chain[1:]), f"{tier}: {chain}")
+            openai_sel = self.qm.select_candidates(tier, "openai", now_utc=now)
+            self.assertFalse(any(k.endswith("-anthropic") for k in openai_sel.failover_chain), f"{tier}: protocol leak")
+
+    def test_kimi_anthropic_entries_share_the_kimi_pool_and_point_at_the_messages_api(self) -> None:
+        for key, sibling in (("kimi-for-coding-anthropic", "kimi-for-coding"), ("kimi-k3.1-pro-anthropic", "kimi-k3.1-pro")):
+            entry = self.qm.models[key]
+            self.assertEqual(entry["protocol"], "anthropic")
+            self.assertEqual(entry["pool"], self.qm.models[sibling]["pool"])  # one weekly quota
+            self.assertEqual(entry["upstream_model"], self.qm.models[sibling]["upstream_model"])
+            self.assertEqual(entry["default_base_url"], "https://api.kimi.com/coding")  # + /v1/messages
+
     def test_gateway_429_cools_down_entire_shared_pool_and_fails_over(self) -> None:
         called: list[str] = []
 
