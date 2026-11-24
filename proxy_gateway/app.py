@@ -89,6 +89,12 @@ def capture_failed_request(model_key: str, status: int, payload: Any, upstream_b
         FAILED_REQUEST_DIR.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
         target = FAILED_REQUEST_DIR / f"{stamp}-{model_key}-400.json"
+        # Two captures can land on the same microsecond (seen on the Windows host: 29 of 30
+        # kept, because the second overwrote the first). Never overwrite: suffix until free.
+        suffix = 0
+        while target.exists():
+            suffix += 1
+            target = FAILED_REQUEST_DIR / f"{stamp}-{model_key}-{suffix}-400.json"
         target.write_text(json.dumps({"model_key": model_key, "status": status,
                                        "upstream_body": (upstream_body or "")[:4000],
                                        "request": payload}, ensure_ascii=False), encoding="utf-8")

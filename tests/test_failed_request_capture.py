@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 import sys
 import tempfile
@@ -46,6 +47,22 @@ class CaptureTests(unittest.TestCase):
         for _ in range(35):
             capture_failed_request("m", 400, {"a": 1}, "")
         self.assertEqual(len(list(self.dir.glob("*.json"))), app_module._FAILED_REQUEST_KEEP)
+
+    def test_two_captures_in_the_same_microsecond_are_both_kept(self) -> None:
+        real = datetime
+
+        class Frozen:
+            @staticmethod
+            def now(tz=None):
+                return real(2026, 11, 24, 12, 0, 0, 123456, tzinfo=tz)
+
+        with patch.object(app_module, "datetime", Frozen):
+            first = capture_failed_request("m", 400, {"n": 1}, "")
+            second = capture_failed_request("m", 400, {"n": 2}, "")
+        self.assertNotEqual(first, second)
+        saved = [json.loads((self.dir / name).read_text(encoding="utf-8"))["request"]["n"]
+                 for name in (first, second)]
+        self.assertEqual(sorted(saved), [1, 2])  # neither overwrote the other
 
     def test_a_400_on_the_stream_route_is_written_with_the_sent_body(self) -> None:
         calls: list[dict] = []
