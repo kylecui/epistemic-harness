@@ -113,6 +113,8 @@ def main() -> int:
     ap.add_argument("--run", action="store_true")
     ap.add_argument("--docker", action="store_true",
                     help="run the selection inside the verify container (selection itself is computed here)")
+    ap.add_argument("--policy", action="store_true",
+                    help="also run the five policy checks; with --docker they share the same container run")
     ap.add_argument("--explain", action="store_true")
     args = ap.parse_args()
 
@@ -145,7 +147,11 @@ def main() -> int:
     cmd = [sys.executable, "-m", "unittest"]
     cmd += [f"tests.{m}" for m in selected] if selected is not None else ["discover", "-s", "tests"]
     print(f"select_tests: running {'FULL' if selected is None else len(selected)} on the HOST (--run; --docker is the policy default) ...", flush=True)
-    return subprocess.run(cmd, cwd=str(REPO_ROOT)).returncode
+    rc = subprocess.run(cmd, cwd=str(REPO_ROOT)).returncode
+    if args.policy:
+        policy = subprocess.run([sys.executable, "scripts/gate_policy.py"], cwd=str(REPO_ROOT))
+        return max(rc, policy.returncode)
+    return rc
 
 
 if __name__ == "__main__":

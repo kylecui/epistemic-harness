@@ -89,11 +89,24 @@ class SelectionTests(unittest.TestCase):
                                "--modules", "tests.test_a", "tests.test_b"])
         self.assertEqual(st.docker_command(None), [sys.executable, "scripts/verify.py", "--runner", "docker", "--policy"])
 
-    def test_exit_gate_runs_unit_tests_through_docker(self) -> None:
+    def test_exit_gate_config_points_at_the_containerized_command(self) -> None:
         import json
         gate = json.loads((REPO_ROOT / ".pi" / "exit_gate.json").read_text(encoding="utf-8"))
+        self.assertEqual([c["name"] for c in gate["checks"]], ["unit_tests"])
+        self.assertTrue(gate["checks"][0]["command"].endswith("select_tests.py --docker --policy"))
+
+    def test_cli_accepts_the_exact_arguments_the_gate_passes(self) -> None:
+        # The gate config and the CLI are separate files: --policy was passed before it existed
+        # and the whole gate died with 'unrecognized arguments' (2026-11-24).
+        import json
+        import subprocess
+        gate = json.loads((REPO_ROOT / ".pi" / "exit_gate.json").read_text(encoding="utf-8"))
         command = next(c["command"] for c in gate["checks"] if c["name"] == "unit_tests")
-        self.assertTrue(command.endswith("select_tests.py --docker --policy"), command)
+        flags = [part for part in command.split() if part.startswith("--")]
+        help_text = subprocess.run([sys.executable, "scripts/select_tests.py", "--help"],
+                                   cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=60).stdout
+        for flag in flags:
+            self.assertIn(flag, help_text, f"gate passes {flag} but the CLI does not accept it")
 
 
 if __name__ == "__main__":
