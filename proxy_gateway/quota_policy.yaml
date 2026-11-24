@@ -22,6 +22,9 @@ pools:
     peak_windows_utc:
       - start: "01:30"                # 东八区 09:30-18:30
         end: "10:30"
+    # Peak accounting note: official charges off-peak at 0.5x credits; this pool
+    # keeps base = official 1x (peak) rates everywhere (multiplier only up-scales),
+    # so off-peak usage is overcounted ~2x — conservative for quota protection.
 
   # 2. Kimi Allegretto（旧版 ¥199 共享额度池，官方含 5h 滚动 + 周限额 + 月限额，控制台按百分比展示）
   #    来源：https://www.kimi.com/help/membership/membership-pricing (2026-10-19)
@@ -97,11 +100,14 @@ models:
     default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
     api_key_env: ZHIPU_API_KEY
     upstream_model: glm-5.4
+    # OFFICIAL coding-plan coefficients (docs.bigmodel.cn/cn/coding-plan/overview,
+    # read 2026-11-24): 4.6 / 1.1 / 16 per 10k tok — 2/3 of GLM-5.3 (6.9/1.7/24).
+    # "1.5x usage" = 1.5x tokens-per-credit, i.e. CHEAPER, not dearer.
+    # GLM-5.4: 1M context; official coding recommendation: client window 512000.
     cost_per_1m:
-      # GLM-5.4 coding-plan rates UNVERIFIED — provisionally 5.3's (6.9/1.7/24.0) pending official pricing
-      input: 6.9
-      cached_input: 1.7
-      output: 24.0
+      input: 4.6
+      cached_input: 1.1
+      output: 16.0
     avoid_in_peak_for_tiers:
     - system_0
     - system_1
@@ -243,9 +249,9 @@ models:
     api_key_env: ZHIPU_API_KEY
     upstream_model: glm-5.4
     cost_per_1m:
-      input: 6.9
-      cached_input: 1.7
-      output: 24.0
+      input: 4.6
+      cached_input: 1.1
+      output: 16.0
     client_fingerprint:
       user_agent: "ZCode/3.4.0"
       extra_headers:
@@ -264,9 +270,9 @@ models:
     api_key_env: ZHIPU_API_KEY
     upstream_model: glm-5.3-flash
     cost_per_1m:
-      input: 6.9
-      cached_input: 1.7
-      output: 24.0
+      input: 2.3
+      cached_input: 0.56
+      output: 8.0
     client_fingerprint:
       user_agent: "ZCode/3.4.0"
       extra_headers:

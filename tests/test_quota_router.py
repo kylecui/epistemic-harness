@@ -34,9 +34,11 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
     def test_zhipu_shared_pool_exhaustion_blocks_both_glm_5_3_and_flash(self) -> None:
         """Exhausting zhipu_v2_max via glm-5.3 immediately skips glm-5.3-flash too!"""
         now = datetime(2026, 11, 19, 12, 0, tzinfo=timezone.utc)
-        # Verify exact Zhipu official credit math: 1M input (6.9) + 1M output (24.0) = 30.9 credits
+        # Verify exact Zhipu official credit math for GLM-5.4
+        # (docs.bigmodel.cn coding-plan overview, read 2026-11-24):
+        # 1M input (4.6) + 1M output (16.0) = 20.6 credits (2/3 of GLM-5.3's 30.9)
         units = self.qm.compute_units("zhipu-glm-5.4", prompt_tokens=1_000_000, completion_tokens=1_000_000, now_utc=now)
-        self.assertAlmostEqual(units, 30.9, places=3)
+        self.assertAlmostEqual(units, 20.6, places=3)
 
         # Spend full 5h Zhipu Max shared pool (28,000 credits) on glm-5.3
         self.qm.record_usage("zhipu-glm-5.4", units_override=28000.0, now_utc=now)
