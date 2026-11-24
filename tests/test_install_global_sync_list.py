@@ -35,6 +35,39 @@ class SyncListTests(unittest.TestCase):
             self.assertTrue(src.exists(), f"missing source: {src}")
             self.assertTrue(str(dst).startswith(str(Path.home())), f"destination outside home: {dst}")
 
+    def test_scripts_shipped_to_the_installed_plane_import_only_shipped_modules(self) -> None:
+        """upgrade.py runs from ~/.pi/harness: a helper it imports must be installed too."""
+        import ast
+
+        scripts_dir = REPO_ROOT / "scripts"
+        shipped = {src.name for src, _dst in installer._jobs() if src.parent == scripts_dir}
+        for name in sorted(shipped):
+            tree = ast.parse((scripts_dir / name).read_text(encoding="utf-8"))
+            local: set[str] = set()
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        head = alias.name.split(".")[0]
+                        if (scripts_dir / f"{head}.py").exists():
+                            local.add(f"{head}.py")
+                elif isinstance(node, ast.ImportFrom):
+                    module = node.module or ""
+                    head = module.split(".")[0]
+                    if head == "scripts":
+                        local.update(f"{alias.name}.py" for alias in node.names)
+                    elif (scripts_dir / f"{head}.py").exists():
+                        local.add(f"{head}.py")
+            self.assertEqual(local - shipped, set(), f"{name} imports modules that are never installed")
+
+    def test_sandbox_and_skill_sources_are_covered(self) -> None:
+        shipped = {src for src, _dst in installer._jobs()}
+        for path in sorted((REPO_ROOT / "sandbox").iterdir()):
+            if path.is_file():
+                self.assertIn(path, shipped, f"sandbox file not installed: {path.name}")
+        for skill_dir in sorted((REPO_ROOT / "skills" / "pi-native").iterdir()):
+            if skill_dir.is_dir():
+                self.assertTrue((skill_dir / "SKILL.md").exists(), f"no SKILL.md in {skill_dir.name}: the installer loop skips it")
+
 
 if __name__ == "__main__":
     unittest.main()
