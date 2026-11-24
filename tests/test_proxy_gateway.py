@@ -116,6 +116,32 @@ class TestProxyGateway(unittest.TestCase):
         an = inject_thinking_language_anthropic({"messages": [{"role": "user", "content": "分析架构"}]})
         self.assertIn("Conduct internal reasoning/thinking in concise English", an["system"])
 
+    def test_anthropic_path_uses_per_model_upstream_base(self) -> None:
+        """Regression: anthropic sends must honor each model's default_base_url.
+
+        The handler previously hardcoded the global anthropic fallback, sending
+        zcode/zhipu anthropic-protocol models to api.anthropic.com (401).
+        """
+        captured: list[str] = []
+        def mock_handler(req: httpx.Request) -> httpx.Response:
+            captured.append(str(req.url))
+            return httpx.Response(200, json={
+                "id": "msg_x", "type": "message", "role": "assistant", "model": "glm-5.4",
+                "content": [{"type": "text", "text": "ok"}], "stop_reason": "end_turn",
+                "usage": {"input_tokens": 1, "output_tokens": 1},
+            })
+        app = create_app(anthropic_upstream="https://mock.anthropic.local",
+                         transport=httpx.MockTransport(mock_handler))
+        client = TestClient(app)
+        resp = client.post("/anthropic/v1/messages", json={
+            "model": "zhipu-glm-5.4-anthropic", "max_tokens": 16,
+            "messages": [{"role": "user", "content": "hi"}],
+        })
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(captured, "no upstream call captured")
+        self.assertIn("open.bigmodel.cn", captured[0])
+        self.assertNotIn("mock.anthropic.local", captured[0])
+
 
 if __name__ == "__main__":
     unittest.main()

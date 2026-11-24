@@ -100,6 +100,7 @@ models:
     default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
     api_key_env: ZHIPU_API_KEY
     upstream_model: glm-5.4
+    context_window: 512000   # official coding recommendation (docs.bigmodel.cn, 2026-11-24)
     # OFFICIAL coding-plan coefficients (docs.bigmodel.cn/cn/coding-plan/overview,
     # read 2026-11-24): 4.6 / 1.1 / 16 per 10k tok — 2/3 of GLM-5.3 (6.9/1.7/24).
     # "1.5x usage" = 1.5x tokens-per-credit, i.e. CHEAPER, not dearer.
@@ -132,6 +133,7 @@ models:
     default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
     api_key_env: ZHIPU_API_KEY
     upstream_model: glm-5.3-flash
+    context_window: 1000000  # official: flash may use the full 1M window
     cost_per_1m:
       input: 2.3
       cached_input: 0.56
@@ -241,9 +243,39 @@ models:
     - system_0
     - system_1
     note: 'thinking-heavy: prefer stream; non-stream may exceed client timeout'
+  # Officially documented anthropic-compatible coding-plan endpoint (domestic):
+  # https://open.bigmodel.cn/api/anthropic (docs.bigmodel.cn/cn/coding-plan/latest-model).
+  # Same zhipu_v2_max pool as the openai-path models; Bearer auth.
+  zhipu-glm-5.4-anthropic:
+    pool: zhipu_v2_max
+    protocol: anthropic
+    auth: bearer
+    upstream_base_url_env: ZHIPU_ANTHROPIC_BASE_URL
+    default_base_url: https://open.bigmodel.cn/api/anthropic
+    api_key_env: ZHIPU_API_KEY
+    upstream_model: glm-5.4
+    context_window: 512000
+    cost_per_1m:
+      input: 4.6
+      cached_input: 1.1
+      output: 16.0
+  zhipu-glm-5.3-flash-anthropic:
+    pool: zhipu_v2_max
+    protocol: anthropic
+    auth: bearer
+    upstream_base_url_env: ZHIPU_ANTHROPIC_BASE_URL
+    default_base_url: https://open.bigmodel.cn/api/anthropic
+    api_key_env: ZHIPU_API_KEY
+    upstream_model: glm-5.3-flash
+    context_window: 1000000
+    cost_per_1m:
+      input: 2.3
+      cached_input: 0.56
+      output: 8.0
   zhipu-glm-5.4-zcode:
     pool: zhipu_zcode_agent
     protocol: anthropic
+    auth: bearer
     upstream_base_url_env: ZCODE_BASE_URL
     default_base_url: https://zcode.z.ai/api/v1/ultra/anthropic
     api_key_env: ZHIPU_API_KEY
@@ -265,10 +297,12 @@ models:
   zhipu-glm-5.3-flash-zcode:
     pool: zhipu_zcode_agent
     protocol: anthropic
+    auth: bearer
     upstream_base_url_env: ZCODE_BASE_URL
     default_base_url: https://zcode.z.ai/api/v1/ultra/anthropic
     api_key_env: ZHIPU_API_KEY
     upstream_model: glm-5.3-flash
+    context_window: 1000000  # official: flash may use the full 1M window
     cost_per_1m:
       input: 2.3
       cached_input: 0.56
@@ -304,9 +338,11 @@ routing_chains:
   - kimi-for-coding
   - zhipu-glm-5.4
   - zhipu-glm-5.4-zcode
+  - zhipu-glm-5.4-anthropic
   - kimi-k3.1-pro
   - zhipu-glm-5.3-flash
   - zhipu-glm-5.3-flash-zcode
+  - zhipu-glm-5.3-flash-anthropic
   - google-ai-gemini-4-neon
   - google-ai-gemini-4-hydrogen
   - copilot-claude-sonnet-5.5
@@ -315,6 +351,7 @@ routing_chains:
   - kimi-k3.1-pro
   - zhipu-glm-5.4
   - zhipu-glm-5.4-zcode
+  - zhipu-glm-5.4-anthropic
   - kimi-for-coding
   - copilot-claude-fable-5.2
   - google-ai-gemini-4-neon
@@ -324,6 +361,7 @@ routing_chains:
   - opencode-deepseek-v4.1-flash
   - zhipu-glm-5.4
   - zhipu-glm-5.4-zcode
+  - zhipu-glm-5.4-anthropic
   - kimi-k3.1-pro
   - copilot-claude-fable-5.2
   - google-ai-gemini-4-neon

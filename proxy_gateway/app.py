@@ -84,6 +84,12 @@ def _build_upstream_headers(
         if key:
             for name, value in google_headers(key).items():
                 hdrs[name.lower()] = value
+    elif auth_mode == "bearer":
+        # Providers that accept the plan key as a plain Bearer token (e.g. the
+        # zcode agent gateway) instead of anthropic-style x-api-key.
+        key = qm.resolve_api_key(model_key)
+        if key:
+            hdrs["authorization"] = f"Bearer {key}"
     else:
         key = qm.resolve_api_key(model_key)
         if key:
@@ -689,13 +695,17 @@ def create_app(
         guard = GuardState(decision.tier, decision.max_thinking_chars, decision.max_pivots)
 
         chosen_key = selection.model_key
+        # Per-model upstream base (issue: anthropic path hardcoded the global
+        # fallback, so non-Anthropic anthropic-protocol models — zcode gateway,
+        # zhipu /api/anthropic — were sent to api.anthropic.com and 401'd).
+        an_base = _resolve_base(qm, chosen_key, an_fallback)
         rewritten = inject_thinking_language_anthropic(rewrite_anthropic_payload(body, decision), thinking_lang_mode)
         rewritten["model"] = selection.upstream_model
 
         if not is_stream:
             async with httpx.AsyncClient(transport=transport, timeout=upstream_timeout) as client:
                 resp = await client.post(
-                    f"{an_fallback}/v1/messages",
+                    f"{an_base}/v1/messages",
                     json=rewritten,
                     headers=_build_upstream_headers(request, qm, chosen_key, "anthropic", rewritten),
                 )
@@ -729,7 +739,7 @@ def create_app(
                 try:
                     async with httpx.AsyncClient(transport=transport, timeout=upstream_timeout) as rclient:
                         rresp = await rclient.post(
-                            f"{an_fallback}/v1/messages",
+                            f"{an_base}/v1/messages",
                             json=retry_payload,
                             headers=_build_upstream_headers(request, qm, chosen_key, "anthropic", retry_payload),
                         )
@@ -798,6 +808,7 @@ def create_app(
             contract_violations: list[str] = []
             for mkey in selection.failover_chain:
                 chosen_key = mkey
+                an_base = _resolve_base(qm, mkey, an_fallback)
                 rewritten = inject_thinking_language_anthropic(rewrite_anthropic_payload(body, decision), thinking_lang_mode)
                 rewritten["model"] = qm.models[mkey]["upstream_model"]
                 saw_stop = False
@@ -805,7 +816,7 @@ def create_app(
                     async with httpx.AsyncClient(transport=transport, timeout=upstream_timeout) as client:
                         async with client.stream(
                             "POST",
-                            f"{an_fallback}/v1/messages",
+                            f"{an_base}/v1/messages",
                             json=rewritten,
                             headers=_build_upstream_headers(request, qm, mkey, "anthropic", rewritten),
                         ) as resp:
@@ -903,7 +914,7 @@ def create_app(
                     async with httpx.AsyncClient(transport=transport, timeout=upstream_timeout) as client:
                         async with client.stream(
                             "POST",
-                            f"{an_fallback}/v1/messages",
+                            f"{an_base}/v1/messages",
                             json=rec_payload,
                             headers=_build_upstream_headers(request, qm, chosen_key, "anthropic", rewritten),
                         ) as rec_resp:
