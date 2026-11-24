@@ -3,7 +3,7 @@
 **面向 LLM 编码 agent 的治理层：证据绑定的完成声明、分层认知，以及把问题耗尽而不是来回踢皮球的回环。**
 
 [![version](https://img.shields.io/badge/version-v0.5.4-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-391%20green-brightgreen)](scripts/verify.py)
+[![tests](https://img.shields.io/badge/tests-395%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *本文是 [README.md](README.md) 的中文辅助翻译；规范内容一律以英文版与 AGENTS.md 为准（思考语言约束见契约）。*
@@ -61,6 +61,13 @@ python scripts/install.py
 | 认知内核 | `mcp_server/`（L1–L5 DAG、FTS5 记忆、L5 持久化） | MCP 工具 |
 | 编排 | `orchestrator/`（派发、路由、计划、只读 explorer） | MCP 工具 + 网关联动 |
 | 文档 | `docs/`（索引：[docs/README.md](docs/README.md)） | 退出闸门里的 `scripts/check_docs.py` |
+
+### 谁决定用哪个模型
+
+- **主 agent（team lead）由你指定。** 请求体里写明了模型、且不带 `X-Harness-Agent-Id` 请求头时，网关从这个模型开始，高峰时段也**不会**因为价格把它换掉。
+- **主 agent 同样可以 failover**：指定的模型确实不可用时（额度窗口用完、冷却中），按该档位的链依次尝试。
+- **子 agent 和 failover 按 `proxy_gateway/quota_policy.yaml` 里的档位链选模型**；`active_peak_avoidance` 打开时，处于 `peak_windows_utc` 内的池让位给不在高峰的池。
+- 响应头 `X-Harness-Selected-Model` 是实际应答的模型；客户端显示的模型名只是它请求的那个。
 
 ## 技能：不用记的命令
 

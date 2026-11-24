@@ -3,7 +3,7 @@
 **Governance for LLM coding agents: evidence-bound claims, tiered cognition, and loops that exhaust problems instead of ping-ponging them.**
 
 [![version](https://img.shields.io/badge/version-v0.5.4-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-391%20green-brightgreen)](scripts/verify.py)
+[![tests](https://img.shields.io/badge/tests-395%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *中文介绍见 [README_ZH.md](README_ZH.md)。 All normative content (rules, contracts, skills) is English-only; Chinese exists only as auxiliary translation.*
@@ -78,6 +78,13 @@ Verify at any time — the `hvx` wrapper resolves the project interpreter for yo
 | Epistemic core | `mcp_server/` (L1–L5 DAG, FTS5 memory, L5 persistence) | MCP tools |
 | Orchestration | `orchestrator/` (dispatch, routing, plans, read-only explorer) | MCP tools + gateway routing |
 | Docs | `docs/` (index: [docs/README.md](docs/README.md)) | `scripts/check_docs.py` in the exit gate |
+
+### Who picks the model
+
+- **The main agent (team lead) is your pick.** When a request names a model in its body and carries no `X-Harness-Agent-Id` header, the gateway starts with that model and does **not** move it for price during a peak window.
+- **Failover still applies to the main agent** when the pick is genuinely unavailable (quota window spent, cooldown): the rest of the tier chain is tried in order.
+- **Sub-agents and failover follow the tier chain in `proxy_gateway/quota_policy.yaml`**, and pools inside their `peak_windows_utc` yield to off-peak pools while `active_peak_avoidance` is on.
+- The response header `X-Harness-Selected-Model` names the model that actually answered; the client's model label only shows what it asked for.
 
 ## Skills: commands you don't have to remember
 

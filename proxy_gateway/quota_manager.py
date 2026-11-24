@@ -316,15 +316,24 @@ class QuotaManager:
         now_utc: datetime | None = None,
         fallback_base_url: str = "",
         exclude_pool: str | None = None,
+        pin_requested: bool = False,
     ) -> ModelSelection:
+        """pin_requested: the caller named the model itself as the team lead (not a sub-agent), so
+        peak-hour avoidance must not move it (operator decision 2026-11-24: the chair picks the lead;
+        the tier chain and peak rules govern sub-agents and failover). Hard unavailability (exhausted
+        pool, cooldown) still skips it and failover proceeds in the normal order.
+        """
         now = now_utc or datetime.now(timezone.utc)
         base_chain = list(self.routing_chains.get(tier, list(self.models.keys())))
         proto_chain = [m for m in base_chain if m in self.models and self.models[m].get("protocol") == protocol]
         if not proto_chain:
             proto_chain = [m for m in base_chain if m in self.models]
 
+        pinned = None
         if requested_model and requested_model in proto_chain and not self.is_last_option(requested_model):
             proto_chain = [requested_model] + [m for m in proto_chain if m != requested_model]
+            if pin_requested:
+                pinned = requested_model
 
         primary_off_peak: list[str] = []
         primary_peak_dep: list[str] = []
@@ -339,6 +348,8 @@ class QuotaManager:
             if not ok:
                 skipped[mkey] = reason or "unavailable"
                 continue
+            if is_peak_dep and mkey == pinned:
+                is_peak_dep, reason = False, None  # the chair's pick is not moved for price
             if is_last:
                 last_option_pool.append(mkey)
                 skipped[mkey] = "held_in_last_option_reserve"
@@ -368,7 +379,7 @@ class QuotaManager:
 
         chosen = ordered[0]
         chosen_pool, _ = self.pool_for_model(chosen)
-        peak_avoided = bool(primary_peak_dep and chosen in primary_off_peak)
+        peak_avoided = bool(primary_peak_dep and chosen in primary_off_peak and chosen != pinned)
         last_option_used = self.is_last_option(chosen)
         return ModelSelection(
             model_key=chosen,

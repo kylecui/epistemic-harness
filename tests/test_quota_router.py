@@ -6,6 +6,7 @@ import tempfile
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("HARNESS_TRACES_DIR", tempfile.mkdtemp(prefix="harness-test-traces-"))
 
@@ -103,6 +104,76 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
             self.assertEqual(entry["pool"], self.qm.models[sibling]["pool"])  # one weekly quota
             self.assertEqual(entry["upstream_model"], self.qm.models[sibling]["upstream_model"])
             self.assertEqual(entry["default_base_url"], "https://api.kimi.com/coding")  # + /v1/messages
+
+    def test_opencode_go_anthropic_entry_uses_the_go_base_not_the_pay_as_you_go_one(self) -> None:
+        """/inference/go/v1/messages is on the Go plan; /inference/anthropic/... is pay-as-you-go (402)."""
+        entry = self.qm.models["opencode-deepseek-v4.1-flash-anthropic"]
+        self.assertEqual(entry["protocol"], "anthropic")
+        self.assertEqual(entry["default_base_url"], "https://opencode.ai/inference/go")
+        self.assertEqual(entry["pool"], self.qm.models["opencode-deepseek-v4.1-flash"]["pool"])
+        self.assertEqual(entry["upstream_model"], "deepseek-v4.1-flash")
+        for tier, chain in self.qm.routing_chains.items():
+            anthropic = [k for k in chain if self.qm.models[k]["protocol"] == "anthropic"]
+            self.assertEqual(anthropic[-1], "opencode-deepseek-v4.1-flash-anthropic", tier)  # tail of the chain
+
+    def test_pinned_lead_is_not_moved_for_price_but_still_fails_over_when_unavailable(self) -> None:
+        """Operator decision 2026-11-24: the chair picks the main agent; peak rules govern the rest."""
+        peak = datetime(2026, 11, 24, 14, 0, tzinfo=timezone.utc)  # OpenCode Go peak window (13:00-21:00 UTC), 2x price
+        lead = "opencode-deepseek-v4.1-flash"
+
+        free = self.qm.select_candidates("system_1_5", "openai", lead, now_utc=peak)  # sub-agent / failover traffic
+        self.assertNotEqual(free.model_key, lead)
+        self.assertTrue(free.peak_avoided)
+
+        pinned = self.qm.select_candidates("system_1_5", "openai", lead, now_utc=peak, pin_requested=True)
+        self.assertEqual(pinned.model_key, lead)
+        self.assertFalse(pinned.peak_avoided)
+        self.assertEqual(pinned.failover_chain[0], lead)
+
+        self.qm.record_usage(lead, units_override=20.0, now_utc=peak)  # 5h window exhausted
+        gone = self.qm.select_candidates("system_1_5", "openai", lead, now_utc=peak, pin_requested=True)
+        self.assertNotEqual(gone.model_key, lead)
+        self.assertIn("pool_opencode_go_basic_5h_exhausted", gone.skipped_reasons[lead])
+        self.assertEqual(gone.model_key, self.qm.select_candidates("system_1_5", "openai", None, now_utc=peak).model_key)
+
+    def test_only_the_chairs_request_pins_the_lead_sub_agents_keep_the_peak_rules(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        peak = datetime(2026, 11, 24, 14, 0, tzinfo=timezone.utc)  # OpenCode Go peak window
+        qm = QuotaManager(REPO_ROOT / "proxy_gateway" / "quota_policy.yaml", Path(tmp.name) / "p.db")
+
+        def upstream(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"choices": [{"message": {"role": "assistant", "content": "ok"}}], "usage": {}})
+        client = TestClient(create_app(transport=httpx.MockTransport(upstream), quota_manager=qm, now_provider=lambda: peak))
+        body = {"model": "opencode-deepseek-v4.1-flash", "stream": False, "messages": [{"role": "user", "content": "hi"}]}
+
+        lead = client.post("/v1/chat/completions", json=body)  # no agent header: the chair's request
+        self.assertEqual(lead.headers["x-harness-selected-model"], "opencode-deepseek-v4.1-flash")
+        sub = client.post("/v1/chat/completions", json=body, headers={"X-Harness-Agent-Id": "coder"})  # sub-agent
+        self.assertNotEqual(sub.headers["x-harness-selected-model"], "opencode-deepseek-v4.1-flash")
+
+    def test_anthropic_request_reaches_opencode_go_with_bearer_and_session_headers(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        now = datetime(2026, 11, 19, 3, 0, tzinfo=timezone.utc)  # off-peak for every pool
+        qm = QuotaManager(REPO_ROOT / "proxy_gateway" / "quota_policy.yaml", Path(tmp.name) / "l.db")
+        qm.record_usage("zhipu-glm-5.4", units_override=28000.0, now_utc=now)
+        qm.record_usage("kimi-k3.1-pro", units_override=3000.0, now_utc=now)
+        with patch.dict(os.environ, {"OPENCODE_GO_API_KEY": "go-key-for-test", "OPENCODE_ANTHROPIC_BASE_URL": ""}):
+            seen: list[httpx.Request] = []
+
+            def upstream(request: httpx.Request) -> httpx.Response:
+                seen.append(request)
+                return httpx.Response(200, json={"id": "msg_1", "type": "message", "role": "assistant", "model": "deepseek-v4.1-flash",
+                                                "content": [{"type": "text", "text": "go ok"}], "stop_reason": "end_turn",
+                                                "usage": {"input_tokens": 1, "output_tokens": 1}})
+            client = TestClient(create_app(transport=httpx.MockTransport(upstream), quota_manager=qm, now_provider=lambda: now))
+            resp = client.post("/anthropic/v1/messages", json={"model": "claude-sonnet-5.5", "max_tokens": 16, "stream": False,
+                                                            "messages": [{"role": "user", "content": "hi"}]})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(str(seen[-1].url), "https://opencode.ai/inference/go/v1/messages")
+        self.assertEqual(seen[-1].headers["authorization"], "Bearer go-key-for-test")
+        self.assertTrue(seen[-1].headers["x-opencode-session"].startswith("hs-"))
 
     def test_gateway_429_cools_down_entire_shared_pool_and_fails_over(self) -> None:
         called: list[str] = []

@@ -506,6 +506,9 @@ def create_app(
             now_utc=now,
             fallback_base_url=oa_fallback,
             exclude_pool=exclude_pool,
+            # The chair names the main agent in the request body and sends no agent header; that pick
+            # is not moved for price. Sub-agent traffic (X-Harness-Agent-Id) follows the peak rules.
+            pin_requested=bool(body.get("model")) and not agent_id,
         )
         session_last_pool[sess_id] = selection.pool_id
         if not decision.cross_family_critic:
@@ -927,6 +930,7 @@ def create_app(
         selection = qm.select_candidates(
             decision.tier, "anthropic", requested_model, now_utc=now,
             fallback_base_url=an_fallback, exclude_pool=exclude_pool,
+            pin_requested=bool(body.get("model")) and not agent_id,
         )
         session_last_pool[sess_id] = selection.pool_id
         if not decision.cross_family_critic:
