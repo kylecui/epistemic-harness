@@ -175,6 +175,7 @@ models:
     auth: google
     upstream_base_url_env: GOOGLE_AI_BASE_URL
     default_base_url: https://generativelanguage.googleapis.com/v1beta/openai
+    api_key_env: GEMINI_API_KEY
     upstream_model: gemini-4-hydrogen
     cost_per_1m:
       input: 2.0

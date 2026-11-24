@@ -74,11 +74,12 @@ def _build_upstream_headers(
 
     if auth_mode == "copilot":
         # No static key: exchange a GitHub token for a short-lived Copilot token, then fingerprint as VS Code Chat.
+        # Drop any incoming authorization header (case-insensitive) before merging so httpx never sends
+        # duplicate Authorization headers (which Copilot rejects as "invalid token: invalid whitespace").
+        hdrs = {k: v for k, v in hdrs.items() if k.lower() != "authorization"}
         cop = copilot_auth()
-        hdrs.update(cop.headers(resolve_body))
-        cop_auth = cop.headers(resolve_body).get("Authorization")
-        if cop_auth:
-            hdrs["authorization"] = cop_auth
+        for k, v in cop.headers(resolve_body).items():
+            hdrs[k.lower()] = v
     elif auth_mode == "google":
         key = qm.resolve_api_key(model_key)
         if key:
