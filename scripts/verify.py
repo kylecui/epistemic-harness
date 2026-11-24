@@ -92,15 +92,30 @@ def _run_docker(args: list[str], image: str) -> int:
     return _run(cmd)
 
 
-def _run_host(args: list[str]) -> int:
+def _host_test_command(args: list[str]) -> list[str]:
+    """The unittest invocation for the interpreter that actually runs the tests.
+
+    `--modules a b` (each `tests.x`) runs exactly those modules; `-p pattern` discovers.
+    Split out so the argument handling can be unit-tested without running anything.
+    """
+    local = _local_python()
+    python = str(local) if local else sys.executable
+    if "--modules" in args:
+        modules = args[args.index("--modules") + 1:]
+        return [python, "-m", "unittest", *modules]
     pattern = "test_*.py"
     if "-p" in args:
         pattern = args[args.index("-p") + 1]
+    return [python, "-m", "unittest", "discover", "-s", "tests", "-p", pattern]
+
+
+def _run_host(args: list[str]) -> int:
     local = _local_python()
     python = str(local) if local else sys.executable
     if os.environ.get("HARNESS_VERIFY_REEXEC") == "1":
-        return _run([python, "-m", "unittest", "discover", "-s", "tests", "-p", pattern])
-    print(f"runner=host python={python} rev={_git_rev()}", flush=True)
+        return _run(_host_test_command(args))
+    where = "docker(container)" if Path("/.dockerenv").exists() else "host"
+    print(f"runner={where} python={python} rev={_git_rev()}", flush=True)
     if local and Path(sys.executable).resolve() != local.resolve():
         env = {**os.environ, "HARNESS_VERIFY_REEXEC": "1"}
         return subprocess.call([str(local), str(Path(__file__).resolve()), "--runner", "host", *args],
@@ -113,7 +128,7 @@ def _run_host(args: list[str]) -> int:
               "(yaml/pydantic/fastapi/httpx). Create .venv or use --runner docker.",
               file=sys.stderr, flush=True)
         return 3
-    return _run([python, "-m", "unittest", "discover", "-s", "tests", "-p", pattern])
+    return _run(_host_test_command(args))
 
 def main() -> int:
     ap = argparse.ArgumentParser()
@@ -121,9 +136,10 @@ def main() -> int:
                     default=os.environ.get("HARNESS_GATE_RUNNER", "auto"))
     ap.add_argument("--image", default=os.environ.get("HARNESS_VERIFY_IMAGE", DEFAULT_IMAGE))
     ap.add_argument("-p", dest="pattern", help="unittest discovery pattern")
+    ap.add_argument("--modules", nargs="*", help="explicit test modules (tests.x) instead of discovery")
     args, _unknown = ap.parse_known_args()
 
-    extra = ["-p", args.pattern] if args.pattern else []
+    extra = ["--modules", *args.modules] if args.modules else (["-p", args.pattern] if args.pattern else [])
 
     if args.runner == "host":
         return _run_host(extra)

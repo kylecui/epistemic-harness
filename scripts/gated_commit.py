@@ -35,10 +35,14 @@ def main() -> int:
     args = ap.parse_args()
 
     if not args.skip_tests:
-        tests = run([sys.executable, "-m", "unittest", "discover", "-s", "tests"],
+        # docker-first (operator rule): the commit gate runs the full suite in the verify
+        # container through verify.py, which prints the runner and never falls back silently.
+        tests = run([sys.executable, "scripts/verify.py", "--runner", "docker"],
                     capture_output=True, text=True, timeout=900)
-        tail = [l for l in tests.stderr.splitlines() if l.strip()][-1:]
-        print(f"tests: rc={tests.returncode} {tail[0] if tail else ''}")
+        lines = [l for l in tests.stdout.splitlines() if l.strip()]
+        runner = next((l for l in lines if l.startswith("runner=")), "")
+        tail = [l for l in lines if l.strip()][-1:]
+        print(f"tests: rc={tests.returncode} {runner} {tail[0] if tail else ''}".rstrip())
         if tests.returncode != 0:
             print("REFUSING TO COMMIT: tests are red.", file=sys.stderr)
             return 2

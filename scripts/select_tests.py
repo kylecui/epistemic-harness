@@ -97,9 +97,19 @@ def select(changed: list[str], modules: dict[str, str]) -> tuple[list[str] | Non
     return sorted(selected), reasons
 
 
+def docker_command(selected: list[str] | None) -> list[str]:
+    """verify.py invocation for the selection: explicit modules, or the full suite when None."""
+    cmd = [sys.executable, "scripts/verify.py", "--runner", "docker"]
+    if selected is not None:
+        cmd += ["--modules", *[f"tests.{m}" for m in selected]]
+    return cmd
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", action="store_true")
+    ap.add_argument("--docker", action="store_true",
+                    help="run the selection inside the verify container (selection itself is computed here)")
     ap.add_argument("--explain", action="store_true")
     args = ap.parse_args()
 
@@ -117,15 +127,21 @@ def main() -> int:
         else:
             for name in selected:
                 print(f"{name}  <- {'; '.join(reasons.get(name, []))}" if args.explain else name)
-    if not args.run:
+    if not (args.run or args.docker):
         return 0
+
+    if args.docker:
+        # Tests run in the container (policy: docker-first); only the file-name based selection
+        # happens on the host. verify.py prints the runner line and never falls back silently.
+        print(f"select_tests: running {'FULL' if selected is None else len(selected)} in docker ...", flush=True)
+        return subprocess.run(docker_command(selected), cwd=str(REPO_ROOT)).returncode
 
     if selected is not None and not selected:
         print("select_tests: nothing to run")
         return 0
     cmd = [sys.executable, "-m", "unittest"]
     cmd += [f"tests.{m}" for m in selected] if selected is not None else ["discover", "-s", "tests"]
-    print(f"select_tests: running {'FULL' if selected is None else len(selected)} ...", flush=True)
+    print(f"select_tests: running {'FULL' if selected is None else len(selected)} on the HOST (--run; --docker is the policy default) ...", flush=True)
     return subprocess.run(cmd, cwd=str(REPO_ROOT)).returncode
 
 

@@ -5,7 +5,7 @@
   "checks": [
     {
       "name": "unit_tests",
-      "command": "python scripts/select_tests.py --run",
+      "command": "python scripts/select_tests.py --docker",
       "required": true
     },
     {
