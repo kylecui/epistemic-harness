@@ -25,3 +25,23 @@ services:
     cpus: 1.0
     mem_limit: 1g
     restart: "no"
+
+  # Issue #13: the campaign itself runs on the Linux plane, not on the host. Start it explicitly:
+  #   docker compose -f docker-compose.lab.yml run --rm lab-runner \
+  #     python experiments/run_campaign.py --lab --arms A0,A,B,C,D --samples 20 --resume
+  # HARNESS_RUNNER makes every record say runner=container, and HARNESS_LAB_GATEWAY points the
+  # runner at the service name instead of host loopback.
+  lab-runner:
+    image: epistemic-harness-backend:local
+    profiles: ["campaign"]
+    working_dir: /work
+    env_file: .lab.env
+    environment:
+      HARNESS_RUNNER: container
+      HARNESS_LAB_GATEWAY: http://harness-backend-lab:8787
+      PYTHONPATH: /work
+    volumes:
+      - ./:/work
+    cpus: 1.0
+    mem_limit: 1g
+    restart: "no"

@@ -9,6 +9,7 @@ Usage: python experiments/run_campaign.py [--samples 20] [--arms A0,A,B,C,D]
 from __future__ import annotations
 
 import argparse
+import os
 import subprocess
 import sys
 import time
@@ -36,8 +37,10 @@ def main() -> int:
     args = ap.parse_args()
     arms = [a.strip() for a in args.arms.split(",") if a.strip()]
     if args.lab:
-        gw = ["--gateway-url", "http://127.0.0.1:8788", "--model", "lab-deepseek-v4-flash"]
-        judge = ["--gateway-url", "http://127.0.0.1:8788", "--model", "lab-deepseek-v3-2"]
+        # Issue #13: inside the lab plane the gateway is a service name, so the URL is overridable.
+        lab_url = os.environ.get("HARNESS_LAB_GATEWAY", "http://127.0.0.1:8788")
+        gw = ["--gateway-url", lab_url, "--model", "lab-deepseek-v4-flash"]
+        judge = ["--gateway-url", lab_url, "--model", "lab-deepseek-v3-2"]
     else:
         gw, judge = [], []
 

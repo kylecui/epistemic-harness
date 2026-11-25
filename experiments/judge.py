@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 import urllib.request
@@ -45,7 +46,7 @@ def _post(url: str, payload: dict, headers: dict, timeout: int = 180) -> dict:
 
 
 WORKING_GATEWAY = "http://127.0.0.1:8787"
-LAB_GATEWAY = "http://127.0.0.1:8788"
+LAB_GATEWAY = os.environ.get("HARNESS_LAB_GATEWAY", "http://127.0.0.1:8788")
 
 
 def judge_text(text: str, focus: str, patterns: list[str],

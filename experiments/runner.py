@@ -61,7 +61,10 @@ DIRECT_PROVIDERS = {
     "siliconflow": {"base_env": "SILICONFLOW_API_URL", "key_env": "SILICONFLOW_API_KEY", "model": "deepseek-ai/DeepSeek-V4-Flash"},
 }
 WORKING_GATEWAY = "http://127.0.0.1:8787"
-LAB_GATEWAY = "http://127.0.0.1:8788"
+# Issue #13: the campaign must be able to run INSIDE the lab plane. Container-to-container the
+# gateway is a service name, not host loopback, so the URL comes from the environment and defaults to
+# the host path used before.
+LAB_GATEWAY = os.environ.get("HARNESS_LAB_GATEWAY", "http://127.0.0.1:8788")
 
 
 def _env(key: str) -> str:
