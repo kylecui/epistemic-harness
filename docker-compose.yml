@@ -29,6 +29,12 @@ services:
     env_file: .env
     environment:
       HARNESS_REPO_ROOT: /app
+      # Issue #7: host worktrees are reached through the host-side dispatch agent
+      # (scripts/host_dispatch.py) on loopback — deliberately NOT through a host mount.
+      HARNESS_HOST_DISPATCH_URL: ${HARNESS_HOST_DISPATCH_URL:-http://host.docker.internal:8791}
+    extra_hosts:
+      # makes host.docker.internal resolve on Linux engines too (no-op on Docker Desktop)
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./harness.yaml:/app/harness.yaml:ro
       - ./AGENTS.md:/app/AGENTS.md:ro

@@ -12,7 +12,11 @@ Tools exposed to the main agent (controller):
   plan_task           - decompose a task into subtasks with tier/profile + dependency waves
   run_plan            - execute the plan: create sub-agents (parallel waves, context passing)
   dispatch_tooled     - run one TOOLED sub-agent (isolated pi process, can read/write/run)
-"""
+  dispatch_readonly   - read-only explorer sub-agent (sandboxed read_file/list_dir/grep)
+
+Both tooled tiers cross the container/host boundary through the host-side agent
+(scripts/host_dispatch.py) — see orchestrator/host_bridge.py and
+docs/dispatch-plane-boundary.md."""
 
 from __future__ import annotations
 
@@ -32,8 +36,7 @@ from mcp_server.dag_engine import EpistemicEngine
 from orchestrator.bias_guard import BiasGuard
 from orchestrator.dispatch import dispatch_subtask
 from orchestrator.plan import plan_task, run_plan
-from orchestrator.tooled import dispatch_tooled
-from orchestrator.readonly_agent import dispatch_readonly
+from orchestrator.host_bridge import dispatch_readonly_routed, dispatch_tooled_routed
 from orchestrator.exit_gate import ExitGateEngine
 from orchestrator.planner import classify_task
 from orchestrator.skills import SkillRegistry
@@ -159,7 +162,10 @@ TOOLS: list[dict[str, Any]] = [
             "Run a read-only explorer sub-agent with sandboxed tools (read_file / list_dir / grep). "
             "Middle tier between text-only dispatch_subagent and full dispatch_tooled: the sub-agent "
             "can inspect the workspace but cannot write or execute. Capped rounds; recorded in "
-            "traces/dispatches.jsonl like every dispatch."
+            "traces/dispatches.jsonl like every dispatch. Host worktrees are reached through the "
+            "host-side agent (scripts/host_dispatch.py) — the result names runner=host|container and "
+            "via=in-process|host_dispatch; when that agent is down the error is host_dispatch_unavailable "
+            "plus the start command."
         ),
         "inputSchema": {
             "type": "object",
@@ -170,6 +176,8 @@ TOOLS: list[dict[str, Any]] = [
                 "effort": {"type": "string", "default": "low"},
                 "model": {"type": "string"},
                 "max_rounds": {"type": "integer", "default": 6},
+                "runner": {"type": "string", "enum": ["auto", "local", "host"], "default": "auto",
+                           "description": "auto = decide by plane visibility; host = force the host agent"},
             },
             "required": ["task_text", "workdir"],
         },
@@ -179,7 +187,9 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "Run a TOOLED sub-agent in an isolated pi process (separate context/session, hard timeout). "
             "Use it for real implementation work in a workspace: it can read/write files and run commands, "
-            "unlike dispatch_subagent which is text-only. Host-side only (requires the pi binary)."
+            "unlike dispatch_subagent which is text-only. Runs on the host plane: in-process when this "
+            "orchestrator is on the host, otherwise through the host-side agent "
+            "(scripts/host_dispatch.py); the result names runner and via."
         ),
         "inputSchema": {
             "type": "object",
@@ -189,6 +199,7 @@ TOOLS: list[dict[str, Any]] = [
                 "profile": {"type": "string", "enum": ["explorer", "coder", "deep", "critic"], "default": "coder"},
                 "model": {"type": "string"},
                 "timeout": {"type": "number", "default": 600},
+                "runner": {"type": "string", "enum": ["auto", "local", "host"], "default": "auto"},
             },
             "required": ["task_text"],
         },
@@ -418,12 +429,26 @@ class Orchestrator:
                 "result": entry.get("result"), "error": entry.get("error")}
 
     def dispatch_tooled(self, args: dict[str, Any]) -> dict[str, Any]:
-        return dispatch_tooled(
+        """Issue #7: run in-process on the host plane, or through the host-side agent."""
+        return dispatch_tooled_routed(
             task_text=str(args["task_text"]),
             workdir=args.get("workdir"),
             profile=str(args.get("profile", "coder")),
             model=args.get("model"),
             timeout=float(args.get("timeout", 600)),
+            runner=str(args.get("runner", "auto")),
+        )
+
+    def dispatch_readonly(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Issue #7: a host worktree is read through the host agent, not through a mount."""
+        return dispatch_readonly_routed(
+            task_text=str(args["task_text"]),
+            workdir=str(args["workdir"]),
+            task_id=str(args.get("task_id", "ro-1")),
+            effort=str(args.get("effort", "low")),
+            model=args.get("model"),
+            max_rounds=int(args.get("max_rounds", 6)),
+            runner=str(args.get("runner", "auto")),
         )
 
     def audit_reply(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -545,14 +570,7 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
             elif name == "dispatch_tooled":
                 res = orch.dispatch_tooled(args)
             elif name == "dispatch_readonly":
-                res = dispatch_readonly(
-                    task_text=str(args["task_text"]),
-                    workdir=str(args["workdir"]),
-                    task_id=str(args.get("task_id", "ro-1")),
-                    effort=str(args.get("effort", "low")),
-                    model=args.get("model"),
-                    max_rounds=int(args.get("max_rounds", 6)),
-                )
+                res = orch.dispatch_readonly(args)
             elif name == "run_gate":
                 res = orch.run_gate(args)
             elif name == "submit_reasoning_record":

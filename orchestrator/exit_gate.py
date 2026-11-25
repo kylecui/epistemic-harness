@@ -22,6 +22,17 @@ Verification contract (issue #2):
     header lines and the test-file frame are recovered from the full log when
     the 25-line tail window cuts them off, and the failed-check line names the
     ids directly, so the first line of the bounce is actionable.
+
+Execution-plane contract (issue #9):
+  * a verdict describes the tree `repo_dir` points at, on the plane this
+    process runs on; the plane is detected, not assumed (`detect_plane`);
+  * a command whose target paths are absent from a tree that carries no marker
+    of being the repo (`.git`, `.pi/exit_gate.json`) is NOT executed: the gate
+    answers `plane_mismatch` and names the plane that owns the worktree,
+    instead of reporting a shell error as a failing check about the repo;
+  * a command that reaches for a path this plane does not have is refused the
+    same way. Silently producing a verdict from a mounted subset is the defect
+    this replaced.
 """
 
 from __future__ import annotations
@@ -564,8 +575,11 @@ class GateDecision:
     residue_files: list[str] = field(default_factory=list)
     shirking_hits: list[str] = field(default_factory=list)
     contract_violations: list[str] = field(default_factory=list)
-    verdict: str = "green"  # green|red|no_evidence|unbound_claim|unclosed_predicate
+    # green|red|plane_mismatch|no_evidence|unbound_claim|unclosed_predicate
+    verdict: str = "green"
     evidence: list[Evidence] = field(default_factory=list)
+    plane: dict[str, Any] = field(default_factory=dict)  # where the gate ran (issue #9)
+    plane_mismatch: list[dict[str, Any]] = field(default_factory=list)  # commands refused, unexecuted
     unbound_claims: list[str] = field(default_factory=list)
     claim_errors: list[str] = field(default_factory=list)
     failure_classes: list[dict[str, Any]] = field(default_factory=list)
@@ -631,14 +645,20 @@ def extract_unbound_claims(text: str, declared: list[str] | None = None) -> list
 
 
 def classify_failures(
-    failures: list["CheckFailure"], claim_errors: list[str], evidence: list["Evidence"]
+    failures: list["CheckFailure"],
+    claim_errors: list[str],
+    evidence: list["Evidence"],
+    refused: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Give every failure an owner (G2): code / check / environment / root cause.
 
     Without an owner, a loop can only retry blindly. Each class carries the default
     next action, so the bounce prompt can say what to do instead of "fix it".
     """
-    out: list[dict[str, Any]] = []
+    out: list[dict[str, Any]] = [
+        {"name": r.get("name", ""), "class": "plane_mismatch", "action": PLANE_REMEDY}
+        for r in (refused or [])
+    ]
     for f in failures:
         tail = (f.tail or "")
         if "RUNNER_UNAVAILABLE" in tail:
@@ -706,6 +726,9 @@ def verifier_change_warnings(ledger_path: Path, current: str, window: int = 20) 
     return []
 
 
+GATE_RUNNERS = ("auto", "docker", "host")
+
+
 def _normalize_evidence_specs(specs: Any) -> list[CheckSpec]:
     if not specs:
         return []
@@ -716,8 +739,10 @@ def _normalize_evidence_specs(specs: Any) -> list[CheckSpec]:
         if isinstance(item, str):
             out.append(CheckSpec(name=f"verify-{i + 1}", command=item))
         elif isinstance(item, dict) and item.get("command"):
+            runner = str(item.get("runner") or "").strip().lower()
             out.append(CheckSpec(name=str(item.get("name") or f"verify-{i + 1}"),
-                                 command=str(item["command"])))
+                                 command=str(item["command"]),
+                                 runner=runner if runner in GATE_RUNNERS else None))
     return out
 
 
@@ -958,6 +983,194 @@ def _fingerprint(failures: list[CheckFailure], residue: list[str]) -> str:
         for f in failures
     ] + [f"residue:{r}" for r in residue]
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:12]
+
+
+# ---------------------------------------------------------------------------
+# Issue #9 — a verdict must come from the plane that owns the tree
+# ---------------------------------------------------------------------------
+#
+# The orchestrator usually runs inside the backend container, which mounts a
+# hand-picked subset of the repo (see docker-compose.yml). Caller-supplied
+# verification commands inherited that plane, so `python tests/test_x.py`
+# answered "No such file or directory" at /app and whoever read the verdict
+# treated a wrong-plane shell error as a failing check about the repo.
+#
+# The rule that replaces it: a command is executed only where its targets exist.
+# When they do not, the gate refuses (`plane_mismatch`) and names the plane that
+# owns the worktree instead of quietly evaluating a different tree.
+
+# A tree carrying either marker is the repo, not a mounted subset of it:
+# `.git` at or above the root, or `.pi/exit_gate.json` readable at it.
+PLANE_ROOT_SEARCH = 6  # how far up to look for `.git` before calling the tree a subset
+PLANE_REMEDY = (
+    "run the command on the plane that owns the worktree and bind the claim to that run "
+    '(python scripts/verify.py --runner docker -p "<pattern>"), or point repo_dir at a mount '
+    "of the worktree; the gate will not report a repo verdict from a partial tree"
+)
+
+
+@dataclass(frozen=True)
+class PlaneInfo:
+    """Where this gate process runs, and whether it can see the repo it is asked about."""
+
+    root: str
+    worktree: bool  # `.git` at root or below one of its parents
+    gate_config: bool  # `.pi/exit_gate.json` readable here
+    container: bool  # this process is inside a container
+    docker_cli: bool
+
+    @property
+    def partial(self) -> bool:
+        """True when nothing here proves the tree is the repo: a mounted subset."""
+        return not (self.worktree or self.gate_config)
+
+    def describe(self) -> str:
+        where = "container" if self.container else "host"
+        kind = "worktree" if self.worktree else ("gate-config" if self.gate_config else "mounted-subset")
+        return f"{where}:{kind}:{self.root}"
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "root": self.root,
+            "worktree": self.worktree,
+            "gate_config": self.gate_config,
+            "container": self.container,
+            "docker_cli": self.docker_cli,
+            "partial": self.partial,
+            "label": self.describe(),
+        }
+
+
+def _resolve_root(repo_dir: Path | str) -> Path:
+    root = Path(repo_dir)
+    try:
+        return root.resolve()
+    except OSError:
+        return root
+
+
+def _worktree_root(root: Path) -> Path | None:
+    """Nearest ancestor carrying `.git` (a dir, or a file for worktrees/submodules)."""
+    cur = root
+    for _ in range(PLANE_ROOT_SEARCH):
+        try:
+            if (cur / ".git").exists():
+                return cur
+        except OSError:
+            return None
+        if cur.parent == cur:
+            return None
+        cur = cur.parent
+    return None
+
+
+def detect_plane(repo_dir: Path | str) -> PlaneInfo:
+    """Detect the execution plane instead of assuming it (issue #9)."""
+    root = _resolve_root(repo_dir)
+    try:
+        gate_config = (root / ".pi" / "exit_gate.json").is_file()
+    except OSError:
+        gate_config = False
+    return PlaneInfo(
+        root=str(root),
+        worktree=_worktree_root(root) is not None,
+        gate_config=gate_config,
+        container=Path("/.dockerenv").exists(),
+        docker_cli=bool(shutil.which("docker")),
+    )
+
+
+_CMD_TOKEN_RE = re.compile(r'"([^"]*)"|\'([^\']*)\'|([^\s;&|<>()]+)')
+_DRIVE_PREFIX_RE = re.compile(r"^[A-Za-z]:[\\/]")
+_DOTTED_ID_RE = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$")
+_GLOB_CUT_RE = re.compile(r"[*?\[].*$")
+
+
+@dataclass(frozen=True)
+class PathRef:
+    """One path-ish argument: what the caller wrote, and the paths that settle it."""
+
+    text: str
+    candidates: tuple[str, ...]
+
+
+def command_path_refs(command: str) -> list[PathRef]:
+    """Path-like arguments of a shell command, including `-m unittest a.b` ids.
+
+    A reference is recognised by a separator, a drive prefix, `~`, or a dotted
+    module id after `-m unittest`. Bare words (`echo`, `tests`, `discover`) stay
+    out: they are as likely to be a subcommand as a path, and refusing on them
+    would block valid gates.
+    """
+    tokens: list[str] = []
+    for match in _CMD_TOKEN_RE.finditer(command or ""):
+        token = (match.group(1) or match.group(2) or match.group(3) or "").strip()
+        if token:
+            tokens.append(token)
+
+    refs: list[PathRef] = []
+    for token in tokens:
+        if token.startswith("-") or "$" in token or "%" in token or "://" in token:
+            continue  # flags, `$VAR`, `%VAR%`, URLs: not statically resolvable paths
+        if token.startswith("~") or "/" in token or "\\" in token or _DRIVE_PREFIX_RE.match(token):
+            refs.append(PathRef(token, (token,)))
+
+    # `python -m unittest tests.test_x.Class.test_y` names its target as a module id;
+    # the class/method suffix resolves by the file prefix (`tests/test_x.py`).
+    if "-m" in tokens:
+        idx = tokens.index("-m")
+        rest = tokens[idx + 2:] if idx + 1 < len(tokens) and tokens[idx + 1].endswith("unittest") else []
+        for token in rest:
+            if token.startswith("-") or not _DOTTED_ID_RE.match(token):
+                continue
+            parts = token.split(".")
+            candidates = tuple("/".join(parts[:n]) + ".py" for n in range(len(parts), 1, -1))
+            refs.append(PathRef(token, candidates))
+    return refs
+
+
+def _resolved(candidate: str, root: Path) -> Path:
+    text = _GLOB_CUT_RE.sub("", candidate.strip().strip("'\"")) or "."
+    path = Path(text).expanduser()
+    return path if path.is_absolute() or _DRIVE_PREFIX_RE.match(text) else root / path
+
+
+def _exists(candidate: str, root: Path) -> bool:
+    try:
+        return _resolved(candidate, root).exists()
+    except OSError:
+        return False
+
+
+def _inside_tree(candidate: str, root: Path) -> bool:
+    try:
+        target = _resolved(candidate, root).resolve()
+    except OSError:
+        return False
+    return target == root or root in target.parents
+
+
+def plane_refusal(command: str, repo_dir: Path | str, plane: PlaneInfo | None = None) -> str | None:
+    """Why this command cannot be evaluated here, or None when it can."""
+    root = _resolve_root(repo_dir)
+    info = plane or detect_plane(root)
+    outside: list[str] = []
+    missing: list[str] = []
+    for ref in command_path_refs(command):
+        if any(_exists(candidate, root) for candidate in ref.candidates):
+            continue  # readable here, including /tmp, /dev/null and the interpreter itself
+        if any(_inside_tree(candidate, root) for candidate in ref.candidates):
+            missing.append(ref.text)
+        else:
+            outside.append(ref.text)
+    if outside:
+        return (f"references {', '.join(outside)}, which this plane does not have outside the gate "
+                f"tree {root}")
+    if missing and info.partial:
+        return (f"references {', '.join(missing)}, absent from this plane ({info.describe()}); "
+                f"no `.git` and no `.pi/exit_gate.json` here, so this tree is a mounted subset, "
+                f"not the repo")
+    return None
 
 
 class ExitGateEngine:

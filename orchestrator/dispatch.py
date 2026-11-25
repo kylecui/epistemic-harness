@@ -82,7 +82,7 @@ def _record_dispatch(
             "bias_matches": [m.get("bias_id") for m in (result.get("bias_scan") or {}).get("matches") or []],
             "critic_model": result.get("critic_model", ""),
         }
-        for extra_key in ("tools_used", "rounds", "elapsed_sec"):
+        for extra_key in ("tools_used", "rounds", "elapsed_sec", "runner", "via"):
             if extra_key in result:
                 record[extra_key] = result[extra_key]
         with path.open("a", encoding="utf-8") as fh:

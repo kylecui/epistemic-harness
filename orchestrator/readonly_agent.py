@@ -104,6 +104,8 @@ def dispatch_readonly(
     model: str | None = None,
     category: str | None = None,
     transport: httpx.BaseTransport | None = None,
+    runner: str = "",
+    via: str = "",
 ) -> dict[str, Any]:
     root = Path(workdir).resolve()
     messages: list[dict[str, str]] = [
@@ -138,6 +140,9 @@ def dispatch_readonly(
         "elapsed_sec": elapsed,
         "bias_scan": {"matches": []},
         "category": category or "exploration",
+        # issue #7: name the plane that executed this run, so the trace is auditable
+        "runner": runner,
+        "via": via,
     }
     result.update({k: meta.get(k, "") for k in ("routed_tier", "selected_model", "tier_tag", "effort")})
     result["usage"] = meta.get("usage") or {}
