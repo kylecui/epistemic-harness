@@ -831,7 +831,16 @@ def create_app(
                     "openai", decision.tier, _failure_summary(failures, selection.skipped_reasons),
                     qm.soonest_available_in(decision.tier, now, failures), first_failure or None)
             data = last_resp.json()
-            if not isinstance(data, dict):
+            if last_resp.status_code >= 400:
+                # Issue #12: a provider may answer with a list (or a bare string) instead of an
+                # OpenAI-shaped envelope. Passing it through verbatim breaks every client parser
+                # that expects {"error": ...}, so non-conforming bodies are wrapped, not forwarded.
+                if not (isinstance(data, dict) and data.get("error")):
+                    data = {"error": {"type": "upstream_error", "status": last_resp.status_code,
+                                      "message": _error_brief(last_resp.status_code,
+                                                              json.dumps(data, ensure_ascii=False)[:500],
+                                                              last_resp.headers)}}
+            elif not isinstance(data, dict):
                 data = {"choices": []}
             if "generativelanguage" in target_base:
                 thought_signature_store.record_chunk(data)
