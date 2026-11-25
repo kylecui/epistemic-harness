@@ -78,6 +78,59 @@ function defaultChecks(): ExitGateCheck[] {
   return [{ name: "universal", command: `python "${UNIVERSAL_GATE}"`, required: true }];
 }
 
+function orchestratorToolsAvailable(): boolean {
+  // Issue #16: never suggest an action the session cannot take. The orchestrator MCP server is what
+  // exposes plan_task / dispatch_subagent, so its absence in mcp.json means the suggestion is a lie.
+  const candidates = [join(homedir(), ".pi", "agent", "mcp.json"), join(process.cwd(), ".pi", "mcp.json")];
+  for (const file of candidates) {
+    try {
+      if (readFileSync(file, "utf8").toLowerCase().includes("orchestrator")) return true;
+    } catch {
+      // absent config is the common case, not an error
+    }
+  }
+  return false;
+}
+
+function writeRemediation(what: string, lines: number): string {
+  if (orchestratorToolsAvailable()) {
+    return `Large ${what} detected (${lines} lines). Run orchestrator.plan_task or ` +
+      `dispatch_subagent(profile='critic') to review architectural impact first, or retry directly ` +
+      `if already validated (user can say '直接做' / 'bypass').`;
+  }
+  return `Large ${what} detected (${lines} lines), and no planning tool is connected in this session — ` +
+    `split it into smaller files instead of working around the guard with a shell heredoc, or ask the ` +
+    `user to approve ('直接做').`;
+}
+
+function scanCodemodeWrites(code: string): { calls: number; literalLines: number; computed: boolean } {
+  // Issue #19: codemode can call tools.write/tools.edit, which the guard never saw. Scan the script
+  // for those calls, measure a LITERAL payload, and report when the payload is computed (unknown size).
+  const call = /tools\.(?:write|edit)\s*\(/g;
+  let calls = 0;
+  let literalLines = 0;
+  let computed = false;
+  let match: RegExpExecArray | null;
+  while ((match = call.exec(code)) !== null) {
+    calls += 1;
+    const body = code.slice(match.index + match[0].length, match.index + match[0].length + 40000);
+    const key = /(?:content|newText|text)\s*:\s*/.exec(body);
+    if (!key) { computed = true; continue; }
+    const rest = body.slice(key.index + key[0].length).trimStart();
+    const quote = rest[0];
+    if (quote !== '"' && quote !== "'" && quote !== "`") { computed = true; continue; }
+    let literal = "";
+    for (let i = 1; i < rest.length; i += 1) {
+      const ch = rest[i];
+      if (ch === "\\") { literal += rest[i + 1] ?? ""; i += 1; continue; }
+      if (ch === quote) break;
+      literal += ch;
+    }
+    literalLines = Math.max(literalLines, literal.split("\n").length);
+  }
+  return { calls, literalLines, computed };
+}
+
 const DEFAULT_EXIT_GATE: ExitGateConfig = {
   enabled: true,
   max_gate_retries: 3,
@@ -250,6 +303,7 @@ export default function (pi: any) {
   let dispatchedThisTurn = false;
   let blocksThisTurn = 0;
   let overrideThisTurn = false;
+  let codemodeWarned = false;
   let bypassExitGateThisTurn = false;
 
   // Exit Gate & Anti-Shirking state
@@ -545,6 +599,26 @@ export default function (pi: any) {
       dispatchedThisTurn = true;
       metric({ event: "dispatch", tool: "bash-cli" });
     }
+    if (name === "codemode") {
+      // Issue #19: a codemode script calling tools.write is invisible to the write/edit branch below.
+      const script = typeof event.input?.code === "string" ? event.input.code : "";
+      const scan = scanCodemodeWrites(script);
+      if (scan.calls === 0) return undefined;
+      mutatedThisTurn = true;
+      if (dispatchedThisTurn || overrideThisTurn || blocksThisTurn >= 1) return undefined;
+      if (scan.literalLines > 40) {
+        blocksThisTurn += 1;
+        metric({ event: "direct_write", tool: "codemode", lines: scan.literalLines, blocked: true });
+        ctx.ui.notify(`harness-guard: large codemode write (${scan.literalLines} lines) — plan/critic review first`, "warn");
+        return { block: true, reason: writeRemediation("write inside codemode", scan.literalLines) };
+      }
+      if (scan.computed && !codemodeWarned) {
+        // Partial coverage stated out loud beats silent coverage (#19).
+        codemodeWarned = true;
+        ctx.ui.notify("harness-guard: a codemode call writes with a computed payload; its size cannot be checked", "warn");
+      }
+      return undefined;
+    }
     if (name !== "edit" && name !== "write") return undefined;
 
     mutatedThisTurn = true;
@@ -564,9 +638,7 @@ export default function (pi: any) {
     ctx.ui.notify(`harness-guard: large ${name} (${lines} lines) — consider plan/critic review first`, "warn");
     return {
       block: true,
-      reason:
-        `Large ${name} detected (${lines} lines). Run orchestrator.plan_task or dispatch_subagent(profile='critic') ` +
-        `to review architectural impact first, or retry directly if already validated (user can say '直接做' / 'bypass').`,
+      reason: writeRemediation(name, lines),
     };
   });
 
