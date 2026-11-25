@@ -15,6 +15,7 @@ Normative content (rules, contracts, skills) is English-only; a Chinese auxiliar
 
 | [paper/](paper/) | Paper package (research branch only): outline, experiment record, related work, draft abstract |
 | [RELEASE-NOTES.md](RELEASE-NOTES.md) | Per-version user-facing changes; the startup banner prints the current version's section once |
+| [ISSUE-PLAN-2026-11-25.md](ISSUE-PLAN-2026-11-25.md) | Remediation plan for the open issues: triage (open / stale / environment / wontfix), batches ordered by blocking risk, acceptance check per issue |
 
 
 
