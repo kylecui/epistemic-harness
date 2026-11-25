@@ -224,6 +224,16 @@ environment_policy:
     Run tests, builds and linters through scripts/verify.py (docker by default, POSIX shell, pinned
     Python). Host execution is a declared fallback for machines without Docker; the verdict must record
     which runner produced it (evidence[].runner) and must never downgrade silently.
+  router_upgrade_rule: >-
+    The router is the only LLM exit; upgrading it in place is a self-inflicted outage (2026-11-25: a
+    rebuild baked a SyntaxError, the container looped, every turn died with ECONNREFUSED). Move it only
+    through scripts/router_build.py (builds :staging, imports orchestrator.server + proxy_gateway.app +
+    harness_backend INSIDE the image, refuses to promote a broken one, keeps :prev) followed by an
+    idle-side upgrade and a switch (upgrade.py does both automatically). NEVER run
+    `docker compose up -d --build` or --force-recreate against the serving backend; harness-backend is
+    behind the `solo` profile for exactly that reason. pi always talks to 127.0.0.1:8787 (router-gate),
+    never to a backend container port. Rollback is one command: python scripts/router_switch.py switch
+    blue. Full procedure and failure playbook: docs/router-operations.md.
   browser_rule: >-
     Decide browser/CDP placement by what has to be identical, not by taste. Container browser when the
     target is a self-hosted or local app, when a visual/behavioural baseline must be stable across

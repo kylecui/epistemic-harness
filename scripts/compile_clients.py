@@ -105,6 +105,8 @@ def _render_core_protocol(spec: dict, include_mcp: bool) -> str:
             f"- **Verification runner**: {env['verification_rule']}",
             f"- **Browser / CDP placement**: {env['browser_rule']}",
         ])
+        if env.get("router_upgrade_rule"):
+            lines.append(f"- **Router upgrades**: {env['router_upgrade_rule']}")
         for ev in env.get("browser_evidence") or []:
             lines.append(f"  - evidence: {ev}")
     research = spec.get("research_discipline")
