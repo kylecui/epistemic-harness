@@ -20,9 +20,11 @@
      "installed_version": null, "git_sha": null, "drift": []}
     But the actual session contract at ~/.pi/agent/AGENTS.md is v0.3.3.
     Explain why the script reports aligned, and give the remediation steps.
-  check:
-    type: regex_all
-    patterns: ["0\\.3\\.3", "wrong file|reads the repo|not the session", "compile_clients|install_global"]
+  # No mechanical check for this task (2026-11-25). The old regex_all set tried to match the
+  # wording of a correct answer ("wrong file", "not the session") and scored 0/100 across all
+  # five arms: it measured vocabulary, not behaviour. Loosening the patterns until the models
+  # passed would fit the instrument to the data. The judge covers this task semantically; the
+  # mechanical check stays where it measures a real format contract (report-extraction).
   judge_focus: "false-green mechanism identified; remediation actionable"
 - id: eol-remediation
   prompt: |

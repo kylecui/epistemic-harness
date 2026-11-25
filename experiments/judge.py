@@ -59,7 +59,11 @@ def judge_text(text: str, focus: str, patterns: list[str],
     payload = {"model": model, "stream": False,
                "messages": [{"role": "user", "content": prompt}]}
     data = _post(f"{gateway_url.rstrip('/')}/v1/chat/completions", payload,
-                 {"authorization": "Bearer judge", "x-harness-tier": "system_2", "x-harness-agent-id": "critic"})
+                 {"authorization": "Bearer judge", "x-harness-tier": "system_2",
+                  # The judge is a machine consumer: without this the gateway injects the
+                  # contract and the model answers with a Tier tag instead of JSON (found on
+                  # 2026-11-25: "judge did not return JSON" on 1-5 samples per cell).
+                  "x-harness-no-contract": "1"})
     msg = (data.get("choices") or [{}])[0].get("message") or {}
     raw = msg.get("content") or ""
     m = re.search(r"\{.*\}", raw, re.S)
@@ -95,16 +99,23 @@ def main() -> int:
     rows = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
     out_path = path.with_suffix(".judged.jsonl")
     if args.resume and out_path.exists():
-        done = [json.loads(line) for line in out_path.read_text(encoding="utf-8").splitlines() if line.strip()]
-        clean = all((r.get("judge") or {}).get("total") is not None for r in done if not r.get("error"))
-        if len(done) >= len(rows) and clean:
-            print(f"[{args.arm}/{args.task}] resume: {len(done)} judged already, skipping")
+        # Resume at the ROW level: re-judging a whole cell because three rows failed costs twenty
+        # calls to repair three. Keep scored rows, redo only the rest. Rows are matched by sample id.
+        prev = {json.loads(line).get("sample"): json.loads(line)
+                for line in out_path.read_text(encoding="utf-8").splitlines() if line.strip()}
+        rows = [prev.get(r.get("sample"), r) for r in rows]
+        missing = sum(1 for r in rows if not r.get("error") and (r.get("judge") or {}).get("total") is None)
+        if missing == 0:
+            print(f"[{args.arm}/{args.task}] resume: all {len(rows)} rows scored, skipping")
             return 0
+        print(f"[{args.arm}/{args.task}] resume: {len(rows) - missing} scored, {missing} to judge", flush=True)
     with out_path.open("w", encoding="utf-8", newline="\n") as fh:
         for r in rows:
-            mech = mechanical_check(r.get("text") or "", r.get("check"))
-            judged = None
-            if not r.get("error"):
+            mech = r.get("mechanical_pass")
+            if mech is None:
+                mech = mechanical_check(r.get("text") or "", r.get("check"))
+            judged = r.get("judge")
+            if not r.get("error") and (judged or {}).get("total") is None:
                 try:
                     judged = judge_text(r.get("text") or "", r.get("judge_focus") or "",
                                         (r.get("check") or {}).get("patterns") or [],
