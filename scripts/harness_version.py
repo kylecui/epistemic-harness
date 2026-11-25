@@ -34,7 +34,13 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 HOME_DIR = Path.home()
-AGENTS_HEADER_RE = re.compile(r"epistemic-dual-process-harness \(v(\d+\.\d+\.\d+)\)")
+AGENTS_HEADER_RE = re.compile(
+    # The product was renamed once (epistemic-harness -> epistemic-dual-process-harness), so a stale
+    # contract written by an older compiler must still be READ and named by version rather than
+    # reported as unparseable (issue #5).
+    r"(?:epistemic-dual-process-harness|epistemic-harness|harness)\s*\(v(\d+\.\d+\.\d+)\)",
+    re.IGNORECASE,
+)
 
 
 def spec_version() -> str | None:
@@ -96,6 +102,17 @@ def collect(repo_root: Path | None = None, home: Path | None = None) -> dict:
     drift: list[str] = []
     if spec:
         drift += stamp_drift(spec, installed)
+        # "I cannot read this plane" is not "this plane is fine" (issue #5): an unparseable or
+        # absent contract used to be skipped, so the script printed 'all planes aligned' while
+        # the session ran something else entirely.
+        session_path = home / ".pi" / "agent" / "AGENTS.md"
+        repo_path = repo_root / "AGENTS.md"
+        if session_loaded is None:
+            drift.append(f"session contract unreadable at {session_path} — cannot verify what pi "
+                         f"is running; run scripts/install_global.py, then restart pi")
+        if repo_loaded is None:
+            drift.append(f"repo contract unreadable at {repo_path} — cannot verify the checkout "
+                         f"plane; run scripts/compile_clients.py")
         for label, lv in (("session contract", session_loaded), ("repo contract", repo_loaded)):
             if lv is not None and lv != spec:
                 drift.append(

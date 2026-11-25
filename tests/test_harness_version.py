@@ -16,13 +16,19 @@ import scripts.harness_version as hv  # noqa: E402
 
 
 class VersionTriangulationTests(unittest.TestCase):
-    def _fake_repo(self, root: Path, *, spec: str, loaded: str, stamp: str | None) -> Path:
+    def _fake_repo(self, root: Path, *, spec: str, loaded: str, stamp: str | None,
+                   session: str | None = None) -> Path:
         (root / "harness.yaml").write_text(f"version: {spec}\nname: x\n", encoding="utf-8")
         (root / "AGENTS.md").write_text(
             f"# epistemic-dual-process-harness (v{loaded}) — Agent Runtime Contract\n", encoding="utf-8")
         (root / ".pi").mkdir(exist_ok=True)
         if stamp is not None:
             (root / ".pi" / "installed_version").write_text(stamp + "\n", encoding="utf-8")
+        if session is not None:  # the plane pi actually loads, kept separate from the repo copy
+            (root / ".home" / ".pi" / "agent").mkdir(parents=True, exist_ok=True)
+            (root / ".home" / ".pi" / "agent" / "AGENTS.md").write_text(
+                f"# epistemic-dual-process-harness (v{session}) — Agent Runtime Contract\n",
+                encoding="utf-8")
         return root
 
     def _swap_root(self, repo: Path):
@@ -33,7 +39,7 @@ class VersionTriangulationTests(unittest.TestCase):
                 # isolate from the real ~/.pi/agent/AGENTS.md (its version
                 # differs per machine and would leak into assertions)
                 self.orig_home = hv.HOME_DIR
-                hv.HOME_DIR = repo / ".no-home"
+                hv.HOME_DIR = repo / ".home" if (repo / ".home").exists() else repo / ".no-home"
             def __exit__(self, *a):
                 hv.REPO_ROOT = self.orig
                 hv.HOME_DIR = self.orig_home
@@ -41,10 +47,18 @@ class VersionTriangulationTests(unittest.TestCase):
 
     def test_aligned_report(self):
         with tempfile.TemporaryDirectory() as tmp:
-            repo = self._fake_repo(Path(tmp), spec="0.5.1", loaded="0.5.1", stamp="v0.5.1")
+            repo = self._fake_repo(Path(tmp), spec="0.5.1", loaded="0.5.1", stamp="v0.5.1", session="0.5.1")
             with self._swap_root(repo):
                 info = hv.collect()
             self.assertEqual(info["drift"], [])
+
+    def test_unreadable_session_plane_is_drift_not_silence(self):
+        # Issue #5: 'I cannot read this plane' is not 'this plane is aligned'.
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._fake_repo(Path(tmp), spec="0.5.1", loaded="0.5.1", stamp="v0.5.1")
+            with self._swap_root(repo):
+                info = hv.collect()
+            self.assertTrue(any("session contract unreadable" in d for d in info["drift"]), info["drift"])
 
     def test_spec_loaded_drift_detected(self):
         with tempfile.TemporaryDirectory() as tmp:
