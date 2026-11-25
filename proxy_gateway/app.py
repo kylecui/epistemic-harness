@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
+import difflib
 import hashlib
 import json
 import uuid
@@ -42,7 +44,7 @@ from proxy_gateway.response_guard import (
     guard_openai_stream_delta,
     StreamTagGuard,
 )
-from proxy_gateway.quota_manager import QuotaManager
+from proxy_gateway.quota_manager import ModelSelection, QuotaManager
 from proxy_gateway.interim_guard import interim_mode, requested_interim_schema, check_interim_response, interim_note, enforce_directive
 from proxy_gateway.thrashing_guard import GuardState, RECOVERY_DIRECTIVE
 
@@ -330,6 +332,224 @@ def _failure_summary(failures: dict[str, str], skipped: dict[str, str]) -> str:
     return "; ".join(parts)[:2400] or "no candidate attempted"
 
 
+# --- pinned-model honesty (issue #22) --------------------------------------------------------
+# A client that names a model gets one of three answers, and none of them is a silent swap:
+#   unknown id          -> HTTP 400 unknown_model, naming near matches and ids we do serve
+#   known, not servable -> HTTP 200 with the swap reported (X-Harness-Pin-Dropped plus the body
+#                          marker); failover still runs, because the operator decision of
+#                          2026-11-24 keeps a pinned model on the normal failover path
+#   honoured            -> the pinned model answers, and the served header equals the request
+# The swap is announced twice, because pi reads the body and never the headers:
+#   X-Harness-Requested-Model / X-Harness-Requested-Model-Served / X-Harness-Pin-Dropped /
+#   X-Harness-Skip-Reasons                                                   (headers)
+#   harness.pin_dropped.{requested_model, served_model, reason, skipped_reasons}   (body)
+PIN_HEADER_REQUESTED = "X-Harness-Requested-Model"
+PIN_HEADER_SERVED = "X-Harness-Requested-Model-Served"
+PIN_HEADER_SERVED_ONLY = "X-Harness-Served-Model"
+PIN_HEADER_DROPPED = "X-Harness-Pin-Dropped"
+PIN_HEADER_SKIP_REASONS = "X-Harness-Skip-Reasons"
+PIN_HEADER_ALLOW_SUBSTITUTE = "X-Harness-Allow-Substitute"
+PIN_SKIP_REASON_LIMIT = 5
+
+
+def _header_safe(value: str, limit: int = 200) -> str:
+    """Header values are latin-1: a client-supplied model id must never break the response."""
+    return " ".join(str(value).split())[:limit].encode("latin-1", "replace").decode("latin-1")
+
+
+def fail_on_unknown_model() -> bool:
+    """Default on. Off is for drop-in clients that label turns with their own model ids (Claude Code
+    sends `claude-sonnet-4-5-...`, which this catalog will never contain); the label is then routed
+    by tier and still reported as a dropped pin in the headers and the trace."""
+    return os.getenv("HARNESS_FAIL_ON_UNKNOWN_MODEL", "on").strip().lower() not in ("off", "0", "false")
+
+
+def resolve_model_alias(qm: QuotaManager, requested: str | None, protocol: str | None = None) -> str | None:
+    """Map a client-sent model id to a catalog key; None when the id names nothing we serve.
+
+    Clients send what their own catalog holds: usually our key (`zhipu-glm-5.4`), sometimes the
+    provider's id (`glm-5.4`). Both are the same pin, so both resolve to the key the chain uses.
+    One upstream id can belong to two catalog keys (openai and anthropic variants), so the route's
+    own protocol wins before the first match.
+    """
+    req = str(requested or "").strip()
+    if not req:
+        return None
+    if req in qm.models:
+        return req
+    low = req.lower()
+    for key in qm.models:
+        if key.lower() == low:
+            return key
+    upstream = [(key, str(cfg.get("upstream_model") or "").strip().lower()) for key, cfg in qm.models.items()]
+    for key, up in upstream:
+        if up == low and (protocol is None or str(qm.models[key].get("protocol") or "") == protocol):
+            return key
+    for key, up in upstream:
+        if up == low:
+            return key
+    return None
+
+
+def near_model_matches(qm: QuotaManager, requested: str, limit: int = 5) -> list[str]:
+    """Catalog ids close to the typo, so the 400 tells the client what it probably meant."""
+    ids = list(qm.models)
+    for cfg in qm.models.values():
+        up = str(cfg.get("upstream_model") or "")
+        if up and up not in ids:
+            ids.append(up)
+    return difflib.get_close_matches(str(requested).strip(), ids, n=limit, cutoff=0.4)
+
+
+def format_skip_reasons(skipped: dict[str, str], limit: int = PIN_SKIP_REASON_LIMIT) -> str:
+    """`a=b;c=d`, capped, so a header stays small and the reason list stays readable."""
+    return ";".join(f"{k}={v}" for k, v in list(skipped.items())[:limit])
+
+
+def available_model_ids(qm: QuotaManager, limit: int = PIN_SKIP_REASON_LIMIT) -> list[str]:
+    """The ids a 404 may name: stable order, capped, so the message stays one line."""
+    return sorted(qm.models)[:limit]
+
+
+def allow_substitution(request: Request) -> bool:
+    """Substitution is opt-in: a pin the client did not release must fail, not quietly move."""
+    raw = str(request.headers.get(PIN_HEADER_ALLOW_SUBSTITUTE) or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def pin_retry_seconds(qm: QuotaManager, model_key: str | None, tier: str, now: datetime) -> int | None:
+    """How long until the pinned model can be served again: cooldowns AND operator holds.
+
+    `soonest_available_in` only knows cooldowns, so a 4h manual hold would otherwise be reported
+    as "retry in 1s" and turn an honest refusal into a hot retry loop.
+    """
+    if not model_key:
+        return qm.soonest_available_in(tier, now)
+    waits = [qm.soonest_available_in(tier, now, [model_key])]
+    pool_id, _ = qm.pool_for_model(model_key)
+    holds = qm.active_holds(now)
+    for target in (model_key, pool_id):
+        entry = holds.get(target)
+        if entry:
+            waits.append(max(1, int(entry.get("remaining_sec") or 0) + 1))
+    live = [w for w in waits if w]
+    return max(live) if live else None
+
+
+@dataclass(frozen=True)
+class PinOutcome:
+    """What the client pinned vs. what the router will serve (issue #22)."""
+
+    requested: str | None = None
+    resolved: str | None = None
+    served: str | None = None
+    dropped_reason: str | None = None
+    skipped: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def unknown(self) -> bool:
+        return bool(self.requested) and self.resolved is None
+
+    @property
+    def refused(self) -> bool:
+        """The client pinned a model this request will not serve."""
+        return bool(self.resolved) and self.served != self.resolved
+
+    def refusal(self, protocol: str, tier: str, qm: QuotaManager, now: datetime) -> AllUpstreamsUnavailable:
+        """The 503 a dropped pin produces: the real reason and retry time, not a substitute."""
+        retry = pin_retry_seconds(qm, self.resolved, tier, now)
+        summary = (f"requested model {self.resolved} is unavailable "
+                   f"({self.dropped_reason or 'not_selected'})")
+        if retry:
+            summary += f" - retry in {retry // 60}m" if retry >= 120 else f" - retry in {retry}s"
+        summary += f"; serving a different model requires {PIN_HEADER_ALLOW_SUBSTITUTE}: 1"
+        return AllUpstreamsUnavailable(protocol, tier, summary, retry)
+
+    def headers(self) -> dict[str, str]:
+        """A named pin always says what it asked for and what it got; an unnamed request stays quiet."""
+        if not self.requested:
+            return {}
+        out = {PIN_HEADER_REQUESTED: _header_safe(self.requested),
+               PIN_HEADER_SERVED: _header_safe(self.served or "")}
+        if self.refused:
+            out[PIN_HEADER_SERVED_ONLY] = _header_safe(self.served or "")
+            out[PIN_HEADER_DROPPED] = _header_safe(self.dropped_reason or "not_selected")
+            reasons = format_skip_reasons(self.skipped)
+            if reasons:
+                out[PIN_HEADER_SKIP_REASONS] = _header_safe(reasons, 400)
+        return out
+
+    def trace_fields(self) -> dict[str, Any]:
+        """requested_model + skipped_reasons ride on every trace, so a swap stays countable."""
+        return {"requested_model": self.requested,
+                "requested_model_resolved": self.resolved,
+                "pin_dropped": self.dropped_reason,
+                "skipped_reasons": self.skipped or None}
+
+    def body_marker(self) -> dict[str, Any] | None:
+        """`harness` block for the non-stream body: pi reads the body, never the headers."""
+        if not self.refused:
+            return None
+        return {"pin_dropped": {"requested_model": self.requested, "served_model": self.served,
+                                "reason": self.dropped_reason or "not_selected",
+                                "skipped_reasons": format_skip_reasons(self.skipped)},
+                # Same facts flat, so a client can read them without knowing the nested shape.
+                "requested_model": self.requested, "served_model": self.served,
+                "substituted": True, "reason": self.dropped_reason or "not_selected",
+                "skipped_reasons": format_skip_reasons(self.skipped)}
+
+
+def unknown_model_response(qm: QuotaManager, requested: str, protocol: str) -> JSONResponse:
+    """HTTP 404 `unknown_model` for an id that names nothing in the catalog: a ghost pin must not
+    look served.
+
+    404, not 400: the request shape is fine and only the named resource is missing, so the client
+    stops and fixes the id instead of treating its own payload as malformed. The message lists near
+    matches (or the first ids we do serve), and the request never reaches an upstream.
+    """
+    near = near_model_matches(qm, requested)
+    available = near or available_model_ids(qm)
+    message = (f"unknown_model: '{requested}' is not in the gateway's model catalog. "
+               f"Available model ids: {', '.join(available)}.")
+    error = {"type": "unknown_model", "code": "unknown_model", "param": "model",
+             "message": message, "near_matches": near,
+             "available_models": available_model_ids(qm)}
+    if protocol == "anthropic":
+        return JSONResponse(status_code=404, content={"type": "error", "error": error})
+    return JSONResponse(status_code=404, content={"error": error})
+
+
+def pin_outcome(qm: QuotaManager, requested: str | None, tier: str, protocol: str,
+                selection: ModelSelection, strict_unknown: bool = True) -> PinOutcome:
+    """Compare the pin with the selection and name the reason whenever the pin did not win.
+
+    `requested` is the id the CLIENT named: a model the gateway merely preferred (an agent
+    profile's pick) is not a pin, so it must never turn into a refusal.
+    """
+    raw = str(requested or "").strip() or None
+    skipped = selection.skipped_reasons
+    if not raw:
+        return PinOutcome(None, None, selection.model_key, skipped=skipped)
+    resolved = resolve_model_alias(qm, raw, protocol)
+    if resolved is None:
+        reason = None if strict_unknown else "unknown_model(accepted_as_label)"
+        return PinOutcome(raw, None, selection.model_key, reason, skipped=skipped)
+    if resolved == selection.model_key:
+        return PinOutcome(raw, resolved, selection.model_key, skipped=skipped)
+    reason = skipped.get(resolved)
+    if not reason:
+        # Not a skip the router recorded: the pin was never a candidate on this route/tier.
+        model = qm.models.get(resolved, {})
+        model_protocol = str(model.get("protocol") or protocol)
+        if resolved not in (qm.routing_chains.get(tier) or []):
+            reason = f"not_in_tier_chain({tier})"
+        elif model_protocol != protocol:
+            reason = f"protocol_mismatch(model={model_protocol},route={protocol})"
+        else:
+            reason = "not_selected"
+    return PinOutcome(raw, resolved, selection.model_key, reason, skipped=skipped)
+
+
 def create_app(
     openai_upstream: str | None = None,
     anthropic_upstream: str | None = None,
@@ -536,6 +756,16 @@ def create_app(
         requested_model = body.get("model")
         if not requested_model and profile and profile.get("model"):
             requested_model = str(profile["model"]).strip()
+        # An id that names nothing in the catalog is a client error, not a hint to pick something
+        # else (issue #22: a pin to a ghost id was silently served by whichever model came first).
+        requested_key = resolve_model_alias(qm, requested_model, "openai")
+        strict_unknown = fail_on_unknown_model()
+        if requested_model and requested_key is None and strict_unknown:
+            _log_trace({"ts": now.isoformat(), "event": "unknown_model", "protocol": "openai",
+                        "tier": decision.tier, "requested_model": str(requested_model)[:200],
+                        "agent_id": agent_id or None,
+                        "near_matches": near_model_matches(qm, requested_model)})
+            return unknown_model_response(qm, str(requested_model), "openai")
         sess_id = request.headers.get("x-harness-session-id", "default")
         exclude_pool = resolve_excluded_pool(
             dict(request.headers), qm, session_last_pool, sess_id,
@@ -544,7 +774,7 @@ def create_app(
         selection = qm.select_candidates(
             decision.tier,
             "openai",
-            requested_model,
+            requested_key,
             now_utc=now,
             fallback_base_url=oa_fallback,
             exclude_pool=exclude_pool,
@@ -552,6 +782,19 @@ def create_app(
             # is not moved for price. Sub-agent traffic (X-Harness-Agent-Id) follows the peak rules.
             pin_requested=bool(body.get("model")) and not agent_id,
         )
+        # A body model is a pin only for the chair's own request; sub-agent traffic keeps the peak
+        # rules (operator decision 2026-11-24), so its label must not turn into a refusal.
+        client_pin = (str(body.get("model") or "").strip() or None) if not agent_id else None
+        pin = pin_outcome(qm, client_pin, decision.tier, "openai", selection, strict_unknown)
+        if pin.refused and not allow_substitution(request):
+            # A pin we cannot honour is reported, never swapped out (issue #22): 503 + Retry-After,
+            # with the reason in error.message, so the client retries the model it asked for.
+            _log_trace({"ts": now.isoformat(), "event": "pin_refused", "protocol": "openai",
+                        "tier": decision.tier, "requested_model": pin.requested,
+                        "pin_dropped": pin.dropped_reason,
+                        "skipped_reasons": selection.skipped_reasons,
+                        "agent_id": agent_id or None})
+            raise pin.refusal("openai", decision.tier, qm, now)
         session_last_pool[sess_id] = selection.pool_id
         if not decision.cross_family_critic:
             drafter_state["last_pool"] = selection.pool_id
@@ -691,6 +934,11 @@ def create_app(
                 now_utc=now,
             )
             last_opt = qm.is_last_option(chosen_key)
+            _pin_marker = pin.body_marker()
+            if _pin_marker and isinstance(data, dict):
+                # Same two facts as the headers, for clients that cannot read them.
+                data["harness"] = {**(data.get("harness") if isinstance(data.get("harness"), dict) else {}),
+                                   **_pin_marker}
             _log_trace({
                 "ts": now.isoformat(),
                 "protocol": "openai",
@@ -707,6 +955,7 @@ def create_app(
                 "contract_violations": contract_violations or None,
                 "cap_note": _cap_note,
                 "interim_violations": _interim_note or None,
+                **pin.trace_fields(),
             })
             return JSONResponse(
                 status_code=last_resp.status_code,
@@ -718,6 +967,7 @@ def create_app(
                     "X-Harness-Peak-Avoided": str(selection.peak_avoided).lower(),
                     "X-Harness-Last-Option-Used": str(last_opt).lower(),
                     "X-Harness-Tier-Tag": tier_tag,
+                    **pin.headers(),
                     **_quota_alert_header(),
                 },
             )
@@ -918,6 +1168,7 @@ def create_app(
                 "tag_injected": tag_injected,
                 "contract_violations": contract_violations or None,
                 "cap_note": cap_note_stream,
+                **pin.trace_fields(),
             })
             if all_unavailable:
                 if streamed_any:
@@ -948,6 +1199,7 @@ def create_app(
                 "X-Harness-Peak-Avoided": str(selection.peak_avoided).lower(),
                 "X-Harness-Last-Option-Used": str(selection.last_option_used).lower(),
                 "X-Harness-Tier-Tag": tier_tag,
+                **pin.headers(),
                 **_quota_alert_header(),
             },
         )
@@ -966,16 +1218,38 @@ def create_app(
         requested_model = body.get("model")
         if not requested_model and profile and profile.get("model"):
             requested_model = str(profile["model"]).strip()
+        # Same three outcomes as the OpenAI route: a pin to an id we do not serve is a 400, and a pin
+        # we cannot honour is reported instead of quietly replaced (issue #22).
+        requested_key = resolve_model_alias(qm, requested_model, "anthropic")
+        strict_unknown = fail_on_unknown_model()
+        if requested_model and requested_key is None and strict_unknown:
+            _log_trace({"ts": now.isoformat(), "event": "unknown_model", "protocol": "anthropic",
+                        "tier": decision.tier, "requested_model": str(requested_model)[:200],
+                        "agent_id": agent_id or None,
+                        "near_matches": near_model_matches(qm, requested_model)})
+            return unknown_model_response(qm, str(requested_model), "anthropic")
         sess_id = request.headers.get("x-harness-session-id", "default")
         exclude_pool = resolve_excluded_pool(
             dict(request.headers), qm, session_last_pool, sess_id,
             decision.cross_family_critic, drafter_state["last_pool"],
         )
         selection = qm.select_candidates(
-            decision.tier, "anthropic", requested_model, now_utc=now,
+            decision.tier, "anthropic", requested_key, now_utc=now,
             fallback_base_url=an_fallback, exclude_pool=exclude_pool,
             pin_requested=bool(body.get("model")) and not agent_id,
         )
+        # Same contract as the OpenAI route (issue #22): report, never swap. Sub-agent labels are
+        # not pins, so they keep the peak rules instead of being refused.
+        client_pin = (str(body.get("model") or "").strip() or None) if not agent_id else None
+        pin = pin_outcome(qm, client_pin, decision.tier, "anthropic", selection, strict_unknown)
+        if pin.refused and not allow_substitution(request):
+            # Same contract as the OpenAI route (issue #22): report, never swap.
+            _log_trace({"ts": now.isoformat(), "event": "pin_refused", "protocol": "anthropic",
+                        "tier": decision.tier, "requested_model": pin.requested,
+                        "pin_dropped": pin.dropped_reason,
+                        "skipped_reasons": selection.skipped_reasons,
+                        "agent_id": agent_id or None})
+            raise pin.refusal("anthropic", decision.tier, qm, now)
         session_last_pool[sess_id] = selection.pool_id
         if not decision.cross_family_critic:
             drafter_state["last_pool"] = selection.pool_id
@@ -1098,6 +1372,22 @@ def create_app(
                 completion_tokens=int(usage.get("output_tokens", 0)),
                 now_utc=now,
             )
+            _pin_marker = pin.body_marker()
+            if _pin_marker and isinstance(data, dict):
+                data["harness"] = {**(data.get("harness") if isinstance(data.get("harness"), dict) else {}),
+                                   **_pin_marker}
+            _log_trace({
+                "ts": now.isoformat(),
+                "protocol": "anthropic",
+                "tier": decision.tier,
+                "selected_model": chosen_key,
+                "stream": False,
+                "tripped": False,
+                "agent_id": agent_id or None,
+                "contract_violations": contract_violations or None,
+                "cap_note": _cap_note,
+                **pin.trace_fields(),
+            })
             return JSONResponse(
                 status_code=resp.status_code,
                 content=data,
@@ -1105,6 +1395,7 @@ def create_app(
                     "X-Harness-Routed-Tier": decision.tier,
                     "X-Harness-Selected-Model": chosen_key,
                     "X-Harness-Tier-Tag": tier_tag,
+                    **pin.headers(),
                     **_quota_alert_header(),
                 },
             )
@@ -1285,6 +1576,7 @@ def create_app(
                 "tag_injected": tag_injected,
                 "contract_violations": contract_violations or None,
                 "cap_note": cap_note_stream,
+                **pin.trace_fields(),
             })
             if all_unavailable:
                 if streamed_any:
@@ -1310,6 +1602,7 @@ def create_app(
                 "X-Harness-Routed-Tier": decision.tier,
                 "X-Harness-Selected-Model": chosen_key,
                 "X-Harness-Tier-Tag": tier_tag,
+                **pin.headers(),
                 **_quota_alert_header(),
             },
         )

@@ -3,7 +3,7 @@
 **Governance for LLM coding agents: evidence-bound claims, tiered cognition, and loops that exhaust problems instead of ping-ponging them.**
 
 [![version](https://img.shields.io/badge/version-v0.5.4-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-438%20green-brightgreen)](scripts/verify.py)
+[![tests](https://img.shields.io/badge/tests-470%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *中文介绍见 [README_ZH.md](README_ZH.md)。 All normative content (rules, contracts, skills) is English-only; Chinese exists only as auxiliary translation.*
@@ -85,6 +85,7 @@ Verify at any time — the `hvx` wrapper resolves the project interpreter for yo
 - **Failover still applies to the main agent** when the pick is genuinely unavailable (quota window spent, cooldown): the rest of the tier chain is tried in order.
 - **Sub-agents and failover follow the tier chain in `proxy_gateway/quota_policy.yaml`**, and pools inside their `peak_windows_utc` yield to off-peak pools while `active_peak_avoidance` is on.
 - The response header `X-Harness-Selected-Model` names the model that actually answered; the client's model label only shows what it asked for.
+- **A pin is never replaced silently**: an id the catalog does not contain gets `404 unknown_model` with near matches; a pin the router cannot honour gets `503` + `Retry-After` naming the reason, and only a request that sends `X-Harness-Allow-Substitute: 1` is swapped (announced in `X-Harness-Served-Model` and in the body). See [docs/configuration.md](docs/configuration.md#what-happens-to-the-model-you-asked-for-issue-22).
 - **Usage readings come from the providers** (OpenCode, Zhipu, Kimi all expose one). Readings are display data, never a pre-emptive refusal: the chain tries the model and fails over on a real `429`. A reading above 100% means a booster is being consumed, and the gateway advertises it in `X-Harness-Quota-Alert` so the client can warn you.
 - **You can block a model or a pool for a while**: `python scripts/hold_model.py <model-or-pool> <minutes> "reason"` (add `--pool` for a pool id, `--release` to lift it, `--list` to see holds and alerts). Holds persist across restarts and show up as the skip reason `manual_hold(<n>m)`.
 - **WorkBuddy (Tencent CodeBuddy)** is an optional upstream, containerized: `docker compose --profile workbuddy up -d workbuddy`. Its models (`workbuddy-hy4`, `workbuddy-glm-5.4`) sit after Zhipu and Kimi and before OpenCode; the account store is bind-mounted from `WORKBUDDY_DATA_DIR` and never baked into the image.

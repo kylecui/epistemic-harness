@@ -82,7 +82,7 @@ class AlertTests(unittest.TestCase):
         app = create_app(transport=httpx.MockTransport(upstream), quota_manager=self.qm, now_provider=lambda: NOW)
         client = TestClient(app)
         self.qm._remote_usage["kimi_allegretto"] = {"percent": {"week": 104.0}, "ts": NOW}
-        resp = client.post("/v1/chat/completions", json={"model": "x", "stream": False,
+        resp = client.post("/v1/chat/completions", json={"model": "zhipu-glm-5.4", "stream": False,
                                                          "messages": [{"role": "user", "content": "hi"}]})
         self.assertIn("kimi_allegretto: week 104%", resp.headers["x-harness-quota-alert"])
 

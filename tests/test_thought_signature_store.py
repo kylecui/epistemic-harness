@@ -74,9 +74,9 @@ class WiringTests(unittest.TestCase):
         app = create_app(openai_upstream="https://mock.openai.local/v1", transport=httpx.MockTransport(handler))
         client = TestClient(app)
         with patch.object(app_module, "_resolve_base", return_value="https://generativelanguage.googleapis.com/v1beta/openai"):
-            client.post("/v1/chat/completions", json={"model": "test-reasoner", "stream": True,
+            client.post("/v1/chat/completions", json={"model": "zhipu-glm-5.4", "stream": True,
                                                       "messages": [{"role": "user", "content": "hi"}]})
-            follow_up = {"model": "test-reasoner", "stream": True, "messages": [
+            follow_up = {"model": "zhipu-glm-5.4", "stream": True, "messages": [
                 {"role": "user", "content": "hi"},
                 {"role": "assistant", "tool_calls": [{"id": "call_1", "type": "function",
                                                      "function": {"name": "read", "arguments": "{}"}}]},

@@ -3,7 +3,7 @@
 **面向 LLM 编码 agent 的治理层：证据绑定的完成声明、分层认知，以及把问题耗尽而不是来回踢皮球的回环。**
 
 [![version](https://img.shields.io/badge/version-v0.5.4-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-438%20green-brightgreen)](scripts/verify.py)
+[![tests](https://img.shields.io/badge/tests-470%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *本文是 [README.md](README.md) 的中文辅助翻译；规范内容一律以英文版与 AGENTS.md 为准（思考语言约束见契约）。*
@@ -68,6 +68,7 @@ python scripts/install.py
 - **主 agent 同样可以 failover**：指定的模型确实不可用时（额度窗口用完、冷却中），按该档位的链依次尝试。
 - **子 agent 和 failover 按 `proxy_gateway/quota_policy.yaml` 里的档位链选模型**；`active_peak_avoidance` 打开时，处于 `peak_windows_utc` 内的池让位给不在高峰的池。
 - 响应头 `X-Harness-Selected-Model` 是实际应答的模型；客户端显示的模型名只是它请求的那个。
+- **指定的模型不会被悄悄换掉**：目录里没有的模型名直接返回 `404 unknown_model`，并列出相近的可用名；能识别但当下用不了的，返回 `503` 加 `Retry-After`，错误信息里写明原因和恢复时间；只有请求里带上 `X-Harness-Allow-Substitute: 1` 才会换模型，并且用 `X-Harness-Served-Model` 和响应体同时说清楚。详见 [docs/configuration.md](docs/configuration.md#what-happens-to-the-model-you-asked-for-issue-22)。
 - **用量读服务商的准数**（OpenCode、智谱、Kimi 都有官方接口）。读数只做展示，不提前拒绝：链上会真的试一次，服务商回 `429` 才换下一个。读数超过 100% 说明在消耗加油包，网关通过 `X-Harness-Quota-Alert` 响应头告知，客户端据此提醒你。
 - **可以临时屏蔽某个模型或某个池**：`python scripts/hold_model.py <模型或池> <分钟> "原因"`（池 id 加 `--pool`，`--release` 解除，`--list` 查看）。屏蔽会持久化、重启后仍在，跳过原因里显示 `manual_hold(<n>m)`。
 - **WorkBuddy（腾讯 CodeBuddy）** 是可选的容器化上游：`docker compose --profile workbuddy up -d workbuddy`。它的模型（`workbuddy-hy4`、`workbuddy-glm-5.4`）排在智谱和 Kimi 之后、OpenCode 之前；账号库从 `WORKBUDDY_DATA_DIR` 挂载，不进镜像。

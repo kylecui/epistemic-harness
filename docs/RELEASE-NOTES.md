@@ -2,6 +2,7 @@
 
 ## v0.5.4
 
+- A pinned model is never replaced silently (issue #22): an id the catalog does not contain returns 404 `unknown_model` with near matches and never reaches an upstream; a pin that cannot be honoured returns 503 + `Retry-After` naming the model, the skip reason and the wait, instead of another model's answer. Swapping needs the client's opt-in (`X-Harness-Allow-Substitute: 1`), and is then announced in `X-Harness-Served-Model`, `X-Harness-Pin-Dropped` and the JSON body (`harness.substituted`); both paths also trace `requested_model`, `selected_model` and `skipped_reasons`. Pinned by tests/test_pin_semantics.py; `HARNESS_FAIL_ON_UNKNOWN_MODEL=off` keeps drop-in clients (Claude Code's own model ids) working while still reporting the dropped label.
 - Router priority contract (L4 decision): sub-agent chains are zhipu > kimi > github copilot > google, with opencode-deepseek-v4.1-flash as the LAST-resort fallback; the main agent still reaches it first via requested_model. Pinned by tests/test_routing_priority.py.
 - Transient concurrency limits (Zhipu 1302/1305) now cool down only the affected model for a few seconds instead of freezing the whole shared pool for 300s — the failure mode that took the gateway down during quota spikes.
 - Copilot upstream auth deduplicated (duplicate Authorization headers caused spurious 400 invalid-whitespace), and google-ai-gemini-4-hydrogen got its missing api_key_env.

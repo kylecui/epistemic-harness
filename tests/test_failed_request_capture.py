@@ -76,7 +76,7 @@ class CaptureTests(unittest.TestCase):
 
         app = create_app(openai_upstream="https://mock.openai.local/v1", transport=httpx.MockTransport(handler))
         TestClient(app).post("/v1/chat/completions", json={
-            "model": "test-reasoner", "stream": True,
+            "model": "zhipu-glm-5.4", "stream": True,
             "messages": [{"role": "user", "content": "capture me"}]})
         files = list(self.dir.glob("*-400.json"))
         self.assertEqual(len(files), 1)

@@ -74,7 +74,7 @@ class ErrorBriefTests(unittest.TestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(429, headers={"retry-after": "90", "request-id": "r-429"},
                                   json={"error": {"code": "1302", "message": "rate"}})
-        resp = _client(handler).post("/v1/chat/completions", json={"model": "test-reasoner", "stream": False, "messages": MSG})
+        resp = _client(handler).post("/v1/chat/completions", json={"model": "zhipu-glm-5.4", "stream": False, "messages": MSG})
         body = json.loads(resp.text)
         self.assertEqual(resp.status_code, 503)
         self.assertTrue(body["error"]["message"].startswith("HTTP 429 [1302] rate (request_id=r-429). "), body["error"]["message"])
@@ -104,7 +104,7 @@ class TraceTests(unittest.TestCase):
             with patch.object(app_module, "TRACE_FILE", trace):
                 for stream in (True, False):
                     _client(_always_429).post("/v1/chat/completions", json={
-                        "model": "test-reasoner", "stream": stream, "messages": MSG})
+                        "model": "zhipu-glm-5.4", "stream": stream, "messages": MSG})
             lines = trace.read_text(encoding="utf-8").splitlines()
         events = [json.loads(l) for l in lines]
         events = [e for e in events if e.get("event") == "all_unavailable"]
@@ -136,7 +136,7 @@ class SoonestTests(unittest.TestCase):
 class RouteTests(unittest.TestCase):
     def test_openai_stream_and_non_stream_get_503_not_a_synthesized_reply(self) -> None:
         for stream in (True, False):
-            resp = _client(_always_429).post("/v1/chat/completions", json={"model": "test-reasoner", "stream": stream, "messages": MSG})
+            resp = _client(_always_429).post("/v1/chat/completions", json={"model": "zhipu-glm-5.4", "stream": stream, "messages": MSG})
             self.assertEqual(resp.status_code, 503, resp.text)  # always the gateway's status: deterministic
             # every attempted model answered retry-after 90 (rechecked one second later)
             self.assertEqual(resp.headers["retry-after"], "91")
@@ -152,7 +152,7 @@ class RouteTests(unittest.TestCase):
 
     def test_anthropic_stream_gets_503(self) -> None:
         resp = _client(_always_429).post("/anthropic/v1/messages", json={
-            "model": "claude", "max_tokens": 16, "stream": True, "messages": MSG})
+            "model": "kimi-for-coding-anthropic", "max_tokens": 16, "stream": True, "messages": MSG})
         self.assertEqual(resp.status_code, 503, resp.text)
         body = json.loads(resp.text)
         self.assertTrue(body["error"]["message"].startswith("HTTP 429 rate limited. "))
@@ -167,7 +167,7 @@ class RouteTests(unittest.TestCase):
             attempts.append(json.loads(request.content.decode("utf-8"))["model"])
             return httpx.Response(429, json={"type": "error", "error": {"type": "exceeded_current_quota_error", "message": "weekly limit"}})
         resp = _client(handler).post("/anthropic/v1/messages", json={
-            "model": "claude-sonnet-5.5", "max_tokens": 16, "stream": False, "messages": MSG})
+            "model": "zhipu-glm-5.4-anthropic", "max_tokens": 16, "stream": False, "messages": MSG})
         self.assertEqual(resp.status_code, 503, resp.text)
         self.assertEqual(resp.headers["x-harness-all-upstreams-unavailable"], "1")
         self.assertGreaterEqual(len(attempts), 2)
@@ -184,7 +184,7 @@ class RouteTests(unittest.TestCase):
                                              "content": [{"type": "text", "text": "second candidate answered"}], "stop_reason": "end_turn",
                                              "usage": {"input_tokens": 1, "output_tokens": 1}})
         resp = _client(handler).post("/anthropic/v1/messages", json={
-            "model": "claude-sonnet-5.5", "max_tokens": 16, "stream": False, "messages": MSG})
+            "model": "zhipu-glm-5.4-anthropic", "max_tokens": 16, "stream": False, "messages": MSG})
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(len(attempts), 2)
         self.assertIn("second candidate answered", resp.text)
@@ -195,7 +195,7 @@ class RouteTests(unittest.TestCase):
         def handler(request: httpx.Request) -> httpx.Response:
             calls.append(request.url.path)
             return _healthy(request)
-        resp = _client(handler).post("/v1/chat/completions", json={"model": "test-reasoner", "stream": True, "messages": MSG})
+        resp = _client(handler).post("/v1/chat/completions", json={"model": "zhipu-glm-5.4", "stream": True, "messages": MSG})
         self.assertEqual(len(calls), 1)  # priming the first chunk must not re-send the request
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.text.count("fine"), 1)
@@ -205,7 +205,7 @@ class RouteTests(unittest.TestCase):
             if len(request.content) and request.headers.get("content-length"):
                 pass
             return _sse('{"id":"1","choices":[{"delta":{"content":"partial"}}]}')  # stream cut, no finish
-        resp = _client(handler).post("/v1/chat/completions", json={"model": "test-reasoner", "stream": True, "messages": MSG})
+        resp = _client(handler).post("/v1/chat/completions", json={"model": "zhipu-glm-5.4", "stream": True, "messages": MSG})
         self.assertEqual(resp.status_code, 200)
         self.assertIn("partial", resp.text)
 

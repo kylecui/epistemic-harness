@@ -186,7 +186,9 @@ class TestSharedPoolQuotaRouter(unittest.TestCase):
                                                 "content": [{"type": "text", "text": "go ok"}], "stop_reason": "end_turn",
                                                 "usage": {"input_tokens": 1, "output_tokens": 1}})
             client = TestClient(create_app(transport=httpx.MockTransport(upstream), quota_manager=qm, now_provider=lambda: now))
-            resp = client.post("/anthropic/v1/messages", json={"model": "claude-sonnet-5.5", "max_tokens": 16, "stream": False,
+            # Pin the opencode anthropic candidate this test is about: an id we serve, so the
+            # request is routed rather than refused (issue #22).
+            resp = client.post("/anthropic/v1/messages", json={"model": "opencode-deepseek-v4.1-flash-anthropic", "max_tokens": 16, "stream": False,
                                                             "messages": [{"role": "user", "content": "hi"}]})
         self.assertEqual(resp.status_code, 200, resp.text)
         self.assertEqual(str(seen[-1].url), "https://opencode.ai/inference/go/v1/messages")

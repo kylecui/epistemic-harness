@@ -43,7 +43,7 @@ class StateIsolationTests(unittest.TestCase):
                              now_provider=lambda: datetime(2026, 11, 24, 12, 0, tzinfo=timezone.utc))
             for stream in (True, False):
                 resp = TestClient(app).post("/v1/chat/completions", json={
-                    "model": "test-reasoner", "stream": stream, "messages": [{"role": "user", "content": "hi"}]})
+                    "model": "zhipu-glm-5.4", "stream": stream, "messages": [{"role": "user", "content": "hi"}]})
                 self.assertEqual(resp.status_code, 503, resp.text)
             # closing(): a transaction context alone keeps the handle open, and Windows then refuses
             # to delete the temporary directory (the commit gate runs the suite on the host).

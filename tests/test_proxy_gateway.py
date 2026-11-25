@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 import sys
 import unittest
+import unittest.mock
 
 from fastapi.testclient import TestClient
 import httpx
@@ -61,7 +62,7 @@ class TestProxyGateway(unittest.TestCase):
         resp = client.post(
             "/v1/chat/completions",
             json={
-                "model": "test-reasoner",
+                "model": "zhipu-glm-5.4",
                 "reasoning_effort": "high",
                 "stream": True,
                 "messages": [{"role": "user", "content": "线上 API 延迟飙升但没给 Trace，分析一下"}],
@@ -96,11 +97,14 @@ class TestProxyGateway(unittest.TestCase):
 
         app = create_app(anthropic_upstream="https://mock.anthropic.local", transport=httpx.MockTransport(mock_handler))
         client = TestClient(app)
-        resp = client.post(
-            "/anthropic/v1/messages",
-            headers={"X-Harness-Tier": "system_1"},
-            json={"model": "claude-test", "stream": True, "messages": [{"role": "user", "content": "快速初筛一下"}]},
-        )
+        # `claude-test` is a label, not a pin: the env hatch keeps this a hermetic plumbing test
+        # instead of tying it to the live quota ledger (issue #22 makes an unknown id a 404).
+        with unittest.mock.patch.dict("os.environ", {"HARNESS_FAIL_ON_UNKNOWN_MODEL": "off"}):
+            resp = client.post(
+                "/anthropic/v1/messages",
+                headers={"X-Harness-Tier": "system_1"},
+                json={"model": "claude-test", "stream": True, "messages": [{"role": "user", "content": "快速初筛一下"}]},
+            )
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(captured_thinking[0], {"type": "enabled", "budget_tokens": 2048})
         self.assertEqual(captured_thinking[1], {"type": "disabled"})

@@ -42,6 +42,37 @@ So "the default model for tier system_1_5" = the first entry of `routing_chains.
 that passes the filters. **To change defaults, reorder the chain.** Validation:
 `python scripts/capability_matrix.py` after every edit, then restart the backend.
 
+### What happens to the model you asked for (issue #22)
+
+A pin is never replaced silently. The gateway answers in exactly one of three ways, and each
+answer is readable from the response:
+
+| Case | Status | Signal |
+|---|---|---|
+| `model` names nothing in the catalog | 404 `unknown_model` | `error.message` plus `error.near_matches` / `error.available_models`; no upstream is called |
+| Known, but not usable now (hold, cooldown, quota, peak-yield, not in this tier's chain, other protocol) | 503 + `Retry-After` | `error.message` names the model, its skip reason and the wait; nothing is generated |
+| Same, and the request sent `X-Harness-Allow-Substitute: 1` | 200 | `X-Harness-Served-Model` plus `harness.{requested_model, served_model, substituted, reason}` |
+| Honoured | 200 | `X-Harness-Requested-Model-Served` equals the request; no swap header |
+
+A dropped pin is a refusal, not a substitution: the client asked for one model, so serving another
+silently would end its turn on an answer it did not request. `X-Harness-Allow-Substitute: 1` is the
+only way to release that pin, and the swap is then announced twice — in the headers and in the
+JSON body — because pi reads the body and never the headers.
+
+`X-Harness-Requested-Model` always repeats what the client asked for, `X-Harness-Pin-Dropped` and
+`X-Harness-Skip-Reasons` (`a=b;c=d`, capped at five entries) explain an opted-in swap, and the trace
+line carries `requested_model`, `requested_model_resolved`, `pin_dropped` and `skipped_reasons`. A
+provider id is the same pin as its catalog key (`glm-5.4` → `zhipu-glm-5.4`); when two catalog keys
+share one upstream id, the route's protocol decides (`k3.1-pro` on `/anthropic` →
+`kimi-k3.1-pro-anthropic`).
+
+Streaming responses carry the same headers (`StreamingResponse` fixes them before the first chunk);
+only the `harness` body field is JSON-only.
+
+Drop-in clients that label turns with ids this catalog will never contain (Claude Code sends
+`claude-sonnet-4-5-20250929`) set `HARNESS_FAIL_ON_UNKNOWN_MODEL=off`: the request routes by tier
+and the label is reported as a dropped pin in the trace. Lenient is not the same as silent.
+
 ## 4. Ways to select a model for one request
 
 | Method | Mechanism | Scope |

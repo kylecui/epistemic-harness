@@ -61,7 +61,7 @@ class InterimGuardAppTests(unittest.TestCase):
     def test_off_by_default_no_note(self):
         client = TestClient(self._app("free text"))
         resp = client.post("/v1/chat/completions", headers={"X-Harness-Interim": "subagent-report/v1"},
-                           json={"model": "m", "messages": [{"role": "user", "content": "hi"}]})
+                           json={"model": "zhipu-glm-5.4", "messages": [{"role": "user", "content": "hi"}]})
         self.assertNotIn("HARNESS_INTERIM", resp.text)
 
     def test_warn_appends_note_on_violation(self):
@@ -69,7 +69,7 @@ class InterimGuardAppTests(unittest.TestCase):
         try:
             client = TestClient(self._app("free text, not a report"))
             resp = client.post("/v1/chat/completions", headers={"X-Harness-Interim": "subagent-report/v1"},
-                               json={"model": "m", "messages": [{"role": "user", "content": "hi"}]})
+                               json={"model": "zhipu-glm-5.4", "messages": [{"role": "user", "content": "hi"}]})
             self.assertIn("HARNESS_INTERIM", resp.text)
             self.assertIn("not valid JSON", resp.text)
         finally:
@@ -81,7 +81,7 @@ class InterimGuardAppTests(unittest.TestCase):
             valid = json.dumps(build_report("t-1", "coder", "finding"), ensure_ascii=False)
             client = TestClient(self._app(valid))
             resp = client.post("/v1/chat/completions", headers={"X-Harness-Interim": "subagent-report/v1"},
-                               json={"model": "m", "messages": [{"role": "user", "content": "hi"}]})
+                               json={"model": "zhipu-glm-5.4", "messages": [{"role": "user", "content": "hi"}]})
             self.assertNotIn("HARNESS_INTERIM", resp.text)
         finally:
             os.environ.pop("HARNESS_INTERIM_SCHEMA", None)
@@ -109,7 +109,7 @@ class EnforceModeTests(unittest.TestCase):
         try:
             client = TestClient(app)
             resp = client.post("/v1/chat/completions", headers={"X-Harness-Interim": "subagent-report/v1"},
-                               json={"model": "m", "messages": [{"role": "user", "content": "hi"}]})
+                               json={"model": "zhipu-glm-5.4", "messages": [{"role": "user", "content": "hi"}]})
             self.assertNotIn("HARNESS_INTERIM", resp.text)
             self.assertEqual(calls["n"], 2)
             self.assertIn("subagent-report", resp.text)
@@ -122,7 +122,7 @@ class EnforceModeTests(unittest.TestCase):
         try:
             client = TestClient(app)
             resp = client.post("/v1/chat/completions", headers={"X-Harness-Interim": "subagent-report/v1"},
-                               json={"model": "m", "messages": [{"role": "user", "content": "hi"}]})
+                               json={"model": "zhipu-glm-5.4", "messages": [{"role": "user", "content": "hi"}]})
             self.assertIn("HARNESS_INTERIM", resp.text)
             self.assertEqual(calls["n"], 2)  # bounced exactly once
         finally:
