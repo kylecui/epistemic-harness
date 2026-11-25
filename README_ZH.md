@@ -3,7 +3,7 @@
 **面向 LLM 编码 agent 的治理层：证据绑定的完成声明、分层认知，以及把问题耗尽而不是来回踢皮球的回环。**
 
 [![version](https://img.shields.io/badge/version-v0.5.4-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-498%20green-brightgreen)](scripts/verify.py)
+[![tests](https://img.shields.io/badge/tests-505%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *本文是 [README.md](README.md) 的中文辅助翻译；规范内容一律以英文版与 AGENTS.md 为准（思考语言约束见契约）。*
@@ -72,6 +72,7 @@ python scripts/install.py
 - **用量读服务商的准数**（OpenCode、智谱、Kimi 都有官方接口）。读数只做展示，不提前拒绝：链上会真的试一次，服务商回 `429` 才换下一个。读数超过 100% 说明在消耗加油包，网关通过 `X-Harness-Quota-Alert` 响应头告知，客户端据此提醒你。
 - **可以临时屏蔽某个模型或某个池**：`python scripts/hold_model.py <模型或池> <分钟> "原因"`（池 id 加 `--pool`，`--release` 解除，`--list` 查看）。屏蔽会持久化、重启后仍在，跳过原因里显示 `manual_hold(<n>m)`。
 - **WorkBuddy（腾讯 CodeBuddy）** 是可选的容器化上游：`docker compose --profile workbuddy up -d workbuddy`。它的模型（`workbuddy-hy4`、`workbuddy-glm-5.4`）排在智谱和 Kimi 之后、OpenCode 之前；账号库从 `WORKBUDDY_DATA_DIR` 挂载，不进镜像。
+- **升级不会再搞挂 router**：`python scripts/router_build.py` 先用 staging 标签构建、在镜像内 import 入口模块、坏了就拒绝推进（2026-11-25 的事故正是这样）。`docker-compose.ha.yml` 提供蓝绿两台 + 跑在 pi 已用端口上的 `scripts/router_gate.py`，切版本只需 `python scripts/router_switch.py switch green`，客户端不会看到连接错误。
 - **没有 `.pi/exit_gate.json` 的项目会得到一套通用闸门**：遗留的临时草稿文件、提交进仓库的 `.sh`/`.py` 里的 CRLF（读的是 git 索引，所以 `core.autocrlf` 不会让它每回合报红）、以及写进受跟踪文件的密钥。不在 git 仓库里时它直接跳过，不去猜；它也**不会**去跑未知项目自己的测试。
 
 ## 技能：不用记的命令

@@ -3,7 +3,7 @@
 **Governance for LLM coding agents: evidence-bound claims, tiered cognition, and loops that exhaust problems instead of ping-ponging them.**
 
 [![version](https://img.shields.io/badge/version-v0.5.4-blue)](docs/workplan-v0.4.md)
-[![tests](https://img.shields.io/badge/tests-498%20green-brightgreen)](scripts/verify.py)
+[![tests](https://img.shields.io/badge/tests-505%20green-brightgreen)](scripts/verify.py)
 [![license](https://img.shields.io/badge/license-MIT-lightgrey)](LICENSE)
 
 *中文介绍见 [README_ZH.md](README_ZH.md)。 All normative content (rules, contracts, skills) is English-only; Chinese exists only as auxiliary translation.*
@@ -89,6 +89,7 @@ Verify at any time — the `hvx` wrapper resolves the project interpreter for yo
 - **Usage readings come from the providers** (OpenCode, Zhipu, Kimi all expose one). Readings are display data, never a pre-emptive refusal: the chain tries the model and fails over on a real `429`. A reading above 100% means a booster is being consumed, and the gateway advertises it in `X-Harness-Quota-Alert` so the client can warn you.
 - **You can block a model or a pool for a while**: `python scripts/hold_model.py <model-or-pool> <minutes> "reason"` (add `--pool` for a pool id, `--release` to lift it, `--list` to see holds and alerts). Holds persist across restarts and show up as the skip reason `manual_hold(<n>m)`.
 - **WorkBuddy (Tencent CodeBuddy)** is an optional upstream, containerized: `docker compose --profile workbuddy up -d workbuddy`. Its models (`workbuddy-hy4`, `workbuddy-glm-5.4`) sit after Zhipu and Kimi and before OpenCode; the account store is bind-mounted from `WORKBUDDY_DATA_DIR` and never baked into the image.
+- **An upgrade can no longer take the router down**: `python scripts/router_build.py` builds under a staging tag, imports the entry modules *inside* the image, and refuses to promote a broken build (the 2026-11-25 outage was exactly that). `docker-compose.ha.yml` adds a blue/green pair behind `scripts/router_gate.py` on the port pi already uses, so switching versions is `python scripts/router_switch.py switch green` — no client-visible connection error.
 - **A project that declares no `.pi/exit_gate.json` gets a universal gate**: scratch files left behind, CRLF committed into `.sh`/`.py` (read from the git index, so `core.autocrlf` does not red every turn), and credentials written into tracked files. Outside a git repository it skips rather than guessing — and it never tries to run an unknown project's own tests.
 
 ## Skills: commands you don't have to remember
