@@ -29,11 +29,21 @@ class SettingsDefaultsTests(unittest.TestCase):
 
 
 class ModelCatalogTests(unittest.TestCase):
-    def test_every_policy_model_reaches_pis_catalog(self) -> None:
-        policy = yaml.safe_load(POLICY.read_text(encoding="utf-8"))["models"]
+    def test_catalog_lists_exactly_the_routable_models(self) -> None:
+        policy = yaml.safe_load(POLICY.read_text(encoding="utf-8"))
+        routed = [k for k in policy["models"]
+                  if k in {key for chain in policy["routing_chains"].values() for key in chain}]
         router = installer.merge_models_json({}, POLICY)["providers"][installer.HARNESS_PROVIDER]
-        self.assertEqual([m["id"] for m in router["models"]], list(policy))
+        self.assertEqual([m["id"] for m in router["models"]], routed)
         self.assertEqual(router["baseUrl"], "http://127.0.0.1:8787/v1")
+
+    def test_unroutable_vendor_models_are_not_advertised(self) -> None:
+        # Issue #23: these four were selectable in pi and silently served by another model.
+        ids = {m["id"] for m in installer.harness_router_models(POLICY)}
+        for dead in ("copilot-claude-fable-5.2", "copilot-claude-sonnet-5.5",
+                     "google-ai-gemini-4-neon", "google-ai-gemini-4-hydrogen"):
+            self.assertNotIn(dead, ids)
+        self.assertIn("workbuddy-hy4", ids)
 
     def test_other_providers_survive_and_stale_entries_go(self) -> None:
         existing = {"providers": {"mine": {"baseUrl": "http://x"},

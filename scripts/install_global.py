@@ -84,10 +84,19 @@ def merge_pi_settings(existing: dict) -> dict:
 
 
 def harness_router_models(policy_path: Path) -> list[dict[str, Any]]:
-    """The router's model list straight from quota_policy.yaml, so pi's catalog cannot go stale."""
+    """The router's model list from quota_policy.yaml, limited to models a request can reach.
+
+    Routability is defined by the routing chains, not by the presence of a model block: a
+    definition kept for a future re-entry (or a vendor we pulled out of every chain) used to
+    reach pi's catalog anyway, so the picker offered models that silently resolved to a
+    different one (issue #23, reproduced 2026-11-25 with the four copilot/google ids).
+    """
     policy = yaml.safe_load(policy_path.read_text(encoding="utf-8")) or {}
+    routed = {key for chain in (policy.get("routing_chains") or {}).values() for key in (chain or [])}
     out: list[dict[str, Any]] = []
     for model_key, cfg in (policy.get("models") or {}).items():
+        if model_key not in routed or cfg.get("routable") is False:
+            continue
         out.append({"id": model_key, "contextWindow": int(cfg.get("context_window") or 1048576)})
     return out
 
