@@ -114,7 +114,12 @@ def _mount_works(image: str) -> bool:
     return proc.returncode == 0
 
 
-MOUNT_BROKEN_MARKER = b"Cannot allocate memory"
+MOUNT_BROKEN_MARKERS = (
+    b"Cannot allocate memory",
+    b"Errno 12",
+    # Discovery that loses modules to a dying mount reports this instead of the raw OSError.
+    b"unimportable module",
+)
 
 
 def _run_docker_streamed(args: list[str], image: str) -> int:
@@ -161,7 +166,7 @@ def _run_docker(args: list[str], image: str) -> int:
     proc = subprocess.Popen(cmd, cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     assert proc.stdout is not None
     for raw in proc.stdout:
-        if MOUNT_BROKEN_MARKER in raw:
+        if any(marker in raw for marker in MOUNT_BROKEN_MARKERS):
             saw_broken_mount = True
         sys.stdout.buffer.write(raw)
         sys.stdout.buffer.flush()
