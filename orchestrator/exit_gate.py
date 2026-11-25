@@ -17,7 +17,11 @@ Verification contract (issue #2):
     may be launched with `cmd.exe` or with a POSIX shell depending on the host
     environment, so no `printf`, no `;` chaining, no bash-only builtins;
   * a launcher failure (OSError/timeout) is retried once and reported as
-    `EXEC_ERROR:`, because that is an environment fault, not a code defect.
+    `EXEC_ERROR:`, because that is an environment fault, not a code defect;
+  * a bounce must name WHICH test failed (issue #8): the `ERROR:`/`FAIL:`
+    header lines and the test-file frame are recovered from the full log when
+    the 25-line tail window cuts them off, and the failed-check line names the
+    ids directly, so the first line of the bounce is actionable.
 """
 
 from __future__ import annotations
@@ -549,6 +553,7 @@ class CheckFailure:
     name: str
     exit_code: int
     tail: str
+    identities: list[str] = field(default_factory=list)  # failing unittest ids (issue #8)
 
 
 @dataclass
@@ -781,6 +786,171 @@ def scan_residue_files(repo_dir: Path, residue_globs: list[str] | None = None) -
     return sorted(hits)
 
 
+TAIL_LINES = 25  # how much of a failing check's output a bounce message carries
+TAIL_MAX_BYTES = 4096  # ... and never more than this, however chatty the check is
+
+# --- Issue #8: a tail window must never hide WHICH test failed -----------------
+# unittest prints `ERROR: test_x (mod.Class.test)` ABOVE the traceback, so a
+# 25-line tail of an `assertRegex` TypeError drops the only line that names the
+# failing test. The window stays as it was; the identity lines are recovered
+# from the full log and prepended, so the tail remains honest about the gap.
+
+_UNITTEST_ID_RE = re.compile(r"(?:ERROR|FAIL): (?P<desc>.+?)\((?P<id>[\w.]+)\)[ \t]*$")
+_TRACEBACK_FRAME_RE = re.compile(
+    r'^\s*File "(?P<path>[^"]+)", line (?P<line>\d+), in (?P<func>[^\s]+)\s*$'
+)
+
+
+def _frame_identity(m: re.Match[str]) -> str:
+    """`path:line in func` for a frame that belongs to the test tree, else ""."""
+    path = m.group("path").replace("\\", "/")
+    func = m.group("func")
+    if "/unittest/" in path or path.startswith("<"):
+        return ""  # the runner's own frames say nothing about the defect
+    if not (func.startswith("test") or "/tests/" in path or "test_" in path.rsplit("/", 1)[-1]):
+        return ""
+    if path.startswith("/work/"):  # docker mount point -> repo-relative
+        path = path[len("/work/"):]
+    return f'{path}:{m.group("line")} in {func}'
+
+
+def _test_code_frame(lines: list[str], start: int, span: int = 200) -> str:
+    """Deepest traceback frame that belongs to the test tree, relative to the repo."""
+    best = ""
+    for line in lines[start + 1:start + 1 + span]:
+        if _UNITTEST_ID_RE.match(line.strip()):
+            break
+        m = _TRACEBACK_FRAME_RE.match(line)
+        if m:
+            best = _frame_identity(m) or best
+    return best
+
+
+def _last_test_frame(text: str) -> str:
+    """Last test-tree frame in the log, for runners that print no FAIL:/ERROR: header."""
+    best = ""
+    for line in (text or "").splitlines():
+        m = _TRACEBACK_FRAME_RE.match(line)
+        if m:
+            best = _frame_identity(m) or best
+    return best
+
+
+def unittest_test_ids(text: str) -> list[str]:
+    """The `mod.Class.test` ids named by `ERROR:`/`FAIL:` headers, in log order."""
+    ids: list[str] = []
+    for line in (text or "").splitlines():
+        m = _UNITTEST_ID_RE.match(line.strip())
+        if m and m.group("id") not in ids:
+            ids.append(m.group("id"))
+    return ids
+
+
+def unittest_identity_lines(text: str, already_visible: set[str] | None = None) -> list[str]:
+    """`ERROR:`/`FAIL:` test-id headers (plus the test-file frame) in a unittest log.
+
+    `already_visible` holds the lines the reader will see anyway; those headers are
+    skipped, and with them their frame — a header always precedes its traceback, so
+    a visible header means the whole block is visible.
+    """
+    lines = (text or "").splitlines()
+    visible = already_visible or set()
+    out: list[str] = []
+    for i, line in enumerate(lines):
+        header = line.strip()
+        if not _UNITTEST_ID_RE.match(header) or header in visible:
+            continue
+        out.append(header)
+        frame = _test_code_frame(lines, i)
+        if frame:
+            out.append(f"    {frame}")
+    return out
+
+
+def _cap_tail_bytes(text: str, limit: int) -> str:
+    """Drop leading lines until `text` fits `limit` UTF-8 bytes; never cut past the tail."""
+    if limit <= 0 or len(text.encode("utf-8")) <= limit:
+        return text
+    kept: list[str] = []
+    used = 0
+    for line in reversed(text.splitlines()):
+        size = len(line.encode("utf-8")) + 1
+        if used + size > limit:
+            break
+        kept.append(line)
+        used += size
+    if not kept:  # one line longer than the whole budget: keep its tail
+        return text.encode("utf-8")[-limit:].decode("utf-8", errors="replace")
+    return "\n".join(reversed(kept))
+
+
+def build_output_tail(body: str, fallback: str = "", limit: int = TAIL_LINES,
+                      max_bytes: int = TAIL_MAX_BYTES) -> str:
+    """Last `limit` lines (the whole message capped at `max_bytes`), prefixed by the
+    unittest identities that the window cut off.
+
+    Non-unittest output is returned byte-identical to the plain window, so every
+    existing consumer (failure classification, fingerprinting) sees what it saw
+    before. Recovered lines are separated by a marker rather than spliced in, so
+    the reader can tell the tail is not contiguous; the identity block is paid
+    for out of the same byte budget as the window.
+    """
+    text = body or fallback or ""
+    lines = text.splitlines()
+    window_lines = lines[-limit:] if limit > 0 else []
+    seen = set(window_lines)
+    missing = unittest_identity_lines(text, seen)
+    prefix_lines: list[str] = []
+    if missing:
+        prefix_lines.append(
+            f"[... {len(missing)} unittest identity line(s) recovered from the full log, "
+            f"above the {limit}-line window ...]"
+        )
+    else:
+        # No header to recover: the last test-tree frame is still the identity a
+        # reader needs (pytest-style logs, a failing helper called from a test).
+        frame = _last_test_frame(text)
+        visible = {
+            _frame_identity(m)
+            for ln in window_lines
+            if (m := _TRACEBACK_FRAME_RE.match(ln))
+        }
+        if frame and frame not in visible:
+            missing = [f"    {frame}"]
+            prefix_lines.append(
+                f"[... test frame recovered from the full log, above the {limit}-line "
+                f"window ...]"
+            )
+    if not prefix_lines:
+        return _cap_tail_bytes("\n".join(window_lines), max_bytes)
+    if max_bytes > 0:
+        used = len(prefix_lines[0].encode("utf-8")) + 1
+        kept: list[str] = []
+        for line in missing:
+            size = len(line.encode("utf-8")) + 1
+            if used + size > max_bytes:
+                break
+            kept.append(line)
+            used += size
+        if len(kept) < len(missing):
+            while kept:
+                omitted = (
+                    f"[... +{len(missing) - len(kept)} identity line(s) omitted "
+                    f"to stay under {max_bytes} B ...]"
+                )
+                if used + len(omitted.encode("utf-8")) + 1 <= max_bytes:
+                    kept.append(omitted)
+                    break
+                used -= len(kept.pop().encode("utf-8")) + 1
+        prefix_lines.extend(kept)
+    else:
+        prefix_lines.extend(missing)
+    prefix = "\n".join([*prefix_lines, ""])
+    budget = max_bytes - len(prefix.encode("utf-8")) - 1 if max_bytes > 0 else 0
+    window = _cap_tail_bytes("\n".join(window_lines), budget) if budget > 0 else ""
+    return f"{prefix}\n{window}" if window else prefix.rstrip("\n")
+
+
 _TIMING_RE = re.compile(r"\d+\.\d+s")
 def _fingerprint(failures: list[CheckFailure], residue: list[str]) -> str:
     parts = [
@@ -996,7 +1166,7 @@ class ExitGateEngine:
         for i, chk in enumerate(specs):
             body = "\n".join(segments.get(i, [])).strip()
             rc = rcs.get(i, 127)
-            tail = "\n".join((body or raw).splitlines()[-25:])
+            tail = build_output_tail(body, raw)
             counted = len([ln for ln in body.splitlines() if ln.strip()])
             evidence.append(
                 Evidence(name=chk.name, command=chk.command, exit_code=rc, source=source,
@@ -1004,7 +1174,8 @@ class ExitGateEngine:
                          elapsed=batch_elapsed)  # segment-level timing is a follow-up; total first
             )
             if rc != 0 and chk.required:
-                failures.append(CheckFailure(name=chk.name, exit_code=rc, tail=tail))
+                failures.append(CheckFailure(name=chk.name, exit_code=rc, tail=tail,
+                                             identities=unittest_test_ids(body or raw)))
         return failures, evidence
 
     def _run_checks(self, specs: list[CheckSpec], source: str) -> tuple[list[CheckFailure], list[Evidence]]:
@@ -1016,7 +1187,7 @@ class ExitGateEngine:
         evidence: list[Evidence] = []
         for chk in specs:
             rc, stdout, combined, runner = self._run_one(chk)
-            tail = "\n".join(combined.splitlines()[-25:])
+            tail = build_output_tail(combined)
             counted = len([ln for ln in stdout.splitlines() if ln.strip()])
             evidence.append(
                 Evidence(name=chk.name, command=chk.command, exit_code=rc,
@@ -1024,7 +1195,8 @@ class ExitGateEngine:
                          runner=runner, elapsed=round(getattr(self, "_last_elapsed", 0.0), 3))
             )
             if rc != 0 and chk.required:
-                failures.append(CheckFailure(name=chk.name, exit_code=rc, tail=tail))
+                failures.append(CheckFailure(name=chk.name, exit_code=rc, tail=tail,
+                                             identities=unittest_test_ids(combined)))
         return failures, evidence
 
     # -- cross-turn loop ledger -------------------------------------------
@@ -1257,7 +1429,8 @@ class ExitGateEngine:
         for warn in verifier_changed:
             lines.append(f"[VERIFIER_CHANGED] {warn}")
         for f in failures:
-            lines.append(f"Failed check `{f.name}` (exit={f.exit_code}):\n{f.tail}")
+            who = f": failing tests {', '.join(f.identities)}" if f.identities else ""
+            lines.append(f"Failed check `{f.name}` (exit={f.exit_code}){who}:\n{f.tail}")
         if residue:
             lines.append("Leftover residue files to remove: " + ", ".join(residue))
         if unbound or claim_errors:
