@@ -61,11 +61,16 @@ Without git: residue scan and the pre-commit eol hook are disabled (listed separ
 ## 5. Backend (optional but recommended)
 
 ```bash
-docker compose up -d --build     # gateway + MCP-over-HTTP on 127.0.0.1:8787
+# blue/green (recommended; the gate owns 8787 so an upgrade never drops the client)
+docker compose -f docker-compose.yml -f docker-compose.ha.yml up -d backend-blue router-gate
+# single container, no gate — upgrading then means a short outage
+docker compose --profile solo up -d harness-backend
 curl 127.0.0.1:8787/health       # {"status":"ok", ...}
 ```
 
 The backend exposes OpenAI-compatible `/v1`, Anthropic-compatible `/anthropic`, and MCP endpoints (`/mcp/epistemic`, `/mcp/orchestrator`). Any MCP-capable client can connect without local Python.
+
+Upgrade with `python scripts/upgrade.py` (it builds behind an import gate and moves the idle backend) — never with `docker compose up -d --build` against the serving side. Rollback: `python scripts/router_switch.py switch blue`. Full procedure: [docs/router-operations.md](docs/router-operations.md).
 
 ## 6. Client wiring (compatibility matrix)
 

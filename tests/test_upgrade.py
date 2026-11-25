@@ -101,7 +101,8 @@ class EnvSeedingTests(unittest.TestCase):
                 up.REPO_ROOT = orig_root
             self.assertTrue((repo / ".env").exists())
             self.assertIn("seeded", note)
-            self.assertEqual(calls[0][:3], ["docker", "compose", "up"])
+            # 2026-11-25: the first subprocess call is the import-gated build, not a raw compose build.
+            self.assertIn("router_build.py", " ".join(calls[0]))
 
 class UserSkillsSyncTests(unittest.TestCase):
     def test_sync_copies_and_is_idempotent(self):

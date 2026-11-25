@@ -752,7 +752,12 @@ def create_app(
         decision = decide_routing(body.get("messages", []), dict(request.headers), agent_tier=agent_tier)
         decision = apply_effort_override(decision, request.headers.get("x-harness-effort"))
         user_text = _extract_last_user_text(body.get("messages", []))
-        tier_tag = build_tier_tag(decision.tier, detect_mode(user_text, decision.tier))
+        # A machine consumer (judge, experiment arm, probe) asks for the model's own text. The
+        # header must suppress the tag INJECTION too, not just the checks: a reply starting with
+        # "[Tier: ...]" is unusable JSON for the caller (2026-11-25: judges answered in prose).
+        tier_tag = (build_tier_tag(decision.tier, detect_mode(user_text, decision.tier))
+                    if _contract_check_enabled(request) else "")
+        tag_injected = False
         requested_model = body.get("model")
         if not requested_model and profile and profile.get("model"):
             requested_model = str(profile["model"]).strip()
@@ -848,7 +853,8 @@ def create_app(
             # polices the model's output, not the harness's own prefix
             _raw_msg = (data.get("choices") or [{}])[0].get("message") or {}
             _raw_text = _raw_msg.get("content") if isinstance(_raw_msg.get("content"), str) else ""
-            tag_injected = guard_openai_message(data, tier_tag)
+            if tier_tag:
+                tag_injected = guard_openai_message(data, tier_tag)
 
             # Review-turn output-contract check (issue #1): bounce exactly once
             # with a corrective directive; on repeat violation append an L2
@@ -884,7 +890,8 @@ def create_app(
                             _msg = (data.get("choices") or [{}])[0].get("message") or {}
                             _resp_text = _msg.get("content") if isinstance(_msg.get("content"), str) else ""
                             _interim_note = None
-                            tag_injected = guard_openai_message(data, tier_tag)
+                            if tier_tag:
+                                tag_injected = guard_openai_message(data, tier_tag)
                 except httpx.HTTPError:
                     pass
             if _interim_note and isinstance(_msg.get("content"), str):
@@ -925,7 +932,8 @@ def create_app(
                         if _rtext and not _still:
                             data = rdata
                             contract_violations = []
-                            tag_injected = guard_openai_message(data, tier_tag)
+                            if tier_tag:
+                                tag_injected = guard_openai_message(data, tier_tag)
                 except httpx.HTTPError:
                     pass
             if contract_violations:
@@ -991,7 +999,7 @@ def create_app(
             streamed_any = False  # once a candidate has yielded, the status line is gone
             last_chunk_id = "harness-fallback"
             cap_note_stream: str | None = None
-            openai_tag_guard = StreamTagGuard(tier_tag)
+            openai_tag_guard = StreamTagGuard(tier_tag) if tier_tag else None
             failures: dict[str, str] = {}
             first_failure: dict[str, Any] = {}  # first upstream that actually answered
             resp_mode = detect_mode(user_text, decision.tier)
@@ -1041,10 +1049,11 @@ def create_app(
                                             saw_finish = True
                                         if delta.get("content"):
                                             full_text += str(delta["content"])
-                                            emitted = openai_tag_guard.feed(str(delta["content"]))
-                                            if emitted is not None:
-                                                delta["content"] = emitted
-                                            tag_injected = openai_tag_guard.injected or tag_injected
+                                            if openai_tag_guard is not None:
+                                                emitted = openai_tag_guard.feed(str(delta["content"]))
+                                                if emitted is not None:
+                                                    delta["content"] = emitted
+                                                tag_injected = openai_tag_guard.injected or tag_injected
                                         out_chars += len(str(delta.get("content") or ""))
                                         thinking = delta.get("reasoning_content") or delta.get("reasoning") or ""
                                         if thinking and guard.feed_thinking(str(thinking)):
@@ -1223,7 +1232,12 @@ def create_app(
         decision = decide_routing(body.get("messages", []), dict(request.headers), agent_tier=agent_tier)
         decision = apply_effort_override(decision, request.headers.get("x-harness-effort"))
         user_text = _extract_last_user_text(body.get("messages", []))
-        tier_tag = build_tier_tag(decision.tier, detect_mode(user_text, decision.tier))
+        # A machine consumer (judge, experiment arm, probe) asks for the model's own text. The
+        # header must suppress the tag INJECTION too, not just the checks: a reply starting with
+        # "[Tier: ...]" is unusable JSON for the caller (2026-11-25: judges answered in prose).
+        tier_tag = (build_tier_tag(decision.tier, detect_mode(user_text, decision.tier))
+                    if _contract_check_enabled(request) else "")
+        tag_injected = False
         requested_model = body.get("model")
         if not requested_model and profile and profile.get("model"):
             requested_model = str(profile["model"]).strip()
@@ -1418,7 +1432,7 @@ def create_app(
             completed = False
             streamed_any = False  # once a candidate has yielded, the status line is gone
             cap_note_stream: str | None = None
-            anthropic_tag_guard = StreamTagGuard(tier_tag)
+            anthropic_tag_guard = StreamTagGuard(tier_tag) if tier_tag else None
             failures: dict[str, str] = {}
             first_failure: dict[str, Any] = {}  # first upstream that actually answered
             resp_mode = detect_mode(user_text, decision.tier)
@@ -1464,10 +1478,11 @@ def create_app(
                                             full_text += text
                                             out_chars += len(text)
                                             if text:
-                                                emitted = anthropic_tag_guard.feed(text)
-                                                if emitted is not None:
-                                                    delta["text"] = emitted
-                                                tag_injected = anthropic_tag_guard.injected or tag_injected
+                                                if anthropic_tag_guard is not None:
+                                                    emitted = anthropic_tag_guard.feed(text)
+                                                    if emitted is not None:
+                                                        delta["text"] = emitted
+                                                    tag_injected = anthropic_tag_guard.injected or tag_injected
                                         elif delta.get("type") == "thinking_delta":
                                             thinking = str(delta.get("thinking", ""))
                                             if thinking and guard.feed_thinking(thinking):

@@ -43,8 +43,12 @@ On failure the script exits non-zero and leaves the backup directory
 # from the repo root
 cp -r .upgrade-backup-<ts>/. .        # restores .pi/, knowledge/, .env, promotions/
 git checkout <previous tag>          # restore code
-docker compose up -d --build
+python scripts/router_build.py       # build behind the import gate (refuses a broken image)
+python scripts/upgrade.py            # recreates the IDLE backend and switches (or the solo service)
 ```
+
+Never `docker compose up -d --build` against the serving backend: that is the 2026-11-25 outage.
+See [router-operations.md](router-operations.md).
 
 On success the backup is removed unless `--keep-backup` was passed.
 

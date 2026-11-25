@@ -24,6 +24,11 @@ services:
     build: .
     image: epistemic-harness-backend:local
     container_name: harness-backend
+    # Opt-in, not the default: since 2026-11-25 the router runs blue/green behind router-gate, and the
+    # gate owns 8787. A plain `docker compose up` here would fight the gate for that port - the exact
+    # "only exit goes down" failure the HA overlay exists to prevent.
+    # Solo mode (no gate): docker compose --profile solo up -d harness-backend
+    profiles: ["solo"]
     ports:
       - "127.0.0.1:8787:8787"
     env_file: .env

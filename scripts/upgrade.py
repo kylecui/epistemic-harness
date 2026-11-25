@@ -29,6 +29,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.request
 from datetime import datetime, timezone
 
 import yaml
@@ -150,6 +151,32 @@ def backup(repo: Path, sink: Path) -> list[str]:
     return backed
 
 
+
+HA_OVERLAY = "docker-compose.ha.yml"
+GATE_URL = "http://127.0.0.1:8787/__gate/status"
+
+
+def gate_status(timeout: float = 3.0) -> dict | None:
+    """The gate's view of the world, or None when the gate is not serving 8787."""
+    try:
+        with urllib.request.urlopen(GATE_URL, timeout=timeout) as resp:
+            return json.loads(resp.read() or b"{}")
+    except (OSError, ValueError):
+        return None
+
+
+def upgrade_plan(status: dict | None) -> list[list[str]]:
+    """Solo mode recreates the single service; HA mode recreates the IDLE side, then switches."""
+    if not status:
+        return [["docker", "compose", "--profile", "solo", "up", "-d", "harness-backend"]]
+    active = str(status.get("active") or "blue")
+    idle = "green" if active == "blue" else "blue"
+    return [
+        ["docker", "compose", "-f", "docker-compose.yml", "-f", HA_OVERLAY,
+         "up", "-d", "--no-deps", "--force-recreate", f"backend-{idle}"],
+        [sys.executable, str(REPO_ROOT / "scripts" / "router_switch.py"), "switch", idle],
+    ]
+
 def docker_rebuild() -> str:
     # docker-compose.yml declares env_file: .env; compose fails hard when it
     # is missing (live WSL upgrade incident 2026-11-22). A keyless install is
@@ -160,12 +187,20 @@ def docker_rebuild() -> str:
     if not env_path.exists() and example.exists():
         shutil.copy2(example, env_path)
         seeded = True
-    out = subprocess.run(
-        ["docker", "compose", "up", "-d", "--build"],
-        cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=900,
+    # 2026-11-25: a raw `up -d --build` baked a tree with a SyntaxError and the only router went into
+    # a Restarting loop. The build now passes an in-image import gate first, and an HA deployment
+    # upgrades the IDLE backend and switches, so the serving side is never recreated underneath the
+    # client.
+    build = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "scripts" / "router_build.py")],
+        cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=1800,
     )
-    if out.returncode != 0:
-        raise RuntimeError(f"docker compose rebuild failed: {out.stderr[-400:]}")
+    if build.returncode != 0:
+        raise RuntimeError(f"image refused: {build.stderr[-400:]}")
+    for step in upgrade_plan(gate_status()):
+        out = subprocess.run(step, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=900)
+        if out.returncode != 0:
+            raise RuntimeError(f"upgrade step failed ({' '.join(step)}): {out.stderr[-300:]}")
     # smoke test with startup grace: compose up returns before uvicorn is
     # listening (live race 2026-11-24); --noproxy guards host proxy envs.
     health = None

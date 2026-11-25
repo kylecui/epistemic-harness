@@ -20,6 +20,15 @@ Run from the harness REPO checkout (git pull happens there):
 cd <harness-repo>
 git pull
 python scripts/upgrade.py --check   # preview
-python scripts/upgrade.py           # backup -> migrate -> rebuild -> verify -> stamp
+python scripts/upgrade.py           # backup -> build(gate) -> migrate -> recreate IDLE backend -> verify
 ```
+
+What the rebuild step guarantees (2026-11-25 outage): it builds behind `scripts/router_build.py`,
+which imports `orchestrator.server`, `proxy_gateway.app` and `harness_backend` INSIDE the image and
+refuses to promote a broken one; and when the blue/green gate serves 8787 it recreates the **idle**
+backend and switches to it, so the client never sees a refused connection.
+
+Never run `docker compose up -d --build` against the backend that is serving. Topology, manual
+procedure, rollback and the failure playbook: `docs/router-operations.md`. One-command rollback:
+`python scripts/router_switch.py switch blue`.
 Rollback on failure: restore the printed `.upgrade-backup-<ts>/` dir. Host-only: `--no-docker`. Doc: docs/UPGRADE.md.
