@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import sys
+import time
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -79,8 +81,22 @@ TOOLS: list[dict[str, Any]] = [
                 "task_text": {"type": "string"},
                 "context": {"type": "string", "default": ""},
                 "task_id": {"type": "string", "default": "default"},
+                "wait": {"type": "boolean", "default": True,
+                         "description": "false returns a task_id immediately (issue #21); collect with dispatch_result"},
             },
             "required": ["agent_profile", "task_text"],
+        },
+    },
+    {
+        "name": "dispatch_result",
+        "description": (
+            "Collect an async dispatch: running | done | failed, plus the report. Use after "
+            "dispatch_subagent(wait=false) so a slow sub-agent no longer dies with the client's timeout."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {"task_id": {"type": "string"}},
+            "required": ["task_id"],
         },
     },
     {
@@ -325,6 +341,9 @@ class Orchestrator:
             repo_root / "skill_queue" / "pending.yaml",
         )
         self.bias_guard = BiasGuard(repo_root / "knowledge" / "l3_heuristics" / "cognitive_biases.yaml")
+        # Issue #21: an async dispatch hands back a task id; results outlive the request.
+        self._tasks: dict[str, dict[str, Any]] = {}
+        self._pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="dispatch")
 
     def classify_task(self, task_text: str) -> dict[str, Any]:
         return classify_task(task_text, skills_matcher=self.skills.match_for_task)
@@ -344,6 +363,31 @@ class Orchestrator:
         )
 
     def dispatch_subagent(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Run one subtask, or hand back a task id when the caller cannot wait (issue #21).
+
+        A sub-agent run can take minutes; holding it inside one MCP request means the client's
+        60 s timeout discards a finished result while the server keeps spending quota. wait=False
+        returns immediately and the caller collects with dispatch_result().
+        """
+        if args.get("wait") is False:
+            task_id = str(args.get("task_id") or f"task-{len(self._tasks) + 1}")
+            self._tasks[task_id] = {"status": "running", "started": time.time()}
+            future = self._pool.submit(self._run_dispatch, task_id, dict(args))
+
+            def _done(fut: Any, tid: str = task_id) -> None:
+                try:
+                    payload = {"status": "done", "result": fut.result()}
+                except Exception as exc:  # noqa: BLE001 - the caller reads this back
+                    payload = {"status": "failed", "error": str(exc)}
+                # update, never replace: dispatch_result reads the start time from this entry
+                self._tasks.setdefault(tid, {}).update({**payload, "finished": time.time()})
+
+            future.add_done_callback(_done)
+            return {"ok": True, "task_id": task_id, "status": "running",
+                    "next": f"dispatch_result(task_id='{task_id}')"}
+        return self._run_dispatch(str(args.get("task_id", "default")), dict(args))
+
+    def _run_dispatch(self, task_id: str, args: dict[str, Any]) -> dict[str, Any]:
         attached = self.skills.match_for_task(args["task_text"])
         decision = route_task(
             str(args["task_text"]),
@@ -354,7 +398,7 @@ class Orchestrator:
             agent_profile=decision.profile,
             task_text=args["task_text"],
             context=args.get("context", ""),
-            task_id=args.get("task_id", "default"),
+            task_id=task_id,
             attached_skills=attached,
             escalate_on_bias=bool(args.get("escalate_on_bias", False)),
             model=decision.model,
@@ -362,6 +406,16 @@ class Orchestrator:
             max_tokens=decision.budget,
             category=decision.category,
         )
+
+    def dispatch_result(self, args: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(args.get("task_id") or "")
+        entry = self._tasks.get(task_id)
+        if entry is None:
+            return {"ok": False, "error": "unknown_task", "task_id": task_id,
+                    "known": sorted(self._tasks)[:10]}
+        return {"ok": True, "task_id": task_id, "status": entry["status"],
+                "elapsed_sec": round(time.time() - entry.get("started", time.time()), 1),
+                "result": entry.get("result"), "error": entry.get("error")}
 
     def dispatch_tooled(self, args: dict[str, Any]) -> dict[str, Any]:
         return dispatch_tooled(
@@ -472,6 +526,8 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
                 res = orch.classify_task(args["task_text"])
             elif name == "dispatch_subagent":
                 res = orch.dispatch_subagent(args)
+            elif name == "dispatch_result":
+                res = orch.dispatch_result(args)
             elif name == "query_skills":
                 res = orch.query_skills(args.get("query", ""), int(args.get("limit", 5)))
             elif name == "register_skill":
