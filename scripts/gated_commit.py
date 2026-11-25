@@ -52,7 +52,17 @@ def main() -> int:
         print("REFUSING TO COMMIT: docs drift.", file=sys.stderr)
         return 2
 
-    run(["git", "add", "-A"])
+    # Commit what the caller staged, or the whole tree when they staged nothing. The old
+    # unconditional `git add -A` swept unrelated edits into focused commits: a fix(verify)
+    # commit once carried a Dockerfile change, both READMEs, the experiment scripts and 30
+    # data files (issue #25), which makes the message a lie about the diff.
+    staged = run(["git", "diff", "--cached", "--name-only"], capture_output=True, text=True)
+    paths = [line for line in (staged.stdout or "").splitlines() if line.strip()]
+    if paths:
+        print(f"mode=staged ({len(paths)} path(s) already staged; the rest of the tree is left alone)")
+    else:
+        print("mode=sweep (nothing staged; staging the whole tree)")
+        run(["git", "add", "-A"])
     cmd = ["git", "commit"]
     for m in args.message:
         cmd += ["-m", m]
