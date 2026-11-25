@@ -26,7 +26,9 @@ class SkillRegistry:
     def _load(self) -> None:
         if not self.registry_path.exists():
             return
-        data = yaml.safe_load(self.registry_path.read_text(encoding="utf-8")) or {}
+        from orchestrator.fsretry import with_retry
+        text = with_retry(lambda: self.registry_path.read_text(encoding="utf-8"))
+        data = yaml.safe_load(text) or {}
         for item in data.get("skills", []):
             self._validate(item)
             self.skills[item["id"]] = item

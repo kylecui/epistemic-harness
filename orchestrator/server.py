@@ -531,6 +531,19 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
                 "result": {"content": [{"type": "text", "text": json.dumps(res, ensure_ascii=False, indent=2)}], "isError": False},
             }
         except Exception as exc:
+            from orchestrator.fsretry import MountUnhealthy, is_transient
+            if isinstance(exc, MountUnhealthy) or is_transient(exc):
+                # Issue #24: a dispatch died on an OSError that meant "the mount blinked", not
+                # "your task is wrong". Say which one it is and how to fix it.
+                from orchestrator.fsretry import REMEDY
+                return {
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "result": {"content": [{"type": "text", "text": json.dumps(
+                        {"ok": False, "error": "mount_unhealthy",
+                         "message": f"{exc}", "remedy": REMEDY}, ensure_ascii=False)}],
+                        "isError": True},
+                }
             return {
                 "jsonrpc": "2.0",
                 "id": req_id,

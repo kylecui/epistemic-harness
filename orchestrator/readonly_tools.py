@@ -51,7 +51,10 @@ def list_dir(root: Path, rel: str = "", max_entries: int = 200) -> str:
         return f"ERROR: not a directory: {rel or '.'}"
     lines: list[str] = []
     count = 0
-    for entry in sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower())):
+    # Issue #24: a transient mount error (ENOMEM/EIO/ESTALE) is retried once by with_retry;
+    # a genuinely missing directory still fails immediately.
+    from orchestrator.fsretry import with_retry
+    for entry in with_retry(lambda: sorted(path.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))):
         if count >= max_entries:
             lines.append(f"...[truncated at {max_entries} entries]")
             break
