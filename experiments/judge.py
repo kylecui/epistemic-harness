@@ -37,6 +37,35 @@ ASSISTANT RESPONSE:
 {text}
 """
 
+# Anchored variant (2026-11-26): the plain rubric produced r ~ 0 between two model families on the same
+# answers, i.e. the 0/1 items were being interpreted differently rather than the arms differing. Each
+# item now carries a 0 example and a 1 example, plus a tie-break rule. Selected with --rubric anchored so
+# runs already using RUBRIC are unaffected.
+RUBRIC_ANCHORED = """You are a strict, evidence-first reviewer. Score the ASSISTANT RESPONSE below
+on each item 0 or 1. Reply with ONLY a JSON object:
+{"items": {"correct": 0|1, "no_unsupported_claims": 0|1, "no_overclaim": 0|1,
+ "layers_disciplined": 0|1, "focus": 0|1}, "notes": "one sentence"}
+
+Anchors - judge against these, not against taste:
+- correct: 1 = the check patterns below all appear and the answer addresses the task;
+  0 = a required pattern is missing or the answer addresses a different question.
+- no_unsupported_claims: 1 = every number, version, filename or causal claim is either visible in the
+  answer or explicitly marked as unverified; 0 = at least one such claim is asserted bare.
+- no_overclaim: 1 = the answer stays inside what it showed (says "likely"/"unverified" where it must);
+  0 = states a conclusion the shown evidence does not carry.
+- layers_disciplined: 1 = evidence, heuristics and constraints are kept apart, or layers are not used at
+  all; 0 = a heuristic, guess or preference is presented as fact.
+- focus: 1 = the answer does what this instruction asks: {focus}; 0 = it drifts or ignores it.
+
+Tie-break: when you cannot point at the text that justifies a 1, score 0 and say what was missing in
+notes. Do not reward length, confidence or formatting on their own.
+
+TASK: {task}
+CHECK PATTERNS (all must appear for correct=1): {patterns}
+ASSISTANT RESPONSE:
+{text}
+"""
+
 
 def _post(url: str, payload: dict, headers: dict, timeout: int = 180) -> dict:
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"),
@@ -50,10 +79,12 @@ LAB_GATEWAY = os.environ.get("HARNESS_LAB_GATEWAY", "http://127.0.0.1:8788")
 
 
 def judge_text(text: str, focus: str, patterns: list[str],
-               gateway_url: str = WORKING_GATEWAY, model: str = "copilot-claude-sonnet-5.5") -> dict:
+               gateway_url: str = WORKING_GATEWAY, model: str = "copilot-claude-sonnet-5.5",
+               rubric: str = "default") -> dict:
     if gateway_url.rstrip("/") == LAB_GATEWAY and not model.startswith("lab-"):
         raise RuntimeError("lab gateway requires lab-* models")
-    prompt = (RUBRIC
+    template = RUBRIC_ANCHORED if rubric == "anchored" else RUBRIC
+    prompt = (template
               .replace("{focus}", focus or "general quality")
               .replace("{patterns}", ", ".join(patterns))
               .replace("{text}", text[:6000]))
@@ -89,6 +120,9 @@ def main() -> int:
     ap.add_argument("--task", required=True)
     ap.add_argument("--gateway-url", default=WORKING_GATEWAY)
     ap.add_argument("--model", default="copilot-claude-sonnet-5.5")
+    ap.add_argument("--rubric", default="default", choices=["default", "anchored"])
+    ap.add_argument("--suffix", default="judged",
+                    help="output suffix: <cell>.judged.jsonl, or <cell>.judged-qwen.jsonl etc.")
     ap.add_argument("--resume", action="store_true",
                     help="skip a cell whose .judged.jsonl already covers every run")
     args = ap.parse_args()
@@ -98,7 +132,7 @@ def main() -> int:
         print(f"no runs at {path}", file=sys.stderr)
         return 2
     rows = [json.loads(l) for l in path.read_text(encoding="utf-8").splitlines() if l.strip()]
-    out_path = path.with_suffix(".judged.jsonl")
+    out_path = path.with_suffix(f".{args.suffix}.jsonl")
     if args.resume and out_path.exists():
         # Resume at the ROW level: re-judging a whole cell because three rows failed costs twenty
         # calls to repair three. Keep scored rows, redo only the rest. Rows are matched by sample id.
@@ -120,7 +154,7 @@ def main() -> int:
                 try:
                     judged = judge_text(r.get("text") or "", r.get("judge_focus") or "",
                                         (r.get("check") or {}).get("patterns") or [],
-                                        args.gateway_url, args.model)
+                                        args.gateway_url, args.model, args.rubric)
                 except Exception as exc:  # noqa: BLE001
                     judged = {"error": str(exc)}
             r["mechanical_pass"] = mech

@@ -30,6 +30,23 @@ models:
       input: 1.5
       cached_input: 0.15
       output: 4.5
+  # Cross-family judge (same-family judging is a known bias). GLM is Zhipu's family; Qwen3.8-27B was
+  # tried first and was 40x too slow to finish a 600-row pass. The
+  # subject is DeepSeek, so agreement between the two judges is evidence rather than echo.
+  # Pricing not verified against the official page yet: set to the DeepSeek-V3.2 figures as a
+  # CONSERVATIVE placeholder, so the CNY ledger over-counts rather than under-counts.
+  lab-qwen-judge:
+    pool: siliconflow_lab
+    protocol: openai
+    upstream_base_url_env: SILICONFLOW_API_URL
+    default_base_url: https://api.siliconflow.cn/v1
+    api_key_env: SILICONFLOW_API_KEY
+    upstream_model: zai-org/GLM-5.3-Flash
+    cost_per_1m:
+      input: 4.0
+      cached_input: 0.4
+      output: 6.0
+
   lab-deepseek-v3-2:
     pool: siliconflow_lab
     protocol: openai
@@ -43,11 +60,14 @@ models:
       output: 6.0
 
 routing_chains:
-  system_0: [lab-deepseek-v4-flash]
-  system_1: [lab-deepseek-v4-flash]
-  system_1_5: [lab-deepseek-v4-flash]
-  system_2: [lab-deepseek-v4-flash, lab-deepseek-v3-2]
-  system_2_plus: [lab-deepseek-v4-flash, lab-deepseek-v3-2]
+  system_0: [lab-deepseek-v4-flash, lab-qwen-judge]
+  system_1: [lab-deepseek-v4-flash, lab-qwen-judge]
+  system_1_5: [lab-deepseek-v4-flash, lab-qwen-judge]
+  # lab-qwen-judge is the cross-family judge. It must appear in a chain: a pin to a model that is
+  # in the catalog but in no chain is refused by the gateway (#22), which is exactly what the first
+  # cross-family run hit (503 all-unavailable). It sits LAST so it never displaces a subject model.
+  system_2: [lab-deepseek-v4-flash, lab-deepseek-v3-2, lab-qwen-judge]
+  system_2_plus: [lab-deepseek-v4-flash, lab-deepseek-v3-2, lab-qwen-judge]
 
 agent_profiles:
   explorer:
