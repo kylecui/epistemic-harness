@@ -39,6 +39,7 @@ from orchestrator.plan import plan_task, run_plan
 from orchestrator.host_bridge import dispatch_readonly_routed, dispatch_tooled_routed
 from orchestrator.exit_gate import ExitGateEngine
 from orchestrator.planner import classify_task
+from orchestrator.plane_guard import require_plane
 from orchestrator.skills import SkillRegistry
 from orchestrator.task_router import as_dict as route_as_dict, load_config as load_routing_config, route_task
 
@@ -568,9 +569,9 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
             elif name == "run_plan":
                 res = orch.run_plan(args)
             elif name == "dispatch_tooled":
-                res = orch.dispatch_tooled(args)
+                res = require_plane(name, orch.dispatch_tooled(args))
             elif name == "dispatch_readonly":
-                res = orch.dispatch_readonly(args)
+                res = require_plane(name, orch.dispatch_readonly(args))
             elif name == "run_gate":
                 res = orch.run_gate(args)
             elif name == "submit_reasoning_record":

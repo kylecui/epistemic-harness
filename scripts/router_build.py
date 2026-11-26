@@ -34,6 +34,13 @@ def smoke(image: str) -> tuple[bool, str]:
     return proc.returncode == 0, detail[0][:300]
 
 
+def compile_gate_scripts() -> tuple[bool, str]:
+    """The gate is mounted into a bare python image, so its syntax is not covered by the image smoke."""
+    proc = run([sys.executable, "-m", "py_compile", "scripts/router_gate.py"], timeout=120)
+    detail = (proc.stdout + proc.stderr).strip().splitlines()[-1:] or [""]
+    return proc.returncode == 0, detail[0][:300]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true")
@@ -56,6 +63,10 @@ def main() -> int:
         if proc.returncode != 0:
             print(f"FAILED: {' '.join(step)}\n{(proc.stdout + proc.stderr)[-400:]}", file=sys.stderr)
             return 2
+    ok, detail = compile_gate_scripts()
+    if not ok:
+        print(f"REFUSING TO PROMOTE: the gate script does not compile — {detail}", file=sys.stderr)
+        return 2
     ok, detail = smoke(STAGING)
     if not ok:
         print(f"REFUSING TO PROMOTE: the image cannot import its entry modules — {detail}", file=sys.stderr)

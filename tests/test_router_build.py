@@ -50,6 +50,21 @@ class PromotionTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(calls, [])
 
+    def test_a_gate_script_that_does_not_compile_blocks_promotion(self) -> None:
+        calls: list[list[str]] = []
+
+        def fake_run(cmd, timeout=1800):  # noqa: ANN001, ANN202
+            calls.append(list(cmd))
+            return _Result()
+
+        with mock.patch.object(sys, "argv", ["router_build.py", "--skip-build"]), \
+                mock.patch.object(build, "run", fake_run), \
+                mock.patch.object(build, "smoke", lambda image: (True, "smoke ok")), \
+                mock.patch.object(build, "compile_gate_scripts", lambda: (False, "SyntaxError: x")), \
+                mock.patch.object(build.shutil, "which", lambda name: "/usr/bin/docker"):
+            self.assertEqual(build.main(), 2)
+        self.assertFalse([c for c in calls if c[:2] == ["docker", "tag"]])
+
 
 if __name__ == "__main__":
     unittest.main()
