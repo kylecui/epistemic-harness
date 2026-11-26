@@ -421,12 +421,17 @@ def _l3_proximity_violations(text: str) -> list[str]:
     return violations
 
 
-def check_output_structure(text: str, tier: str, mode: str) -> list[str]:
+def check_output_structure(text: str, tier: str, mode: str, dispatch: bool = False) -> list[str]:
     """Three-part structure, silent-promotion and L3 scope/counter-example checks.
 
     Applies only to substantial structured outputs (Tier >= 1.5 or Converge
     mode, and at least MIN_STRUCTURED_LEN characters). Returns a list of
     human-readable violation strings; empty means compliant.
+
+    `dispatch=True` marks machine-facing sub-agent traffic (issue #27): the three-section anchors are a
+    USER-facing deliverable and a sub-agent report is input to a controller, so demanding them measures
+    the wrong surface — and the intercept block truncated the very content the controller needed. The
+    silent-promotion and L3 scope checks still run: those judge the reasoning, not the formatting.
     """
     if not text or not text.strip():
         return []
@@ -456,7 +461,7 @@ def check_output_structure(text: str, tier: str, mode: str) -> list[str]:
     violations: list[str] = []
     structured_claims, structured_violations = _validate_structured_claims(text)
     missing = []
-    if not structured_claims:
+    if not structured_claims and not dispatch:
         # Structured path: the model answered with machine-validable fields; the
         # prose three-section anchors are waived (silent-promotion and L3 checks
         # below still run).
@@ -742,7 +747,7 @@ def check_external_grounding(text: str) -> list[str]:
 
 
 def check_response_contract(
-    text: str, tier: str, mode: str, notes: list[str] | None = None
+    text: str, tier: str, mode: str, notes: list[str] | None = None, dispatch: bool = False
 ) -> list[str]:
     """Run structure + remediation checks; returns the union of violations.
 
@@ -766,7 +771,7 @@ def check_response_contract(
     if cap_note and notes is not None:
         notes.append(cap_note)
     violations = (
-        check_output_structure(text, tier, mode)
+        check_output_structure(text, tier, mode, dispatch=dispatch)
         + check_remediation_completeness(text)
         + check_underdetermination(text)
         + check_external_grounding(text)

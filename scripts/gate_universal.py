@@ -9,6 +9,11 @@ and a credential written into a tracked file.
 Only runs inside a git repository: "untracked" has no meaning otherwise and a tree walk would flag
 legitimate sources (critic review, 2026-11-24). EOL is read from the git INDEX, not the working tree,
 so core.autocrlf=true does not produce a failure on every turn.
+
+Status lines are quiet unless something is wrong: the no-repository skip is silent
+(2026-11-26 — it printed into the TUI on every mutating turn in a non-git worktree),
+and `--verbose` restores the explanatory line for anyone who wants to know why
+nothing ran.
 """
 
 from __future__ import annotations
@@ -49,9 +54,12 @@ def _scan_secrets(cwd: Path, paths: list[str]) -> list[str]:
     return hits
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    verbose = "--verbose" in args or "-v" in args
     cwd = Path.cwd()
     if _git(cwd, "rev-parse", "--is-inside-work-tree") is None:
+        # Never silent: a skip that says nothing looks exactly like a pass.
         print("universal gate: no git repository here — checks skipped")
         return 0
 

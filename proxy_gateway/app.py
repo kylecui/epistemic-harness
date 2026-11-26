@@ -905,7 +905,7 @@ def create_app(
                 _msg["content"], _cap_note = normalize_declared_cap(_msg["content"])
                 _resp_text = _msg["content"]
             if _resp_text:
-                contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode) if _contract_check_enabled(request) else []
+                contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode, dispatch=bool(agent_id)) if _contract_check_enabled(request) else []
             if contract_violations and isinstance(_msg.get("content"), str):
                 retry_payload = dict(rewritten)
                 _rmsgs = list(retry_payload.get("messages") or [])
@@ -926,7 +926,7 @@ def create_app(
                         if _cap_note_r:
                             _rmsg["content"] = _rtext
                         _still = (
-                            check_response_contract(_rtext, decision.tier, resp_mode)
+                            check_response_contract(_rtext, decision.tier, resp_mode, dispatch=bool(agent_id))
                             if _contract_check_enabled(request) else []
                         ) if _rtext else list(contract_violations)
                         if _rtext and not _still:
@@ -1085,7 +1085,7 @@ def create_app(
                         # (computed), not bounced — surfaced as a note chunk.
                         cap_notes: list[str] = []
                         contract_violations = (
-                            check_response_contract(full_text, decision.tier, resp_mode, notes=cap_notes)
+                            check_response_contract(full_text, decision.tier, resp_mode, notes=cap_notes, dispatch=bool(agent_id))
                             if _contract_check_enabled(request) else []
                         )
                         # Cap note goes to the trace + response headers, NEVER into the
@@ -1339,7 +1339,7 @@ def create_app(
                     # normalize only swaps L<digit> -> L<digit> (same length), so the
                     # first block keeps its length and takes the normalized prefix.
                     _first_text["text"] = _resp_text[:len(_first_text["text"])]
-                contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode) if _contract_check_enabled(request) else []
+                contract_violations = check_response_contract(_resp_text, decision.tier, resp_mode, dispatch=bool(agent_id)) if _contract_check_enabled(request) else []
             if contract_violations:
                 retry_payload = dict(rewritten)
                 _existing_sys = retry_payload.get("system")
@@ -1371,7 +1371,7 @@ def create_app(
                                         _b["text"] = _rtext
                                         break
                         _still = (
-                            check_response_contract(_rtext, decision.tier, resp_mode)
+                            check_response_contract(_rtext, decision.tier, resp_mode, dispatch=bool(agent_id))
                             if _contract_check_enabled(request) else []
                         ) if _rtext else list(contract_violations)
                         if _rtext and not _still:
@@ -1509,7 +1509,7 @@ def create_app(
                     cap_notes = []
                     contract_violations = (
                         check_response_contract(
-                            full_text, decision.tier, resp_mode, notes=cap_notes)
+                            full_text, decision.tier, resp_mode, dispatch=bool(agent_id), notes=cap_notes)
                         if _contract_check_enabled(request) else []
                     )
                     # Cap note: trace/header only, never into the transcript (2026-11-24).
