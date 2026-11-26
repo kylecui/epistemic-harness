@@ -10,6 +10,7 @@ Normative content (rules, contracts, skills) is English-only; a Chinese auxiliar
 | [configuration.md](configuration.md) | LLM provider keys, default model selection (routing chains), per-category/request pins, adding a provider |
 | [execution-runner.md](execution-runner.md) | Docker-first verification: why, measured numbers, the POSIX-alignment preconditions |
 | [dispatch-plane-boundary.md](dispatch-plane-boundary.md) | Which plane a dispatch or a verification command runs on, and why crossing it silently is a defect (issues #7, #9) |
+| [research/m1-measurements-2026-11-26.md](research/m1-measurements-2026-11-26.md) | The three M1 measurements: fixed contract cost, cross-family judge disagreement, anchored rubric |
 | [router-operations.md](router-operations.md) | Blue/green topology, the upgrade order, rollback, and the commands that are now forbidden — replaces every earlier `docker compose up -d --build` instruction |
 | [browser-runner.md](browser-runner.md) | Browser/CDP placement policy: container vs host, evidence, Windows constraints |
 | [research-capability.md](research-capability.md) | External retrieval before design answers: research MCP servers, fallbacks, grounding check |

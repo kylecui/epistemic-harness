@@ -11,6 +11,7 @@ import json
 import math
 import pathlib
 import statistics
+import sys
 
 RUNS = pathlib.Path(__file__).parent / "runs"
 DISAGREE = 0.2
@@ -40,8 +41,10 @@ def pearson(xs: list[float], ys: list[float]) -> float:
 
 
 def main() -> int:
+    cross_suffix = sys.argv[1] if len(sys.argv) > 1 else "judged-qwen"
     primary = load("judged")
-    cross = load("judged-qwen")
+    cross = load(cross_suffix)
+    print(f"cross judge: {cross_suffix}")
     shared = sorted(set(primary) & set(cross))
     print(f"scored by both judges: {len(shared)} samples "
           f"(primary={len(primary)}, cross={len(cross)})\n")
