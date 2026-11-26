@@ -9,6 +9,7 @@ Normative content (rules, contracts, skills) is English-only; a Chinese auxiliar
 | [../INSTALL.md](../INSTALL.md) | Platform detection, prerequisites, FULL/LIMITED support matrix, installer walkthrough |
 | [configuration.md](configuration.md) | LLM provider keys, default model selection (routing chains), per-category/request pins, adding a provider |
 | [execution-runner.md](execution-runner.md) | Docker-first verification: why, measured numbers, the POSIX-alignment preconditions |
+| [branching.md](branching.md) | Branch model: stable / dev / hotfix / one branch per paper, and the cherry-pick rule that keeps them honest |
 | [router-operations.md](router-operations.md) | Blue/green topology, upgrade order, rollback, and the commands that are now forbidden — replaces every earlier `docker compose up -d --build` instruction |
 | [browser-runner.md](browser-runner.md) | Browser/CDP placement policy: container vs host, evidence, Windows constraints |
 | [research-capability.md](research-capability.md) | External retrieval before design answers: research MCP servers, fallbacks, grounding check |
