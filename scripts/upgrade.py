@@ -165,6 +165,22 @@ def gate_status(timeout: float = 3.0) -> dict | None:
         return None
 
 
+def wait_until_healthy(name: str, timeout: float = 120.0, interval: float = 2.0) -> bool:
+    """Switching before the new backend answers sends the first request into a dead socket.
+
+    Observed 2026-11-26: the upgrade switched to a just-recreated green before it listened, the gate
+    failed the request over to blue and auto-flipped back - no user-visible error, but the new image
+    never took traffic.
+    """
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        status = gate_status()
+        if status and (status.get("healthy") or {}).get(name):
+            return True
+        time.sleep(interval)
+    return False
+
+
 def upgrade_plan(status: dict | None) -> list[list[str]]:
     """Solo mode recreates the single service; HA mode recreates the IDLE side, then switches."""
     if not status:
@@ -201,6 +217,12 @@ def docker_rebuild() -> str:
         out = subprocess.run(step, cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=900)
         if out.returncode != 0:
             raise RuntimeError(f"upgrade step failed ({' '.join(step)}): {out.stderr[-300:]}")
+        if "switch" not in step:
+            target = step[-1].split("backend-")[-1]
+            if target in ("blue", "green") and not wait_until_healthy(target):
+                raise RuntimeError(
+                    f"backend-{target} did not become healthy within the window; the switch was not "
+                    f"made, so the serving side is untouched")
     # smoke test with startup grace: compose up returns before uvicorn is
     # listening (live race 2026-11-24); --noproxy guards host proxy envs.
     health = None

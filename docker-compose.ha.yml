@@ -22,6 +22,9 @@ services:
       file: docker-compose.yml
       service: harness-backend
     container_name: harness-backend-blue
+    # !reset: `extends` also inherits the base service's `solo` profile, which would hide this service
+    # by default and make router-gate's depends_on reference an undefined service (hit 2026-11-26).
+    profiles: !reset []
     # !override, not a plain list: `extends` merges the base's 8787 publication, which is the gate's
     ports: !override
       - "127.0.0.1:8789:8787"
@@ -31,6 +34,7 @@ services:
       file: docker-compose.yml
       service: harness-backend
     container_name: harness-backend-green
+    profiles: !reset []
     ports: !override
       - "127.0.0.1:8790:8787"
 
