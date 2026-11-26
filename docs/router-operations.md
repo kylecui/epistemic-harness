@@ -60,6 +60,17 @@ epistemic-harness-backend:local`, recreate the idle side, switch.
 * Solo mode (no gate) is allowed on a single-purpose machine: `docker compose --profile solo up -d
   harness-backend` — but then an upgrade is a visible outage, so say so before doing it.
 
+## Traces
+
+Each side writes its own shard — `traces/blue/gateway_traces.jsonl` and `traces/green/…` — because two
+containers appending to one file interleave lines. The pre-shard history stays in
+`traces/gateway_traces.jsonl`. Read them merged, in time order:
+
+```bash
+python scripts/traces_tail.py -n 50        # all shards, oldest to newest
+python scripts/traces_tail.py --errors     # only 503 / pin refusals / tripped turns
+```
+
 ## When something is already broken
 
 | Symptom | First check | Fix |
