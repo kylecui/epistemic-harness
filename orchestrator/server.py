@@ -40,6 +40,7 @@ from orchestrator.host_bridge import dispatch_readonly_routed, dispatch_tooled_r
 from orchestrator.exit_gate import ExitGateEngine
 from orchestrator.planner import classify_task
 from orchestrator.plane_guard import require_plane
+from orchestrator.vision import analyze_image as analyze_image_call
 from orchestrator.skills import SkillRegistry
 from orchestrator.task_router import as_dict as route_as_dict, load_config as load_routing_config, route_task
 
@@ -87,6 +88,8 @@ TOOLS: list[dict[str, Any]] = [
                 "task_id": {"type": "string", "default": "default"},
                 "wait": {"type": "boolean", "default": True,
                          "description": "false returns a task_id immediately (issue #21); collect with dispatch_result"},
+                "attachments": {"type": "array", "items": {"type": "string"},
+                                "description": "image paths the sub-agent should look at (issue #26); requires a vision-capable model"},
             },
             "required": ["agent_profile", "task_text"],
         },
@@ -101,6 +104,22 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {"task_id": {"type": "string"}},
             "required": ["task_id"],
+        },
+    },
+    {
+        "name": "analyze_image",
+        "description": (
+            "Hand one or more images to a vision-capable model and return its answer plus the model "
+            "that looked (issue #26). Fails with no_vision_model rather than answering blind."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string"},
+                "paths": {"type": "array", "items": {"type": "string"}},
+                "model": {"type": "string"},
+            },
+            "required": ["question", "paths"],
         },
     },
     {
@@ -347,6 +366,7 @@ TOOLS: list[dict[str, Any]] = [
 
 class Orchestrator:
     def __init__(self, repo_root: Path) -> None:
+        self.repo_root = repo_root
         self.engine = EpistemicEngine(repo_root)
         self.skills = SkillRegistry(
             repo_root / "skills" / "registry.yaml",
@@ -417,6 +437,23 @@ class Orchestrator:
             effort=decision.effort,
             max_tokens=decision.budget,
             category=decision.category,
+            attachments=[str(p) for p in (args.get("attachments") or [])] or None,
+        )
+
+    def analyze_image(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Issue #26: a text-only controller delegates "what does this actually look like"."""
+        policy = self.repo_root / "proxy_gateway" / "quota_policy.yaml"
+        catalog: dict[str, Any] = {}
+        try:
+            import yaml
+            catalog = (yaml.safe_load(policy.read_text(encoding="utf-8")) or {}).get("models") or {}
+        except (OSError, ValueError):
+            catalog = {}
+        return analyze_image_call(
+            str(args.get("question") or "Describe this image."),
+            [str(p) for p in (args.get("paths") or [])],
+            model=args.get("model"),
+            catalog=catalog,
         )
 
     def dispatch_result(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -554,6 +591,8 @@ def handle_request(orch: Orchestrator, req: dict[str, Any]) -> dict[str, Any] | 
                 res = orch.dispatch_subagent(args)
             elif name == "dispatch_result":
                 res = orch.dispatch_result(args)
+            elif name == "analyze_image":
+                res = orch.analyze_image(args)
             elif name == "query_skills":
                 res = orch.query_skills(args.get("query", ""), int(args.get("limit", 5)))
             elif name == "register_skill":

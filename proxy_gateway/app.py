@@ -651,6 +651,16 @@ def create_app(
     async def health() -> dict[str, Any]:
         return {"status": "ok", "models_configured": len(qm.models)}
 
+    @app.get("/v1/models")
+    async def list_models() -> dict[str, Any]:
+        """The catalog with its capabilities (issue #26): a controller routes on `vision`, not on hope."""
+        data = [{"id": key, "object": "model",
+                 "owned_by": str(cfg.get("pool") or ""),
+                 "vision": bool(cfg.get("vision")),
+                 "protocol": str(cfg.get("protocol") or "openai")}
+                for key, cfg in qm.models.items()]
+        return {"object": "list", "data": data}
+
     @app.get("/version")
     async def version() -> dict[str, Any]:
         """Harness version triangulation, served by the repo that built this

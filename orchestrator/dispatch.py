@@ -143,13 +143,22 @@ def dispatch_subtask(
     model: str | None = None,
     effort: str | None = None,
     category: str | None = None,
+    attachments: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Dispatch a single subtask to the gateway under the given agent profile."""
+    """Dispatch a single subtask to the gateway under the given agent profile.
+
+    `attachments` (issue #26) are image paths: they become image_url blocks after the task text so a
+    vision-capable model can look at them. The caller routes by capability; this layer only carries.
+    """
     base = (gateway_url or os.getenv("HARNESS_GATEWAY_URL", DEFAULT_GATEWAY_URL)).rstrip("/")
     system_parts = [SUBAGENT_PREAMBLE]
     for skill in attached_skills or []:
         system_parts.append(f"[Attached Skill: {skill.get('name', skill.get('id', 'unknown'))}]\n{skill.get('content', '')}")
     user_content = task_text if not context else f"{task_text}\n\n[Controller context]\n{context}"
+    if attachments:
+        from orchestrator.vision import build_content, read_image
+        images = [read_image(path) for path in attachments]
+        user_content = build_content(user_content, images)
 
     budget = max_tokens or BUDGET_BY_PROFILE.get(agent_profile, 4096)
     payload: dict[str, Any] = {

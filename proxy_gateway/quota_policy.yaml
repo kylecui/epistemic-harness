@@ -95,6 +95,9 @@ models:
     default_base_url: https://open.bigmodel.cn/api/coding/paas/v4
     api_key_env: ZHIPU_API_KEY
     upstream_model: glm-5.4
+    # Verified 2026-11-26 from the live gateway: a 2x2 red PNG answered "Red". Set only where checked —
+    # a vision flag nobody tested is the same defect as a silent substitution (issues #22, #26).
+    vision: true
     context_window: 512000
     cost_per_1m:
       input: 4.6
