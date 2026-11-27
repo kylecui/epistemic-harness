@@ -71,6 +71,44 @@ comparable. “2.3–2.8× slower” therefore decomposes into “each call cost
 Caveat: R² 0.26–0.38 — length explains a third of the variance, and the intercepts are an extrapolation
 from a narrow character range, not a measured zero-output latency.
 
+## The pairwise result: the contract wins exactly where the task specifies a shape
+
+The absolute rubric could not rank the arms (κ ≈ 0.10). A blind, matched, forced-choice instrument can,
+and it was run on 238 pairs (A0 vs B) and 236 pairs (A vs B), each judged twice — once per order — so
+position bias is measured rather than assumed. Ties were 1 and 2 respectively; position-bias share was
+0.55 and 0.47, both close enough to 0.5 to trust the verdicts.
+
+| Comparison | win rate for B | 95 % CI | reading |
+|---|---|---|---|
+| A0 (direct) vs B (contract) | 0.283 | [0.229, 0.343] | B loses decisively |
+| A (gateway) vs B (contract) | 0.227 | [0.178, 0.284] | B loses decisively |
+
+Per task, the aggregate hides the actual finding:
+
+| task | B win rate vs A0 | B win rate vs A |
+|---|---|---|
+| `report-extraction` | **0.60** [0.45, 0.74] | 0.40 [0.26, 0.55] |
+| `version-drift` | 0.42 [0.29, 0.58] | 0.15 [0.07, 0.29] |
+| `traceback-triage` | 0.20 [0.10, 0.35] | 0.20 [0.10, 0.35] |
+| `eol-remediation` | 0.16 [0.07, 0.30] | 0.03 [0.00, 0.14] |
+| `closure-order` | 0.15 [0.07, 0.30] | 0.26 [0.15, 0.42] |
+| `claim-layering` | 0.15 [0.07, 0.29] | 0.30 [0.18, 0.45] |
+
+The contract is preferred on **the one task whose answer shape the prompt specifies** — the same task
+where the mechanical check goes from 1–2/20 to 17–20/20 — and is dispreferred everywhere else, most
+sharply on `eol-remediation` and the layering tasks where the contract's structure is not asked for. The
+gateway baseline (A) is preferred over the contract on five of six tasks, so this is not an artefact of
+direct-to-provider access.
+
+Interpretation, stated as narrowly as the data allows: structured interim output is a **format**
+intervention that pays off when a consumer needs a shape, and costs judged quality when it does not. The
+paper's claim should be "the contract buys compliance, and compliance is worth paying for where the task
+defines a shape — not everywhere".
+
+Threats specific to this instrument: one judge (GLM-5.3-Flash) for these two comparisons, twenty pairs per
+task, and answers truncated to 6000 characters for judging. A second judge pass on the A0-vs-B comparison
+is running to confirm the direction; the per-task pattern, not the aggregate, is the claim.
+
 ## Threats to validity
 
 1. **Same-family judging.** The primary judge shares a family with the subject; the cross-family judge
@@ -88,6 +126,6 @@ from a narrow character range, not a measured zero-output latency.
 * The contract costs a **fixed per-call latency premium**, not proportional verbosity.
 * On judged quality the current instrument **cannot rank the arms**; only A > A0 is stable, and the paper
   states that instead of a leaderboard.
-* The next instrument is blind pairwise preference on matched outputs (Bradley–Terry) with position
-  randomisation — not another rubric revision.
+* The contract is preferred exactly where the task specifies a shape (`report-extraction`, 0.60) and
+  dispreferred elsewhere (0.03–0.42), so the contribution is conditional on the task, not general.
 
