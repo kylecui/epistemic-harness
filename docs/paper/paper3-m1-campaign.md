@@ -105,6 +105,21 @@ intervention that pays off when a consumer needs a shape, and costs judged quali
 paper's claim should be "the contract buys compliance, and compliance is worth paying for where the task
 defines a shape — not everywhere".
 
+### Replication on a fresh subset, and the validity table
+
+The instrument was re-run on three tasks (238 → 236 presentations, a fresh draw) with the two-order design
+kept and an explicit validity flag per judge:
+
+| judge | B win rate | 95 % CI | position bias | valid? |
+|---|---|---|---|---|
+| GLM-5.3-Flash | 0.342 | [0.262, 0.432] | 0.57 | yes |
+| DeepSeek-V3.2 | 0.390 | [0.307, 0.480] | **0.87** | **no** |
+
+The valid judge reproduces the per-task pattern on an independent subset: `report-extraction` 0.59
+[0.43, 0.73] against `eol-remediation` 0.13 [0.06, 0.27] and `traceback-triage` 0.30 [0.18, 0.45]. The
+invalidated judge sits near 0.4 on all three tasks — the flat profile a position-follower produces, and
+exactly why it is excluded rather than averaged.
+
 ### The second judge failed the pre-registered check — reported as invalidated, not as confirmation
 
 DeepSeek-V3.2 re-judged the same 238 A0-vs-B presentations. Its aggregate agrees in direction (B wins
