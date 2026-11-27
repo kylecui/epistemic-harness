@@ -120,6 +120,17 @@ The valid judge reproduces the per-task pattern on an independent subset: `repor
 invalidated judge sits near 0.4 on all three tasks — the flat profile a position-follower produces, and
 exactly why it is excluded rather than averaged.
 
+### A third family does not confirm the reversal — so the reversal is not a finding
+
+Qwen3.8-27B judged the `report-extraction` pairs on its own pass: 39 decisive, **B wins 0.49 [0.34, 0.64]**,
+position bias 0.51 (valid). That is a coin flip, against GLM's 0.59–0.60 on the same arm pair.
+
+So the honest state of the `report-extraction` reversal is: **supported by one valid family, not confirmed
+by a second, contradicted by none.** It stays a suggestive observation, not a result. What remains solid
+across the whole pairwise programme is the aggregate: the contract arm loses to both baselines
+(0.28 / 0.23 on the full grid, 0.34 on the replication, all with CIs excluding 0.5).
+
+
 ### The second judge failed the pre-registered check — reported as invalidated, not as confirmation
 
 DeepSeek-V3.2 re-judged the same 238 A0-vs-B presentations. Its aggregate agrees in direction (B wins
