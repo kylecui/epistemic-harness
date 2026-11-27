@@ -16,6 +16,7 @@ Normative content (rules, contracts, skills) is English-only; a Chinese auxiliar
 | [research-capability.md](research-capability.md) | External retrieval before design answers: research MCP servers, fallbacks, grounding check |
 | [ecosystem-comparison.md](ecosystem-comparison.md) | Evidence-gap remediation: README-level scan of OmO/aider/SWE-agent/OpenHands for claim-to-evidence governance (2026-11-22, with stated limits) |
 
+| [paper/paper3-pairwise-instrument.md](paper/paper3-pairwise-instrument.md) | Paper 3: design of the blind pairwise (Bradley–Terry) instrument that replaces absolute rubric scoring |
 | [paper/paper3-m1-campaign.md](paper/paper3-m1-campaign.md) | Paper 3 measurement section: format compliance as the primary outcome, judge reliability (κ/α), and the latency decomposition |
 | [paper/](paper/) | Paper package (research branch only): outline, experiment record, related work, draft abstract |
 | [RELEASE-NOTES.md](RELEASE-NOTES.md) | Per-version user-facing changes; the startup banner prints the current version's section once |
