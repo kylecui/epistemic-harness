@@ -105,9 +105,22 @@ intervention that pays off when a consumer needs a shape, and costs judged quali
 paper's claim should be "the contract buys compliance, and compliance is worth paying for where the task
 defines a shape — not everywhere".
 
-Threats specific to this instrument: one judge (GLM-5.3-Flash) for these two comparisons, twenty pairs per
-task, and answers truncated to 6000 characters for judging. A second judge pass on the A0-vs-B comparison
-is running to confirm the direction; the per-task pattern, not the aggregate, is the claim.
+### The second judge failed the pre-registered check — reported as invalidated, not as confirmation
+
+DeepSeek-V3.2 re-judged the same 238 A0-vs-B presentations. Its aggregate agrees in direction (B wins
+0.370 [0.311, 0.433]) but its **position-bias share is 0.836**: it preferred whichever answer was shown
+first in 84 % of decisive pairs. The design sets the threshold at 0.60, so this pass is **invalidated**
+and its per-task breakdown — which does not reproduce the `report-extraction` reversal — cannot be used
+as evidence either way. The two judges agree on 60 % of identical presentations, which is what one expects
+when one of them is answering by position.
+
+Recording this matters more than the number: without the pre-registered rule, a 0.370 that "agrees" would
+have been written up as a replication.
+
+Threats specific to this instrument: **one valid judge** (GLM-5.3-Flash) for the per-task claim, twenty
+pairs per task, answers truncated to 6000 characters for judging, and a DeepSeek judge that must be
+re-run with position fully counterbalanced before its verdicts count. The per-task pattern is the claim;
+the aggregate is not.
 
 ## Threats to validity
 
