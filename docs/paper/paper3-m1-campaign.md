@@ -126,9 +126,16 @@ Qwen3.8-27B judged the `report-extraction` pairs on its own pass: 39 decisive, *
 position bias 0.51 (valid). That is a coin flip, against GLM's 0.59–0.60 on the same arm pair.
 
 So the honest state of the `report-extraction` reversal is: **supported by one valid family, not confirmed
-by a second, contradicted by none.** It stays a suggestive observation, not a result. What remains solid
-across the whole pairwise programme is the aggregate: the contract arm loses to both baselines
-(0.28 / 0.23 on the full grid, 0.34 on the replication, all with CIs excluding 0.5).
+by a second, contradicted by none.** It stays a suggestive observation, not a result.
+
+The *other* two tasks were then run with the same third family, and there it agrees emphatically:
+`eol-remediation` gives B **2/38 = 0.05** (GLM: 0.13) with position bias 0.52 — a valid judge reproducing
+the strongest effect in the opposite direction from the reversal. `traceback-triage` returned 28 timeout
+errors out of 40 and is excluded as incomplete rather than reported.
+
+What survives the whole pairwise programme, now across two valid families, is the aggregate: the contract
+arm loses to both baselines (0.28 / 0.23 on the full grid, 0.34 on the replication, 0.05 on
+`eol-remediation`), with every confidence interval excluding 0.5.
 
 
 ### The second judge failed the pre-registered check — reported as invalidated, not as confirmation
