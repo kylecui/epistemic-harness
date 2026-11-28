@@ -128,10 +128,18 @@ position bias 0.51 (valid). That is a coin flip, against GLM's 0.59–0.60 on th
 So the honest state of the `report-extraction` reversal is: **supported by one valid family, not confirmed
 by a second, contradicted by none.** It stays a suggestive observation, not a result.
 
-The *other* two tasks were then run with the same third family, and there it agrees emphatically:
-`eol-remediation` gives B **2/38 = 0.05** (GLM: 0.13) with position bias 0.52 — a valid judge reproducing
-the strongest effect in the opposite direction from the reversal. `traceback-triage` returned 28 timeout
-errors out of 40 and is excluded as incomplete rather than reported.
+Running the same third family over all three tasks (118 presentations, position bias 0.50, no timeouts):
+
+| task | Qwen3.8 B win rate | GLM B win rate |
+|---|---|---|
+| `eol-remediation` | **0.05** [0.01, 0.18] | 0.13 [0.06, 0.27] |
+| `traceback-triage` | **0.10** [0.04, 0.23] | 0.30 [0.18, 0.45] |
+| `report-extraction` | 0.53 [0.37, 0.68] | 0.59 [0.43, 0.73] |
+
+So the third family agrees on the direction wherever the effect is large (`eol-remediation`, now the
+strongest result in the study at 0.05), and declines to confirm the one place GLM put B above 0.5
+(`report-extraction` is a coin flip at 0.53). The reversal therefore stays a one-family observation; the
+contract's harm on the other two tasks is now reproduced by two independent, valid judges.
 
 What survives the whole pairwise programme, now across two valid families, is the aggregate: the contract
 arm loses to both baselines (0.28 / 0.23 on the full grid, 0.34 on the replication, 0.05 on
